@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# macOS APFS SparseImage Manager & Cold-Cache Evictor for disk-scanner-bench
+# macOS Native APFS Workspace & Cold-Cache Evictor for disk-scanner-bench
+# Note: On macOS 15 Sequoia virtualized runners (especially macos-15-intel),
+# hdiutil .sparseimage routes all I/O through user-space diskimagesiod with severe
+# IPC latency (~87 files/s) and DiskArbitration detach timeouts.
+# Using a dedicated workspace directory on the runner's native APFS container
+# with XNU kernel `purge` delivers true native APFS performance and reliable cold-cache eviction.
+#
 # Usage:
 #   ./macos_dmg.sh create <size_gb> <mount_path>
 #   ./macos_dmg.sh purge-cache <mount_path>
@@ -14,49 +20,43 @@ if [[ -z "$CMD" ]]; then
 fi
 shift
 
-SPARSE_IMG="/tmp/bench.sparseimage"
-
 case "$CMD" in
     create)
         SIZE_GB="${1:-60}"
         MOUNT_PATH="${2:-/tmp/BenchVol}"
-        echo "[macos_dmg] Creating ${SIZE_GB}g APFS sparseimage at ${SPARSE_IMG}..."
+        echo "[macos_dmg] Preparing native APFS benchmark workspace at ${MOUNT_PATH} (logical cap: ${SIZE_GB}g)..."
 
+        # Clean up any legacy hdiutil mount or previous directory
         if [[ -d "$MOUNT_PATH" ]]; then
-            hdiutil detach "$MOUNT_PATH" -force 2>/dev/null || sudo hdiutil detach "$MOUNT_PATH" -force 2>/dev/null || true
+            hdiutil detach "$MOUNT_PATH" -force >/dev/null 2>&1 || sudo hdiutil detach "$MOUNT_PATH" -force >/dev/null 2>&1 || true
+            rm -rf "$MOUNT_PATH"
         fi
-        rm -f "$SPARSE_IMG"
+        rm -f /tmp/bench.sparseimage
 
-        hdiutil create -size "${SIZE_GB}g" -type SPARSE -fs APFS -volname BenchVol -ov "$SPARSE_IMG" >/dev/null
         mkdir -p "$MOUNT_PATH"
-        hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null || \
-            sudo hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null
         chmod 777 "$MOUNT_PATH" 2>/dev/null || sudo chmod 777 "$MOUNT_PATH" || true
-        # Disable Spotlight indexing and FSEvents logging on the synthetic benchmark volume
-        touch "$MOUNT_PATH/.metadata_never_index" 2>/dev/null || true
-        mkdir -p "$MOUNT_PATH/.fseventsd" 2>/dev/null || true
-        touch "$MOUNT_PATH/.fseventsd/no_log" 2>/dev/null || true
-        mdutil -i off "$MOUNT_PATH" >/dev/null 2>&1 || sudo mdutil -i off "$MOUNT_PATH" >/dev/null 2>&1 || true
-        echo "[macos_dmg] Mounted ${SPARSE_IMG} at ${MOUNT_PATH} (Spotlight & FSEvents disabled)"
+
+        # Prevent Spotlight from indexing /private/tmp without polluting files inside $MOUNT_PATH
+        PARENT_DIR="$(dirname "$MOUNT_PATH")"
+        touch "${PARENT_DIR}/.metadata_never_index" 2>/dev/null || sudo touch "${PARENT_DIR}/.metadata_never_index" 2>/dev/null || true
+        sudo mdutil -i off / >/dev/null 2>&1 || true
+
+        echo "[macos_dmg] Native APFS workspace ready at ${MOUNT_PATH} (Spotlight indexing disabled)"
         ;;
 
     purge-cache)
         MOUNT_PATH="${1:-/tmp/BenchVol}"
-        echo "[macos_dmg] Evicting APFS volume cache via hdiutil detach + attach cycle on ${MOUNT_PATH}..."
+        echo "[macos_dmg] Evicting XNU APFS vnode & unified buffer cache via sync + sudo purge..."
         sync
-        hdiutil detach "$MOUNT_PATH" -force >/dev/null 2>&1 || sudo hdiutil detach "$MOUNT_PATH" -force >/dev/null
-        mkdir -p "$MOUNT_PATH"
-        hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null || \
-            sudo hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null
-        mdutil -i off "$MOUNT_PATH" >/dev/null 2>&1 || sudo mdutil -i off "$MOUNT_PATH" >/dev/null 2>&1 || true
+        sudo purge 2>/dev/null || purge 2>/dev/null || true
         echo "[macos_dmg] Cold cache state restored for ${MOUNT_PATH}"
         ;;
 
     teardown)
         MOUNT_PATH="${1:-/tmp/BenchVol}"
-        echo "[macos_dmg] Tearing down ${MOUNT_PATH} and removing ${SPARSE_IMG}..."
-        hdiutil detach "$MOUNT_PATH" -force 2>/dev/null || sudo hdiutil detach "$MOUNT_PATH" -force 2>/dev/null || true
-        rm -f "$SPARSE_IMG"
+        echo "[macos_dmg] Removing APFS benchmark workspace at ${MOUNT_PATH}..."
+        hdiutil detach "$MOUNT_PATH" -force >/dev/null 2>&1 || sudo hdiutil detach "$MOUNT_PATH" -force >/dev/null 2>&1 || true
+        rm -rf "$MOUNT_PATH" /tmp/bench.sparseimage
         echo "[macos_dmg] Teardown complete."
         ;;
 

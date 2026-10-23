@@ -59,16 +59,14 @@ fn traverse_dir<'s>(
         Err(_) => return,
     };
 
-    let mut local_files = 0u64;
     let mut local_dirs = 0u64;
-    let mut local_bytes = 0u64;
+    let mut file_batch: Vec<std::path::PathBuf> = Vec::new();
 
     for entry in read_dir.flatten() {
-        let meta = match entry.metadata() {
-            Ok(m) => m,
+        let ft = match entry.file_type() {
+            Ok(ft) => ft,
             Err(_) => continue,
         };
-        let ft = meta.file_type();
         if ft.is_dir() && !ft.is_symlink() {
             local_dirs += 1;
             let child_path = entry.path();
@@ -76,18 +74,42 @@ fn traverse_dir<'s>(
                 traverse_dir(&child_path, s, files_count, dirs_count, bytes_count);
             });
         } else {
-            local_files += 1;
-            if ft.is_file() {
-                local_bytes += meta.len();
+            file_batch.push(entry.path());
+            if file_batch.len() >= 512 {
+                let chunk = std::mem::take(&mut file_batch);
+                scope.spawn(move |_| {
+                    stat_file_chunk(&chunk, files_count, bytes_count);
+                });
             }
         }
     }
 
-    if local_files > 0 {
-        files_count.fetch_add(local_files, Ordering::Relaxed);
+    if !file_batch.is_empty() {
+        stat_file_chunk(&file_batch, files_count, bytes_count);
     }
     if local_dirs > 0 {
         dirs_count.fetch_add(local_dirs, Ordering::Relaxed);
+    }
+}
+
+#[cfg(unix)]
+fn stat_file_chunk(
+    paths: &[std::path::PathBuf],
+    files_count: &AtomicU64,
+    bytes_count: &AtomicU64,
+) {
+    let mut local_files = 0u64;
+    let mut local_bytes = 0u64;
+    for p in paths {
+        local_files += 1;
+        if let Ok(meta) = std::fs::symlink_metadata(p) {
+            if meta.is_file() {
+                local_bytes += meta.len();
+            }
+        }
+    }
+    if local_files > 0 {
+        files_count.fetch_add(local_files, Ordering::Relaxed);
     }
     if local_bytes > 0 {
         bytes_count.fetch_add(local_bytes, Ordering::Relaxed);

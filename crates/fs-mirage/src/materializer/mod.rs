@@ -67,18 +67,20 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
         dir_groups.entry(parent).or_default().push(entry);
     }
 
-    // Split very large flat directories into coarse batches (25,000 files) so work balances across cores
-    // without 8 threads hammering the exact same directory inode on every single file.
-    let mut work_batches: Vec<(&str, Vec<&FileEntry>)> = Vec::with_capacity(dir_groups.len() + 16);
+    // Split large directories into balanced 2,048-file batches and schedule largest batches first
+    // so no single thread becomes a tail straggler on 25,000-file flat cache buckets.
+    const BATCH_CHUNK_SIZE: usize = 2_048;
+    let mut work_batches: Vec<(&str, Vec<&FileEntry>)> = Vec::with_capacity(dir_groups.len() + 64);
     for (parent, entries) in dir_groups {
-        if entries.len() <= 25_000 {
+        if entries.len() <= BATCH_CHUNK_SIZE {
             work_batches.push((parent, entries));
         } else {
-            for chunk in entries.chunks(25_000) {
+            for chunk in entries.chunks(BATCH_CHUNK_SIZE) {
                 work_batches.push((parent, chunk.to_vec()));
             }
         }
     }
+    work_batches.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
     let total_allocated = AtomicU64::new(0);
     work_batches
