@@ -3,13 +3,15 @@ use anyhow::{bail, Result};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::mem::{size_of, zeroed};
+use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::FileExt;
 use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 use std::ptr::{null, null_mut};
-use windows_sys::Win32::Foundation::HANDLE;
+use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
-    FileStandardInfo, GetFileInformationByHandleEx, FILE_STANDARD_INFO,
+    CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, CREATE_ALWAYS,
+    FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Ioctl::FSCTL_SET_SPARSE;
@@ -20,6 +22,31 @@ pub fn create_sparse_anchored_file(
     dirty_blocks: u8,
     fill_byte: u8,
 ) -> Result<u64> {
+    // Ultra-fast path for 0-byte clean files: single CreateFileW + CloseHandle (2 syscalls total,
+    // zero SetFileInformationByHandle or DeviceIoControl overhead).
+    if dirty_blocks == 0 && logical_size == 0 {
+        let mut wide: Vec<u16> = Vec::with_capacity(path.as_os_str().len() + 1);
+        wide.extend(path.as_os_str().encode_wide());
+        wide.push(0);
+        let h = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                null(),
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                0 as HANDLE,
+            )
+        };
+        if h != INVALID_HANDLE_VALUE {
+            unsafe {
+                CloseHandle(h);
+            }
+            return Ok(0);
+        }
+    }
+
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)

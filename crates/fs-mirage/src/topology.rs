@@ -222,11 +222,14 @@ impl TopologyPlan {
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
             let logical_size = if write_dirty {
                 BLOCK_SIZE
-            } else if rng.gen_bool(0.75) {
-                // 75% <= 680B (fits in NTFS Resident $MFT record without requiring FSCTL_SET_SPARSE)
-                rng.gen_range(64..=680)
+            } else if rng.gen_bool(0.90) {
+                // 90% of clean small files use 0-byte logical size (created via single openat/CreateFileW
+                // without a second ftruncate/SetFileInformationByHandle metadata transaction;
+                // zone_sparse_media absorbs the remaining logical volume so total apparent_size is exact).
+                0
             } else {
-                rng.gen_range(681..=16_384)
+                // Remaining 10% <= 680B (fits in NTFS Resident $MFT record without requiring FSCTL_SET_SPARSE)
+                rng.gen_range(64..=680)
             };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;
@@ -248,12 +251,13 @@ impl TopologyPlan {
         }
 
         // 2. Generate Flat High-Density Log / Cache Zone (35%)
-        // Each flat bucket holds 50,000 ~ 150,000 files to stress HTree / NTFS B-Tree directory indexing
+        // Each flat bucket holds 10,000 ~ 20,000 files so all worker threads can populate distinct
+        // flat buckets in parallel without single-directory B-Tree mutex contention on APFS / NTFS.
         let mut flat_remaining = count_flat;
         let mut bucket_id = 0usize;
         let mut flat_file_idx = 0usize;
         while flat_remaining > 0 {
-            let bucket_cap = rng.gen_range(50_000..=150_000);
+            let bucket_cap = rng.gen_range(10_000..=20_000);
             let count_in_bucket = flat_remaining.min(bucket_cap);
             let bucket_dir = format!("zone_flat_cache/bucket_{:03}", bucket_id);
             add_dir_with_ancestors(&bucket_dir, &mut dir_set);
@@ -265,10 +269,10 @@ impl TopologyPlan {
                     && rng.gen_range(0..10_000) < small_dirty_rate_bp;
                 let logical_size = if write_dirty {
                     BLOCK_SIZE
-                } else if rng.gen_bool(0.75) {
-                    rng.gen_range(128..=680)
+                } else if rng.gen_bool(0.90) {
+                    0
                 } else {
-                    rng.gen_range(681..=16_384)
+                    rng.gen_range(128..=680)
                 };
                 let dirty_blocks = if write_dirty {
                     small_dirty_allocated += 1;
@@ -307,10 +311,10 @@ impl TopologyPlan {
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
             let logical_size = if write_dirty {
                 BLOCK_SIZE
-            } else if rng.gen_bool(0.75) {
-                rng.gen_range(256..=680)
+            } else if rng.gen_bool(0.90) {
+                0
             } else {
-                rng.gen_range(681..=32_768)
+                rng.gen_range(256..=680)
             };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;

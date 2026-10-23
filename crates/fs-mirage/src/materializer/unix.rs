@@ -1,16 +1,49 @@
 use crate::topology::{compute_dirty_anchor_offsets, BLOCK_SIZE};
 use anyhow::Result;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{FileExt, MetadataExt};
+use std::os::unix::io::AsRawFd;
 use std::path::Path;
 
+pub fn open_dir_fd(dir: &Path) -> Option<File> {
+    File::open(dir).ok()
+}
+
 pub fn create_sparse_anchored_file(
+    dir_fd: Option<&File>,
+    file_name: &str,
     path: &Path,
     logical_size: u64,
     dirty_blocks: u8,
     fill_byte: u8,
 ) -> Result<u64> {
+    // Ultra-fast path for 0-byte clean files using openat(dir_fd, file_name) with stack buffer:
+    // bypasses 8..25 levels of VFS namei() path resolution and skips ftruncate().
+    if dirty_blocks == 0 && logical_size == 0 {
+        if let Some(dfd) = dir_fd {
+            let name_bytes = file_name.as_bytes();
+            if !name_bytes.is_empty() && name_bytes.len() < 255 && !name_bytes.contains(&0) {
+                let mut stack_buf = [0u8; 256];
+                stack_buf[..name_bytes.len()].copy_from_slice(name_bytes);
+                let fd = unsafe {
+                    libc::openat(
+                        dfd.as_raw_fd(),
+                        stack_buf.as_ptr() as *const libc::c_char,
+                        libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | libc::O_CLOEXEC,
+                        0o644,
+                    )
+                };
+                if fd >= 0 {
+                    unsafe {
+                        libc::close(fd);
+                    }
+                    return Ok(0);
+                }
+            }
+        }
+    }
+
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)

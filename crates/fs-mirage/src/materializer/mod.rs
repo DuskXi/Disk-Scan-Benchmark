@@ -67,63 +67,86 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
         dir_groups.entry(parent).or_default().push(entry);
     }
 
-    // Split large directories into balanced 2,048-file batches and schedule largest batches first
-    // so no single thread becomes a tail straggler on 25,000-file flat cache buckets.
-    const BATCH_CHUNK_SIZE: usize = 2_048;
-    let mut work_batches: Vec<(&str, Vec<&FileEntry>)> = Vec::with_capacity(dir_groups.len() + 64);
-    for (parent, entries) in dir_groups {
-        if entries.len() <= BATCH_CHUNK_SIZE {
-            work_batches.push((parent, entries));
-        } else {
-            for chunk in entries.chunks(BATCH_CHUNK_SIZE) {
-                work_batches.push((parent, chunk.to_vec()));
-            }
-        }
-    }
+    // Keep each directory (<= 20,000 files) as an exclusive batch owned by a single worker thread
+    // so multiple threads never contend on the same parent directory B-Tree lock on APFS / NTFS.
+    // Sort largest directories first so the ~25 flat buckets start immediately across worker threads.
+    let mut work_batches: Vec<(&str, Vec<&FileEntry>)> = dir_groups.into_iter().collect();
     work_batches.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let io_threads = (cores * 3).clamp(8, 24);
+    let io_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(io_threads)
+        .build()
+        .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+
     let total_allocated = AtomicU64::new(0);
-    work_batches
-        .par_iter()
-        .try_for_each(|(parent_rel, entries)| -> Result<()> {
-            let parent_dir = to_os_path(root, parent_rel);
-            let mut local_alloc_sum: u64 = 0;
-            let mut local_hl_hits: Vec<(&str, u64)> = Vec::new();
+    io_pool.install(|| -> Result<()> {
+        work_batches
+            .par_iter()
+            .try_for_each(|(parent_rel, entries)| -> Result<()> {
+                let parent_dir = to_os_path(root, parent_rel);
+                #[cfg(unix)]
+                let dir_fd = unix::open_dir_fd(&parent_dir);
+                let mut local_alloc_sum: u64 = 0;
+                let mut local_hl_hits: Vec<(&str, u64)> = Vec::new();
 
-            for entry in entries {
-                let file_name = entry
-                    .rel_path
-                    .rsplit_once('/')
-                    .map(|(_, f)| f)
-                    .unwrap_or(entry.rel_path.as_str());
-                let full_path = parent_dir.join(file_name);
-                let alloc = match entry.kind {
-                    EntryKind::RegularFile {
-                        logical_size,
-                        dirty_blocks,
-                        fill_byte,
-                    } => create_sparse_anchored_file(&full_path, logical_size, dirty_blocks, fill_byte)
-                        .with_context(|| format!("Failed to materialize file {}", full_path.display()))?,
-                    _ => 0,
-                };
-                local_alloc_sum += alloc;
-                if alloc > 0 && hardlink_targets.contains(entry.rel_path.as_str()) {
-                    local_hl_hits.push((entry.rel_path.as_str(), alloc));
-                }
-            }
-
-            if local_alloc_sum > 0 {
-                total_allocated.fetch_add(local_alloc_sum, Ordering::Relaxed);
-            }
-            if !local_hl_hits.is_empty() {
-                if let Ok(mut guard) = hl_alloc_map.lock() {
-                    for (k, v) in local_hl_hits {
-                        guard.insert(k, v);
+                for entry in entries {
+                    let file_name = entry
+                        .rel_path
+                        .rsplit_once('/')
+                        .map(|(_, f)| f)
+                        .unwrap_or(entry.rel_path.as_str());
+                    let full_path = parent_dir.join(file_name);
+                    let alloc = match entry.kind {
+                        EntryKind::RegularFile {
+                            logical_size,
+                            dirty_blocks,
+                            fill_byte,
+                        } => {
+                            #[cfg(unix)]
+                            let res = unix::create_sparse_anchored_file(
+                                dir_fd.as_ref(),
+                                file_name,
+                                &full_path,
+                                logical_size,
+                                dirty_blocks,
+                                fill_byte,
+                            );
+                            #[cfg(windows)]
+                            let res = windows::create_sparse_anchored_file(
+                                &full_path,
+                                logical_size,
+                                dirty_blocks,
+                                fill_byte,
+                            );
+                            res.with_context(|| {
+                                format!("Failed to materialize file {}", full_path.display())
+                            })?
+                        }
+                        _ => 0,
+                    };
+                    local_alloc_sum += alloc;
+                    if alloc > 0 && hardlink_targets.contains(entry.rel_path.as_str()) {
+                        local_hl_hits.push((entry.rel_path.as_str(), alloc));
                     }
                 }
-            }
-            Ok(())
-        })?;
+
+                if local_alloc_sum > 0 {
+                    total_allocated.fetch_add(local_alloc_sum, Ordering::Relaxed);
+                }
+                if !local_hl_hits.is_empty() {
+                    if let Ok(mut guard) = hl_alloc_map.lock() {
+                        for (k, v) in local_hl_hits {
+                            guard.insert(k, v);
+                        }
+                    }
+                }
+                Ok(())
+            })
+    })?;
 
     let alloc_map = hl_alloc_map.into_inner().unwrap_or_default();
 
@@ -198,26 +221,6 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
     plan.manifest.allocated_size_with_hardlinks_bytes = allocated_bytes + extra_hl_alloc;
 
     Ok(plan.manifest)
-}
-
-#[cfg(unix)]
-fn create_sparse_anchored_file(
-    path: &Path,
-    logical_size: u64,
-    dirty_blocks: u8,
-    fill_byte: u8,
-) -> Result<u64> {
-    unix::create_sparse_anchored_file(path, logical_size, dirty_blocks, fill_byte)
-}
-
-#[cfg(windows)]
-fn create_sparse_anchored_file(
-    path: &Path,
-    logical_size: u64,
-    dirty_blocks: u8,
-    fill_byte: u8,
-) -> Result<u64> {
-    windows::create_sparse_anchored_file(path, logical_size, dirty_blocks, fill_byte)
 }
 
 #[cfg(unix)]

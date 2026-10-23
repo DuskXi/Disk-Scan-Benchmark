@@ -38,12 +38,107 @@ public struct IO_COUNTERS {
 
 public static class Win32Monitor {
     public const int SW_MINIMIZE = 6;
+    public const uint SAFER_SCOPEID_USER = 2;
+    public const uint SAFER_LEVELID_NORMALUSER = 0x20000;
+    public const uint SAFER_LEVEL_OPEN = 1;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct STARTUPINFOW {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public int dwX;
+        public int dwY;
+        public int dwXSize;
+        public int dwYSize;
+        public int dwXCountChars;
+        public int dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2;
+        public IntPtr hStdInput;
+        public IntPtr hStdOutput;
+        public IntPtr hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_INFORMATION {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool GetProcessIoCounters(IntPtr hProcess, out IO_COUNTERS lpIoCounters);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool SaferCreateLevel(
+        uint dwScopeId,
+        uint dwLevelId,
+        uint OpenFlags,
+        out IntPtr pLevelHandle,
+        IntPtr lpReserved);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool SaferComputeTokenFromLevel(
+        IntPtr LevelHandle,
+        IntPtr InAccessToken,
+        out IntPtr OutAccessToken,
+        uint dwFlags,
+        IntPtr lpReserved);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool SaferCloseLevel(IntPtr hLevelHandle);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern bool CreateProcessAsUserW(
+        IntPtr hToken,
+        string lpApplicationName,
+        string lpCommandLine,
+        IntPtr lpProcessAttributes,
+        IntPtr lpThreadAttributes,
+        bool bInheritHandles,
+        uint dwCreationFlags,
+        IntPtr lpEnvironment,
+        string lpCurrentDirectory,
+        ref STARTUPINFOW lpStartupInfo,
+        out PROCESS_INFORMATION lpProcessInformation);
+
+    public static int StartNonAdmin(string exePath, string scanArgs) {
+        IntPtr hLevel = IntPtr.Zero;
+        IntPtr hToken = IntPtr.Zero;
+        try {
+            if (!SaferCreateLevel(SAFER_SCOPEID_USER, SAFER_LEVELID_NORMALUSER, SAFER_LEVEL_OPEN, out hLevel, IntPtr.Zero)) {
+                return -1;
+            }
+            if (!SaferComputeTokenFromLevel(hLevel, IntPtr.Zero, out hToken, 0, IntPtr.Zero)) {
+                return -2;
+            }
+            STARTUPINFOW si = new STARTUPINFOW();
+            si.cb = Marshal.SizeOf(typeof(STARTUPINFOW));
+            PROCESS_INFORMATION pi;
+            string cmdLine = "\"" + exePath + "\" " + scanArgs;
+            if (!CreateProcessAsUserW(hToken, null, cmdLine, IntPtr.Zero, IntPtr.Zero, false, 0, IntPtr.Zero, null, ref si, out pi)) {
+                return -3;
+            }
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+            return pi.dwProcessId;
+        } finally {
+            if (hToken != IntPtr.Zero) CloseHandle(hToken);
+            if (hLevel != IntPtr.Zero) SaferCloseLevel(hLevel);
+        }
+    }
 }
 "@
 
@@ -54,14 +149,23 @@ if (-not ("Win32Monitor" -as [type])) {
 $LogicalCpus = [Environment]::ProcessorCount
 $PollIntervalMs = 100
 $SettleWindowMs = 1500
-$StartupGraceMs = 600
+$StartupGraceMs = 1200
 
 $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-$Proc = Start-Process -FilePath $ExePath -ArgumentList $ScanArgs -PassThru
+# Launch with a normal-user (non-admin) token via Win32 Safer API so scanners (e.g. TreeSizeFree, WinDirStat)
+# cannot access raw NTFS $MFT (\\.\X:) even when the runner executes as Administrator.
+$StartedPid = [Win32Monitor]::StartNonAdmin($ExePath, $ScanArgs)
+if ($StartedPid -gt 0) {
+    $Proc = [System.Diagnostics.Process]::GetProcessById($StartedPid)
+} else {
+    $Proc = Start-Process -FilePath $ExePath -ArgumentList $ScanArgs -PassThru
+}
 
 $Minimized = $false
 $PrevReadOps = [uint64]0
 $PrevReadBytes = [uint64]0
+$PrevOtherOps = [uint64]0
+$PrevOtherBytes = [uint64]0
 $PrevCpuMs = [double]0.0
 $PrevWallMs = [double]0.0
 $QuietDurationMs = 0
@@ -89,14 +193,21 @@ try {
             $PeakRssBytes = $Proc.PeakWorkingSet64
         }
 
-        # Query I/O Counters via Win32 GetProcessIoCounters
+        # Query I/O Counters via Win32 GetProcessIoCounters.
+        # Note: Standard Win32 directory traversal (FindFirstFileExW / NtQueryDirectoryFile) increments
+        # OtherOperationCount and OtherTransferCount in the Windows NT kernel, whereas raw file/MFT reads
+        # increment ReadOperationCount and ReadTransferCount. Both must be monitored!
         $Io = New-Object IO_COUNTERS
         $IoOk = [Win32Monitor]::GetProcessIoCounters($Proc.Handle, [ref]$Io)
         $DeltaReadOps = if ($IoOk) { $Io.ReadOperationCount - $PrevReadOps } else { [uint64]0 }
         $DeltaReadBytes = if ($IoOk) { $Io.ReadTransferCount - $PrevReadBytes } else { [uint64]0 }
+        $DeltaOtherOps = if ($IoOk) { $Io.OtherOperationCount - $PrevOtherOps } else { [uint64]0 }
+        $DeltaOtherBytes = if ($IoOk) { $Io.OtherTransferCount - $PrevOtherBytes } else { [uint64]0 }
         if ($IoOk) {
             $PrevReadOps = $Io.ReadOperationCount
             $PrevReadBytes = $Io.ReadTransferCount
+            $PrevOtherOps = $Io.OtherOperationCount
+            $PrevOtherBytes = $Io.OtherTransferCount
         }
 
         # Calculate CPU usage percentage across all logical cores over this 100ms window
@@ -108,8 +219,10 @@ try {
         $PrevCpuMs = $CurCpuMs
         $PrevWallMs = $NowWallMs
 
-        if ($NowWallMs -ge $StartupGraceMs) {
-            if (($DeltaReadBytes -eq 0) -and (($DeltaReadOps -eq 0 -and $CpuPercent -lt 2.5) -or ($PrevReadBytes -gt 0 -and $CpuPercent -lt 5.0))) {
+        # Wait until initial GUI initialization finishes (either >= StartupGraceMs or directory traversal has begun)
+        if (($NowWallMs -ge $StartupGraceMs) -and (($Io.OtherOperationCount -gt 2000) -or ($NowWallMs -ge 2200))) {
+            $IsIoIdle = ($DeltaReadBytes -eq 0) -and ($DeltaOtherBytes -eq 0) -and ($DeltaReadOps -le 5) -and ($DeltaOtherOps -le 10)
+            if ($IsIoIdle -and ($CpuPercent -lt 2.5)) {
                 $QuietDurationMs += $PollIntervalMs
             } else {
                 $QuietDurationMs = 0

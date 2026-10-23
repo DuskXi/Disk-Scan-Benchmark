@@ -161,7 +161,7 @@
       "platforms": ["windows"],
       "architectures": ["x86_64"],
       "size_metric": "apparent",
-      "command_template": ["{bin}", "{path}"],
+      "command_template": ["{bin}", "/NOADMIN", "{path}"],
       "output_parser": "gui_monitor",
       "install": {
         "windows_x86_64": "https://downloads.jam-software.de/treesize_free/TreeSizeFree-Portable.zip"
