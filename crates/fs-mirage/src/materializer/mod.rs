@@ -1,10 +1,12 @@
 use crate::topology::{EntryKind, FileEntry, GroundTruthManifest, TopologyPlan};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 #[cfg(unix)]
 mod unix;
@@ -23,7 +25,7 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
     fs::create_dir_all(root)
         .with_context(|| format!("Failed to create root directory: {}", root.display()))?;
 
-    // 1. Group directories by depth so each depth level can be created in parallel safely
+    // 1. Group directories by depth so each depth level can be created in parallel with a single mkdir syscall
     let mut dirs_by_depth: Vec<Vec<&str>> = Vec::new();
     for dir in &plan.directories {
         let depth = dir.bytes().filter(|&b| b == b'/').count();
@@ -36,34 +38,92 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
     for level_dirs in dirs_by_depth {
         level_dirs.par_iter().try_for_each(|rel_dir| -> Result<()> {
             let full_dir = to_os_path(root, rel_dir);
-            fs::create_dir_all(&full_dir)
-                .with_context(|| format!("Failed to create directory: {}", full_dir.display()))?;
-            Ok(())
+            match fs::create_dir(&full_dir) {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+                Err(_) => fs::create_dir_all(&full_dir)
+                    .with_context(|| format!("Failed to create directory: {}", full_dir.display())),
+            }
         })?;
     }
 
-    // 2. Materialize regular & sparse files concurrently using rayon
-    let total_allocated = AtomicU64::new(0);
-    let per_file_alloc: Vec<(String, u64)> = plan
-        .regular_files
-        .par_iter()
-        .map(|entry| -> Result<(String, u64)> {
-            let full_path = to_os_path(root, &entry.rel_path);
-            let alloc = match entry.kind {
-                EntryKind::RegularFile {
-                    logical_size,
-                    dirty_blocks,
-                    fill_byte,
-                } => create_sparse_anchored_file(&full_path, logical_size, dirty_blocks, fill_byte)
-                    .with_context(|| format!("Failed to materialize file {}", full_path.display()))?,
-                _ => 0,
-            };
-            total_allocated.fetch_add(alloc, Ordering::Relaxed);
-            Ok((entry.rel_path.clone(), alloc))
+    // Track only the subset of regular file paths referenced by hardlinks to avoid cloning millions of Strings
+    let hardlink_targets: HashSet<&str> = plan
+        .hardlinks
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EntryKind::HardLink {
+                target_rel_path, ..
+            } => Some(target_rel_path.as_str()),
+            _ => None,
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect();
+    let hl_alloc_map: Mutex<HashMap<&str, u64>> = Mutex::new(HashMap::with_capacity(hardlink_targets.len().min(65536)));
 
-    let alloc_map: HashMap<String, u64> = per_file_alloc.into_iter().collect();
+    // 2. Group regular files by parent directory to minimize per-directory B-Tree lock contention on NTFS / APFS
+    let mut dir_groups: HashMap<&str, Vec<&FileEntry>> = HashMap::with_capacity(plan.directories.len().max(64));
+    for entry in &plan.regular_files {
+        let parent = entry.rel_path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+        dir_groups.entry(parent).or_default().push(entry);
+    }
+
+    // Split very large flat directories into coarse batches (25,000 files) so work balances across cores
+    // without 8 threads hammering the exact same directory inode on every single file.
+    let mut work_batches: Vec<(&str, Vec<&FileEntry>)> = Vec::with_capacity(dir_groups.len() + 16);
+    for (parent, entries) in dir_groups {
+        if entries.len() <= 25_000 {
+            work_batches.push((parent, entries));
+        } else {
+            for chunk in entries.chunks(25_000) {
+                work_batches.push((parent, chunk.to_vec()));
+            }
+        }
+    }
+
+    let total_allocated = AtomicU64::new(0);
+    work_batches
+        .par_iter()
+        .try_for_each(|(parent_rel, entries)| -> Result<()> {
+            let parent_dir = to_os_path(root, parent_rel);
+            let mut local_alloc_sum: u64 = 0;
+            let mut local_hl_hits: Vec<(&str, u64)> = Vec::new();
+
+            for entry in entries {
+                let file_name = entry
+                    .rel_path
+                    .rsplit_once('/')
+                    .map(|(_, f)| f)
+                    .unwrap_or(entry.rel_path.as_str());
+                let full_path = parent_dir.join(file_name);
+                let alloc = match entry.kind {
+                    EntryKind::RegularFile {
+                        logical_size,
+                        dirty_blocks,
+                        fill_byte,
+                    } => create_sparse_anchored_file(&full_path, logical_size, dirty_blocks, fill_byte)
+                        .with_context(|| format!("Failed to materialize file {}", full_path.display()))?,
+                    _ => 0,
+                };
+                local_alloc_sum += alloc;
+                if alloc > 0 && hardlink_targets.contains(entry.rel_path.as_str()) {
+                    local_hl_hits.push((entry.rel_path.as_str(), alloc));
+                }
+            }
+
+            if local_alloc_sum > 0 {
+                total_allocated.fetch_add(local_alloc_sum, Ordering::Relaxed);
+            }
+            if !local_hl_hits.is_empty() {
+                if let Ok(mut guard) = hl_alloc_map.lock() {
+                    for (k, v) in local_hl_hits {
+                        guard.insert(k, v);
+                    }
+                }
+            }
+            Ok(())
+        })?;
+
+    let alloc_map = hl_alloc_map.into_inner().unwrap_or_default();
 
     // 3. Materialize hard links concurrently
     let hardlink_extra_alloc = AtomicU64::new(0);
@@ -87,7 +147,7 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
                         src_path.display()
                     )
                 })?;
-                if let Some(&target_alloc) = alloc_map.get(target_rel_path) {
+                if let Some(&target_alloc) = alloc_map.get(target_rel_path.as_str()) {
                     hardlink_extra_alloc.fetch_add(target_alloc, Ordering::Relaxed);
                 }
             }

@@ -1,6 +1,7 @@
 use crate::topology::{compute_dirty_anchor_offsets, BLOCK_SIZE};
 use anyhow::{bail, Result};
 use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::mem::{size_of, zeroed};
 use std::os::windows::fs::FileExt;
 use std::os::windows::io::AsRawHandle;
@@ -19,20 +20,36 @@ pub fn create_sparse_anchored_file(
     dirty_blocks: u8,
     fill_byte: u8,
 ) -> Result<u64> {
-    let file = OpenOptions::new()
+    let mut file = OpenOptions::new()
         .write(true)
-        .read(true)
         .create(true)
         .truncate(true)
         .open(path)?;
 
+    // Fast path 1: Tiny files <= 680B with dirty_blocks == 0 fit directly inside the 1KB NTFS $MFT record
+    // as Resident $DATA (AllocationSize == 0 naturally without requiring FSCTL_SET_SPARSE).
+    if dirty_blocks == 0 && logical_size <= 680 {
+        if logical_size > 0 {
+            file.set_len(logical_size)?;
+        }
+        return Ok(0);
+    }
+
+    // Fast path 2: Sampled 4KB dirty small files (dirty_blocks == 1, logical_size <= 4096)
+    // A single sequential write sets both EndOfFile and allocates exactly one 4KB NTFS cluster.
+    if dirty_blocks == 1 && logical_size > 0 && logical_size <= BLOCK_SIZE {
+        let mut buf = [fill_byte; BLOCK_SIZE as usize];
+        buf[0] = fill_byte ^ 0x5A;
+        buf[buf.len() - 1] = fill_byte.wrapping_add(17).max(1);
+        file.write_all(&buf[..logical_size as usize])?;
+        return Ok(BLOCK_SIZE);
+    }
+
     let raw_handle = file.as_raw_handle() as HANDLE;
 
     // Step 1: Mark file handle as sparse via FSCTL_SET_SPARSE when creating sparse holes
-    // (either pure sparse files > 512B with dirty_blocks == 0, or large files >= 64KB with multi-extent runlists).
-    // Tiny files <= 512B with dirty_blocks == 0 already reside inside the 1KB NTFS MFT record ($DATA resident, 0 clusters).
-    // Sampled small files (dirty_blocks == 1, logical_size < 64KB) remain non-sparse so NTFS allocates real 4KB clusters.
-    if (dirty_blocks == 0 && logical_size > 512) || logical_size >= 65536 {
+    // (either pure sparse files > 680B with dirty_blocks == 0, or large files >= 64KB with multi-extent runlists).
+    if dirty_blocks == 0 || logical_size >= 65536 {
         let mut bytes_returned: u32 = 0;
         let ok = unsafe {
             DeviceIoControl(

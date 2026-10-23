@@ -173,15 +173,16 @@ impl TopologyPlan {
         let max_phys_bytes = cfg.max_physical_mb.saturating_mul(MB);
         let media_reserved_bytes = (count_media as u64) * 8 * 65536;
         let small_budget_bytes = max_phys_bytes.saturating_sub(media_reserved_bytes);
-        // Maximum number of small files that will get a 4KB physical block written
-        let max_small_dirty_files = (small_budget_bytes / BLOCK_SIZE).min(180_000) as usize;
+        // Cap sampled dirty small files at 12,000 (~48 MB physical blocks) so million-file tiers
+        // do not bottleneck virtualized VHDX / APFS sparseimage on 180k random 4KB writes.
+        let max_small_dirty_files = (small_budget_bytes / BLOCK_SIZE).min(12_000) as usize;
         let total_small_regular = count_deep + count_flat + count_long;
         // Deterministic sampling rate (in parts per 10,000) for small files to receive a 4KB dirty block
         let small_dirty_rate_bp: u32 = if total_small_regular == 0 {
             0
         } else {
-            let raw_bp = ((max_small_dirty_files as u64) * 10_000 / (total_small_regular as u64)).min(2500);
-            raw_bp.max(500) as u32 // Between 5% and 25% of small files get dirty blocks, within physical cap
+            let raw_bp = ((max_small_dirty_files as u64) * 10_000 / (total_small_regular as u64)).min(2000);
+            raw_bp.max(100) as u32
         };
 
         let mut regular_files = Vec::with_capacity(total_small_regular + count_media);
@@ -189,19 +190,19 @@ impl TopologyPlan {
         let mut planned_dirty_bytes: u64 = 0;
 
         // 1. Generate Deep Source / Dependency Zone (50%)
-        // Create realistic deep hierarchies (depth 8..=25)
-        let num_deep_chains = (count_deep / 40).clamp(8, 2500);
+        // Create realistic deep hierarchies where each step adds exactly 1 directory level (depth 8..=25)
+        let num_deep_chains = (count_deep / 80).clamp(8, 1200);
         let mut deep_leaf_dirs = Vec::with_capacity(num_deep_chains * 4);
         let pkg_names = ["core", "runtime", "compiler", "serde", "tokio", "syn", "libc", "vfs", "index", "cache"];
         for chain_idx in 0..num_deep_chains {
             let target_depth = rng.gen_range(8..=25);
-            let mut path = format!("zone_deep/workspace_{:04}", chain_idx / 16);
-            for d in 2..=target_depth {
+            let mut path = format!("zone_deep/ws_{:03}", chain_idx / 16);
+            for d in 3..=target_depth {
                 let seg = match d % 4 {
-                    0 => format!("node_modules/pkg_{}_{}", pkg_names[rng.gen_range(0..pkg_names.len())], d),
-                    1 => format!("target/debug/deps/layer_{}", d),
-                    2 => format!("src/mod_{}", pkg_names[rng.gen_range(0..pkg_names.len())]),
-                    _ => format!("sub_{:02}", rng.gen_range(0..32)),
+                    0 => format!("nm_{}_{}", pkg_names[rng.gen_range(0..pkg_names.len())], d),
+                    1 => format!("deps_{}", d),
+                    2 => format!("mod_{}", pkg_names[rng.gen_range(0..pkg_names.len())]),
+                    _ => format!("s_{:02}", rng.gen_range(0..32)),
                 };
                 path.push('/');
                 path.push_str(&seg);
@@ -220,9 +221,12 @@ impl TopologyPlan {
             let write_dirty = small_dirty_allocated < max_small_dirty_files
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
             let logical_size = if write_dirty {
-                rng.gen_range(4096..=16_384)
+                BLOCK_SIZE
+            } else if rng.gen_bool(0.75) {
+                // 75% <= 680B (fits in NTFS Resident $MFT record without requiring FSCTL_SET_SPARSE)
+                rng.gen_range(64..=680)
             } else {
-                rng.gen_range(64..=16_384)
+                rng.gen_range(681..=16_384)
             };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;
@@ -260,9 +264,11 @@ impl TopologyPlan {
                 let write_dirty = small_dirty_allocated < max_small_dirty_files
                     && rng.gen_range(0..10_000) < small_dirty_rate_bp;
                 let logical_size = if write_dirty {
-                    rng.gen_range(4096..=16_384)
+                    BLOCK_SIZE
+                } else if rng.gen_bool(0.75) {
+                    rng.gen_range(128..=680)
                 } else {
-                    rng.gen_range(128..=16_384)
+                    rng.gen_range(681..=16_384)
                 };
                 let dirty_blocks = if write_dirty {
                     small_dirty_allocated += 1;
@@ -287,19 +293,25 @@ impl TopologyPlan {
         }
 
         // 3. Generate Edge Long Filenames Zone
-        let long_base_dir = "zone_edge/long_paths/level_a_very_deep_nested_container/level_b_subcomponent";
+        let long_base_dir = "zone_edge/long_paths/nested_container/subcomponent";
         add_dir_with_ancestors(long_base_dir, &mut dir_set);
         for i in 0..count_long {
             let sub_bucket = format!("{}/shard_{:03}", long_base_dir, i / 500);
             add_dir_with_ancestors(&sub_bucket, &mut dir_set);
-            let pad_len = rng.gen_range(130..=180);
+            let pad_len = rng.gen_range(100..=140);
             let pad: String = (0..pad_len)
                 .map(|k| (b'a' + ((i + k) % 26) as u8) as char)
                 .collect();
             let rel_path = format!("{}/long_{:07}_{}.dat", sub_bucket, i, pad);
-            let logical_size = rng.gen_range(256..=32_768);
             let write_dirty = small_dirty_allocated < max_small_dirty_files
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
+            let logical_size = if write_dirty {
+                BLOCK_SIZE
+            } else if rng.gen_bool(0.75) {
+                rng.gen_range(256..=680)
+            } else {
+                rng.gen_range(681..=32_768)
+            };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;
                 planned_dirty_bytes += BLOCK_SIZE;
