@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# macOS APFS SparseImage Manager & Cold-Cache Evictor for disk-scanner-bench
+# Usage:
+#   ./macos_dmg.sh create <size_gb> <mount_path>
+#   ./macos_dmg.sh purge-cache <mount_path>
+#   ./macos_dmg.sh teardown <mount_path>
+
+CMD="${1:-}"
+if [[ -z "$CMD" ]]; then
+    echo "Usage: $0 {create|purge-cache|teardown} ..." >&2
+    exit 1
+fi
+shift
+
+SPARSE_IMG="/tmp/bench.sparseimage"
+
+case "$CMD" in
+    create)
+        SIZE_GB="${1:-60}"
+        MOUNT_PATH="${2:-/Volumes/BenchVol}"
+        echo "[macos_dmg] Creating ${SIZE_GB}g APFS sparseimage at ${SPARSE_IMG}..."
+
+        if [[ -d "$MOUNT_PATH" ]]; then
+            hdiutil detach "$MOUNT_PATH" -force 2>/dev/null || true
+        fi
+        rm -f "$SPARSE_IMG"
+
+        hdiutil create -size "${SIZE_GB}g" -type SPARSE -fs APFS -volname BenchVol -ov "$SPARSE_IMG" >/dev/null
+        sudo mkdir -p "$MOUNT_PATH"
+        hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null
+        sudo chmod 777 "$MOUNT_PATH" || true
+        echo "[macos_dmg] Mounted ${SPARSE_IMG} at ${MOUNT_PATH}"
+        ;;
+
+    purge-cache)
+        MOUNT_PATH="${1:-/Volumes/BenchVol}"
+        echo "[macos_dmg] Evicting macOS unified buffer cache (hdiutil detach + sudo purge + attach)..."
+        sync
+        hdiutil detach "$MOUNT_PATH" -force >/dev/null
+        sudo purge
+        hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null
+        echo "[macos_dmg] Cold cache state restored for ${MOUNT_PATH}"
+        ;;
+
+    teardown)
+        MOUNT_PATH="${1:-/Volumes/BenchVol}"
+        echo "[macos_dmg] Tearing down ${MOUNT_PATH} and removing ${SPARSE_IMG}..."
+        hdiutil detach "$MOUNT_PATH" -force 2>/dev/null || true
+        rm -f "$SPARSE_IMG"
+        echo "[macos_dmg] Teardown complete."
+        ;;
+
+    *)
+        echo "Unknown command: $CMD. Expected create, purge-cache, or teardown." >&2
+        exit 1
+        ;;
+esac

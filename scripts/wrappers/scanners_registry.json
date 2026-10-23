@@ -1,0 +1,156 @@
+{
+  "$schema_comment": "Declarative Scanner Registry for disk-scanner-bench. To add a new program, append an entry to 'scanners' following 'addition_rule_schema'.",
+  "addition_rule_schema": {
+    "required_fields": [
+      "id",
+      "name",
+      "version",
+      "enabled",
+      "runner_type",
+      "platforms",
+      "architectures",
+      "size_metric",
+      "command_template",
+      "output_parser",
+      "install"
+    ],
+    "runner_type_values": [
+      "cli (Standard CLI or export-mode process monitored until exit by run_cli_scanners.py)",
+      "win_gui (Pure Windows GUI program monitored via win_gui_monitor.ps1 until I/O + CPU settle)"
+    ],
+    "size_metric_values": [
+      "allocated (Compares against ground_truth.allocated_size_bytes)",
+      "apparent (Compares against ground_truth.apparent_size_bytes)"
+    ],
+    "template_placeholders": {
+      "{bin}": "Resolved binary path or executable name",
+      "{path}": "Mounted benchmark volume root path",
+      "{export_file}": "Temporary export file path for CSV/JSON output"
+    }
+  },
+  "todo_platforms": [
+    "windows-arm64 (TODO: Add ARM64 Windows native scanner binaries and runner matrix once GitHub Actions public Windows ARM64 VHDX pipeline is enabled)"
+  ],
+  "scanners": [
+    {
+      "id": "gdu",
+      "name": "gdu",
+      "version": "5.29.0",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos", "windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "-n", "{path}"],
+      "output_parser": "human_last_line",
+      "install": {
+        "linux_x86_64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_linux_amd64.tgz",
+        "linux_aarch64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_linux_arm64.tgz",
+        "macos_x86_64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_darwin_amd64.tgz",
+        "macos_aarch64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_darwin_arm64.tgz",
+        "windows_x86_64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_windows_amd64.exe.zip"
+      }
+    },
+    {
+      "id": "dua",
+      "name": "dua-cli",
+      "version": "2.29.2",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos", "windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "{path}"],
+      "output_parser": "human_last_line",
+      "install": {
+        "linux_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-x86_64-unknown-linux-musl.tar.gz",
+        "linux_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-aarch64-unknown-linux-musl.tar.gz",
+        "macos_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-x86_64-apple-darwin.tar.gz",
+        "macos_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-aarch64-apple-darwin.tar.gz",
+        "windows_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-x86_64-pc-windows-msvc.zip"
+      }
+    },
+    {
+      "id": "dust",
+      "name": "dust",
+      "version": "1.1.1",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos", "windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "-d", "1", "{path}"],
+      "output_parser": "human_last_line",
+      "install": {
+        "linux_x86_64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-x86_64-unknown-linux-musl.tar.gz",
+        "linux_aarch64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-aarch64-unknown-linux-musl.tar.gz",
+        "macos_x86_64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-x86_64-apple-darwin.tar.gz",
+        "macos_aarch64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-aarch64-apple-darwin.tar.gz",
+        "windows_x86_64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-x86_64-pc-windows-msvc.zip"
+      }
+    },
+    {
+      "id": "ncdu",
+      "name": "ncdu",
+      "version": "2.7",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "-0", "-o", "/dev/null", "{path}"],
+      "output_parser": "ncdu_null",
+      "install": {
+        "linux_x86_64": "https://dev.yorhel.nl/download/ncdu-2.7-linux-x86_64.tar.gz",
+        "linux_aarch64": "https://dev.yorhel.nl/download/ncdu-2.7-linux-aarch64.tar.gz",
+        "macos_x86_64": "brew:ncdu",
+        "macos_aarch64": "brew:ncdu"
+      }
+    },
+    {
+      "id": "wiztree",
+      "name": "WizTree64",
+      "version": "4.23",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["windows"],
+      "architectures": ["x86_64"],
+      "size_metric": "apparent",
+      "command_template": ["{bin}", "{path}", "/export={export_file}", "/admin=1"],
+      "output_parser": "wiztree_csv",
+      "install": {
+        "windows_x86_64": "https://www.diskanalyzer.com/files/wiztree_4_23_portable.zip"
+      }
+    },
+    {
+      "id": "spacesniffer",
+      "name": "SpaceSniffer",
+      "version": "1.3.0.2",
+      "enabled": true,
+      "runner_type": "win_gui",
+      "platforms": ["windows"],
+      "architectures": ["x86_64"],
+      "size_metric": "apparent",
+      "command_template": ["{bin}", "scan", "{path}"],
+      "output_parser": "gui_monitor",
+      "install": {
+        "windows_x86_64": "choco:spacesniffer:1.3.0.2"
+      }
+    },
+    {
+      "id": "windirstat",
+      "name": "WinDirStat",
+      "version": "2.1.2",
+      "enabled": true,
+      "runner_type": "win_gui",
+      "platforms": ["windows"],
+      "architectures": ["x86_64"],
+      "size_metric": "apparent",
+      "command_template": ["{bin}", "{path}"],
+      "output_parser": "gui_monitor",
+      "install": {
+        "windows_x86_64": "https://github.com/windirstat/windirstat/releases/download/release%2Fv2.1.2/WinDirStat-x64.zip"
+      }
+    }
+  ]
+}

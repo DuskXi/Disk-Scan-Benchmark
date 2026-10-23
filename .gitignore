@@ -1,0 +1,14 @@
+/target/
+/bin/
+/results/
+/tmp_test/
+ground_truth.json
+baseline.json
+raw_results.json
+normalized_results.json
+benchmark_report.md
+*.vhdx
+*.ext4
+*.sparseimage
+__pycache__/
+*.pyc

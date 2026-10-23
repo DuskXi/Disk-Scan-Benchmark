@@ -1,0 +1,254 @@
+name: Cross-Platform Disk Scanner Benchmark
+
+on:
+  # Requirement #3: Triggered exclusively via manual workflow_dispatch (no schedule / cron)
+  workflow_dispatch:
+    inputs:
+      files:
+        description: "Total file items to generate (e.g. 100000, 1000000, 3000000)"
+        required: true
+        default: "1000000"
+        type: string
+      logical_gb:
+        description: "Target total logical volume size in GiB (e.g. 500, 10240, 20480 for 20TiB)"
+        required: true
+        default: "20480"
+        type: string
+      disk_size_gb:
+        description: "Virtual disk image capacity in GiB (default: 60)"
+        required: true
+        default: "60"
+        type: string
+      max_physical_mb:
+        description: "Maximum physical dirty-extent allocation in MiB (default: 1500)"
+        required: true
+        default: "1500"
+        type: string
+      seed:
+        description: "Deterministic PRNG seed (ChaCha8Rng)"
+        required: true
+        default: "42"
+        type: string
+      enable_ramdisk:
+        description: "Enable /dev/shm RAMDisk PCIe 5.0 simulation pass on Linux"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: "Bench (${{ matrix.target_label }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 & ARM64
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x86_64
+            target_label: linux-x86_64
+            mount_path: /mnt/bench
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: aarch64
+            target_label: linux-arm64
+            mount_path: /mnt/bench
+
+          # macOS x86_64 (Intel) & ARM64 (Apple Silicon)
+          - os: macos-13
+            platform: macos
+            arch: x86_64
+            target_label: macos-x86_64
+            mount_path: /Volumes/BenchVol
+          - os: macos-14
+            platform: macos
+            arch: aarch64
+            target_label: macos-arm64
+            mount_path: /Volumes/BenchVol
+
+          # Windows x86_64
+          - os: windows-latest
+            platform: windows
+            arch: x86_64
+            target_label: windows-x86_64
+            mount_path: "X:\\"
+
+          # TODO (Windows ARM64):
+          # Once GitHub Actions public windows-11-arm runners support elevated VHDX loop mounting
+          # and native ARM64 builds for WizTree / SpaceSniffer / WinDirStat are published, uncomment:
+          # - os: windows-11-arm
+          #   platform: windows
+          #   arch: aarch64
+          #   target_label: windows-arm64
+          #   mount_path: "X:\\"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Core Engines (fs-mirage & hw-probe)
+        shell: bash
+        run: |
+          cargo build --release --workspace
+
+      - name: Install Pinned Target Scanners (Same-Runner Provisioning)
+        shell: bash
+        run: |
+          python3 -c '
+          import json, pathlib, sys
+          sys.path.insert(0, "scripts/wrappers")
+          import run_cli_scanners as r
+          os_key, arch_key = r.detect_os_arch()
+          reg = json.loads(pathlib.Path("scripts/wrappers/scanners_registry.json").read_text(encoding="utf-8"))
+          bin_dir = pathlib.Path("./bin").resolve()
+          for sc in reg["scanners"]:
+              if sc.get("enabled", True) and os_key in sc["platforms"] and arch_key in sc["architectures"]:
+                  path = r.install_pinned_scanner(sc, os_key, arch_key, bin_dir)
+                  print(f"[provision] {sc[\"name\"]} v{sc[\"version\"]} -> {path}")
+          '
+
+      - name: Create & Mount Virtual Disk Container (Linux / macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x scripts/disk-mgr/*.sh
+          INODES=$(( ${{ inputs.files }} * 2 + 500000 ))
+          if [ "$INODES" -lt 4000000 ]; then
+            INODES=4000000
+          fi
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            ./scripts/disk-mgr/linux_loop.sh create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}" --inodes "$INODES"
+          else
+            ./scripts/disk-mgr/macos_dmg.sh create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}"
+          fi
+
+      - name: Create & Mount Dynamic NTFS VHDX at X:\ (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/disk-mgr/windows_vhd.ps1 create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}"
+
+      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
+        shell: bash
+        run: |
+          mkdir -p results/${{ matrix.target_label }}
+          ./target/release/fs-mirage \
+            --root "${{ matrix.mount_path }}" \
+            --files "${{ inputs.files }}" \
+            --seed "${{ inputs.seed }}" \
+            --logical-gb "${{ inputs.logical_gb }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "results/${{ matrix.target_label }}/ground_truth.json"
+
+      - name: Measure Hardware Ceiling Baseline (hw-probe)
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            ./scripts/disk-mgr/linux_loop.sh purge-cache "${{ matrix.mount_path }}"
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            ./scripts/disk-mgr/macos_dmg.sh purge-cache "${{ matrix.mount_path }}"
+          else
+            powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "${{ matrix.mount_path }}"
+          fi
+
+          ./target/release/hw-probe \
+            --root "${{ matrix.mount_path }}" \
+            --out "results/${{ matrix.target_label }}/baseline.json"
+
+      - name: Run All Platform Scanners Sequentially on Same Instance
+        shell: bash
+        run: |
+          python3 ./scripts/wrappers/run_cli_scanners.py \
+            --path "${{ matrix.mount_path }}" \
+            --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
+            --out "results/${{ matrix.target_label }}/raw_results.json" \
+            --bin-dir "./bin"
+
+      - name: Generate Normalized Report & Append to Step Summary
+        shell: bash
+        run: |
+          python3 ./scripts/report_gen.py \
+            --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
+            --baseline "results/${{ matrix.target_label }}/baseline.json" \
+            --raw-results "results/${{ matrix.target_label }}/raw_results.json" \
+            --out "results/${{ matrix.target_label }}/benchmark_report.md" \
+            --json-out "results/${{ matrix.target_label }}/normalized_results.json" \
+            --title-suffix "(${{ matrix.target_label }})"
+
+          cat "results/${{ matrix.target_label }}/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Teardown Standard Virtual Disk Container
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            ./scripts/disk-mgr/linux_loop.sh teardown "${{ matrix.mount_path }}" || true
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            ./scripts/disk-mgr/macos_dmg.sh teardown "${{ matrix.mount_path }}" || true
+          else
+            powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "${{ matrix.mount_path }}" || true
+          fi
+
+      - name: Optional Linux /dev/shm RAMDisk High-IOPS Comparison Pass
+        if: matrix.platform == 'linux' && inputs.enable_ramdisk == true
+        shell: bash
+        run: |
+          RAM_LABEL="${{ matrix.target_label }}-ramdisk"
+          mkdir -p "results/${RAM_LABEL}"
+          INODES=$(( ${{ inputs.files }} * 2 + 500000 ))
+          if [ "$INODES" -lt 4000000 ]; then
+            INODES=4000000
+          fi
+
+          ./scripts/disk-mgr/linux_loop.sh create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}" --ramdisk --inodes "$INODES"
+
+          ./target/release/fs-mirage \
+            --root "${{ matrix.mount_path }}" \
+            --files "${{ inputs.files }}" \
+            --seed "${{ inputs.seed }}" \
+            --logical-gb "${{ inputs.logical_gb }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "results/${RAM_LABEL}/ground_truth.json"
+
+          ./scripts/disk-mgr/linux_loop.sh purge-cache "${{ matrix.mount_path }}"
+          ./target/release/hw-probe \
+            --root "${{ matrix.mount_path }}" \
+            --out "results/${RAM_LABEL}/baseline.json"
+
+          python3 ./scripts/wrappers/run_cli_scanners.py \
+            --path "${{ matrix.mount_path }}" \
+            --ground-truth "results/${RAM_LABEL}/ground_truth.json" \
+            --out "results/${RAM_LABEL}/raw_results.json" \
+            --bin-dir "./bin"
+
+          python3 ./scripts/report_gen.py \
+            --ground-truth "results/${RAM_LABEL}/ground_truth.json" \
+            --baseline "results/${RAM_LABEL}/baseline.json" \
+            --raw-results "results/${RAM_LABEL}/raw_results.json" \
+            --out "results/${RAM_LABEL}/benchmark_report.md" \
+            --json-out "results/${RAM_LABEL}/normalized_results.json" \
+            --title-suffix "(${RAM_LABEL} /dev/shm)"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat "results/${RAM_LABEL}/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+
+          ./scripts/disk-mgr/linux_loop.sh teardown "${{ matrix.mount_path }}" || true
+
+      - name: Upload Benchmark Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ matrix.target_label }}
+          path: results/
+          retention-days: 30
