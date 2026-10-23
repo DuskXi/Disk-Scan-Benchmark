@@ -46,11 +46,56 @@ pub struct FileEntry {
     pub kind: EntryKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScalePreset {
+    VeryLite,
+    Lite,
+    Low,
+    Mid,
+    High,
+    VeryHigh,
+    Custom,
+}
+
+impl ScalePreset {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ScalePreset::VeryLite => "very-lite",
+            ScalePreset::Lite => "lite",
+            ScalePreset::Low => "low",
+            ScalePreset::Mid => "mid",
+            ScalePreset::High => "high",
+            ScalePreset::VeryHigh => "very-high",
+            ScalePreset::Custom => "custom",
+        }
+    }
+
+    /// Returns (total_files, logical_gb) for each standard tier:
+    /// - very-lite: 100,000 items, 100 GB
+    /// - lite:      400,000 items, 350 GB
+    /// - low:     1,000,000 items, 500 GB
+    /// - mid:     3,000,000 items, 1024 GB (1 TB)
+    /// - high:    5,000,000 items, 2048 GB (2 TB)
+    /// - very-high: 9,000,000 items, 3072 GB (3 TB)
+    pub fn spec(&self) -> Option<(usize, f64)> {
+        match self {
+            ScalePreset::VeryLite => Some((100_000, 100.0)),
+            ScalePreset::Lite => Some((400_000, 350.0)),
+            ScalePreset::Low => Some((1_000_000, 500.0)),
+            ScalePreset::Mid => Some((3_000_000, 1024.0)),
+            ScalePreset::High => Some((5_000_000, 2048.0)),
+            ScalePreset::VeryHigh => Some((9_000_000, 3072.0)),
+            ScalePreset::Custom => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopologyConfig {
+    pub preset: String,
     pub total_files: usize,
     pub seed: u64,
-    /// Optional target total logical size in GiB. If None, uses natural 1GB..100GB distribution (~20TB per 1M files).
+    /// Optional target total logical size in GiB. If None, uses natural 1GB..100GB distribution.
     pub target_logical_gb: Option<f64>,
     /// Maximum physical data blocks budget in MiB (default: 1500 MiB = 1.5 GiB)
     pub max_physical_mb: u64,
@@ -58,6 +103,7 @@ pub struct TopologyConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroundTruthManifest {
+    pub preset: String,
     pub seed: u64,
     pub total_files: usize,
     pub total_regular_files: usize,
@@ -410,6 +456,7 @@ impl TopologyPlan {
         let actual_total_files = total_regular_files + total_hardlinks + total_symlinks;
 
         let manifest = GroundTruthManifest {
+            preset: cfg.preset.clone(),
             seed: cfg.seed,
             total_files: actual_total_files,
             total_regular_files,
@@ -474,6 +521,7 @@ mod tests {
     #[test]
     fn test_deterministic_topology() {
         let cfg = TopologyConfig {
+            preset: "custom".to_string(),
             total_files: 1000,
             seed: 42,
             target_logical_gb: None,

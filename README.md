@@ -45,24 +45,37 @@ disk-scanner-bench/
 
 ---
 
-## 2. 可调测试规模（Adjustable Scale）
+## 2. 预设规模挡位与自定义测试规模（Scale Presets & Adjustable Scale）
 
-`fs-mirage` 与 GitHub Actions `workflow_dispatch` 均支持按需调整测试规模（文件数与数据量）：
+`fs-mirage` 与 GitHub Actions `workflow_dispatch` 内置了 6 个标准化规模挡位（同时支持 `custom` 自定义任意项数与逻辑体积）：
+
+| 挡位 (`--preset`) | 总文件项数 (`--files`) | 逻辑总体积 (`--logical-gb`) | 物理脏块上限 (`--max-physical-mb`) | 适用场景 |
+| :--- | ---: | ---: | ---: | :--- |
+| **`very-lite`** | `100,000` (10 万项) | `100 GiB` | `< 1.5 GiB` | 快速全平台回归与冒烟验证（当前触发） |
+| **`lite`** | `400,000` (40 万项) | `350 GiB` | `< 1.5 GiB` | 轻量级日常开发构建与主干回归 |
+| **`low`** | `1,000,000` (100 万项) | `500 GiB` | `< 1.5 GiB` | 标准百万节点基准测试（当前触发） |
+| **`mid`** | `3,000,000` (300 万项) | `1 TiB` (`1024 GiB`) | `< 1.5 GiB` | 中高负载目录索引与内存树压测 |
+| **`high`** | `5,000,000` (500 万项) | `2 TiB` (`2048 GiB`) | `< 1.5 GiB` | 重度五百万节点并发遍历压测 |
+| **`very-high`** | `9,000,000` (900 万项) | `3 TiB` (`3072 GiB`) | `< 1.5 GiB` | 极限九百万节点天花板压测 |
 
 ```bash
+# 使用预设挡位（如 low: 100万项 / 500GB）
 cargo run --release --bin fs-mirage -- \
   --root /mnt/bench \
+  --preset low \
+  --seed 42 \
+  --manifest-out ground_truth.json
+
+# 或使用 custom 自定义任意文件项数与逻辑 GB 数
+cargo run --release --bin fs-mirage -- \
+  --root /mnt/bench \
+  --preset custom \
   --files 1000000 \
-  --logical-gb 20480 \
+  --logical-gb 500 \
   --max-physical-mb 1500 \
   --seed 42 \
   --manifest-out ground_truth.json
 ```
-
-- `--files`：总生成文件节点数（例如 `10000`、`1000000`、`3000000`）。
-- `--logical-gb`：目标逻辑总体积（单位 GiB，例如 `500` 表示 500 GiB，`20480` 表示 20 TiB；若省略则按自然重尾分布生成）。
-- `--max-physical-mb`：实际落盘脏块物理空间上限（默认 `1500` MiB，确保适配 GitHub Runner 磁盘配额）。
-- `--seed`：确定性 `ChaCha8Rng` 随机种子（相同参数在 Linux / Windows / macOS 下生成 100% 一致的目录拓扑与逻辑大小）。
 
 ---
 
@@ -114,7 +127,7 @@ cargo run --release --bin fs-mirage -- \
    $$\eta_{\text{io}} = \frac{\text{Scanner Cold Speed (files/sec)}}{B_{\text{meta}}} \times 100\%$$
    - 标准系统调用扫描器介于 `0% ~ 100%` 之间；绕过文件 API 直接解析 `$MFT` 的工具（如 `WizTree`）可超过 `500%`。
 2. **热缓存归一化算力开销（Warm Cache Normalized CPU Cost）**：
-   $$\text{CPU Cost Ratio} = \frac{T_{\text{scanner\_warm}}}{T_{\text{baseline\_cpu}}}$$
+   $$\text{CPU Cost Ratio} = \frac{T_{\text{scanner-warm}}}{T_{\text{baseline-cpu}}}$$
 
 ---
 

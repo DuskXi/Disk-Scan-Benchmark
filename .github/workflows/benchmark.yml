@@ -1,18 +1,31 @@
 name: Cross-Platform Disk Scanner Benchmark
 
 on:
-  # Requirement #3: Triggered exclusively via manual workflow_dispatch (no schedule / cron)
+  # Triggered exclusively via manual workflow_dispatch (no schedule / cron)
   workflow_dispatch:
     inputs:
-      files:
-        description: "Total file items to generate (e.g. 100000, 1000000, 3000000)"
+      preset:
+        description: "Scale preset tier (very-lite: 100k/100GB, lite: 400k/350GB, low: 1M/500GB, mid: 3M/1TB, high: 5M/2TB, very-high: 9M/3TB, custom)"
         required: true
-        default: "1000000"
+        default: "very-lite"
+        type: choice
+        options:
+          - very-lite
+          - lite
+          - low
+          - mid
+          - high
+          - very-high
+          - custom
+      files:
+        description: "Custom total file items (used only when preset == 'custom')"
+        required: false
+        default: ""
         type: string
       logical_gb:
-        description: "Target total logical volume size in GiB (e.g. 500, 10240, 20480 for 20TiB)"
-        required: true
-        default: "20480"
+        description: "Custom target logical volume in GiB (used only when preset == 'custom')"
+        required: false
+        default: ""
         type: string
       disk_size_gb:
         description: "Virtual disk image capacity in GiB (default: 60)"
@@ -40,7 +53,7 @@ permissions:
 
 jobs:
   benchmark:
-    name: "Bench (${{ matrix.target_label }})"
+    name: "Bench (${{ matrix.target_label }} | ${{ inputs.preset }})"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -113,10 +126,15 @@ jobs:
         shell: bash
         run: |
           chmod +x scripts/disk-mgr/*.sh
-          INODES=$(( ${{ inputs.files }} * 2 + 500000 ))
-          if [ "$INODES" -lt 4000000 ]; then
-            INODES=4000000
-          fi
+          case "${{ inputs.preset }}" in
+            very-lite) INODES=2000000 ;;
+            lite)      INODES=2000000 ;;
+            low)       INODES=3000000 ;;
+            mid)       INODES=6000000 ;;
+            high)      INODES=9000000 ;;
+            very-high) INODES=15000000 ;;
+            *)         INODES=4000000 ;;
+          esac
           if [ "${{ matrix.platform }}" = "linux" ]; then
             ./scripts/disk-mgr/linux_loop.sh create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}" --inodes "$INODES"
           else
@@ -133,13 +151,22 @@ jobs:
         shell: bash
         run: |
           mkdir -p results/${{ matrix.target_label }}
+          EXTRA_ARGS=()
+          if [ "${{ inputs.preset }}" = "custom" ]; then
+            if [ -n "${{ inputs.files }}" ]; then
+              EXTRA_ARGS+=(--files "${{ inputs.files }}")
+            fi
+            if [ -n "${{ inputs.logical_gb }}" ]; then
+              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
+            fi
+          fi
           ./target/release/fs-mirage \
             --root "${{ matrix.mount_path }}" \
-            --files "${{ inputs.files }}" \
+            --preset "${{ inputs.preset }}" \
             --seed "${{ inputs.seed }}" \
-            --logical-gb "${{ inputs.logical_gb }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
-            --manifest-out "results/${{ matrix.target_label }}/ground_truth.json"
+            --manifest-out "results/${{ matrix.target_label }}/ground_truth.json" \
+            "${EXTRA_ARGS[@]}"
 
       - name: Measure Hardware Ceiling Baseline (hw-probe)
         shell: bash
@@ -174,7 +201,7 @@ jobs:
             --raw-results "results/${{ matrix.target_label }}/raw_results.json" \
             --out "results/${{ matrix.target_label }}/benchmark_report.md" \
             --json-out "results/${{ matrix.target_label }}/normalized_results.json" \
-            --title-suffix "(${{ matrix.target_label }})"
+            --title-suffix "(${{ matrix.target_label }} | ${{ inputs.preset }})"
 
           cat "results/${{ matrix.target_label }}/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
 
@@ -196,20 +223,35 @@ jobs:
         run: |
           RAM_LABEL="${{ matrix.target_label }}-ramdisk"
           mkdir -p "results/${RAM_LABEL}"
-          INODES=$(( ${{ inputs.files }} * 2 + 500000 ))
-          if [ "$INODES" -lt 4000000 ]; then
-            INODES=4000000
+          case "${{ inputs.preset }}" in
+            very-lite) INODES=2000000 ;;
+            lite)      INODES=2000000 ;;
+            low)       INODES=3000000 ;;
+            mid)       INODES=6000000 ;;
+            high)      INODES=9000000 ;;
+            very-high) INODES=15000000 ;;
+            *)         INODES=4000000 ;;
+          esac
+
+          EXTRA_ARGS=()
+          if [ "${{ inputs.preset }}" = "custom" ]; then
+            if [ -n "${{ inputs.files }}" ]; then
+              EXTRA_ARGS+=(--files "${{ inputs.files }}")
+            fi
+            if [ -n "${{ inputs.logical_gb }}" ]; then
+              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
+            fi
           fi
 
           ./scripts/disk-mgr/linux_loop.sh create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}" --ramdisk --inodes "$INODES"
 
           ./target/release/fs-mirage \
             --root "${{ matrix.mount_path }}" \
-            --files "${{ inputs.files }}" \
+            --preset "${{ inputs.preset }}" \
             --seed "${{ inputs.seed }}" \
-            --logical-gb "${{ inputs.logical_gb }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
-            --manifest-out "results/${RAM_LABEL}/ground_truth.json"
+            --manifest-out "results/${RAM_LABEL}/ground_truth.json" \
+            "${EXTRA_ARGS[@]}"
 
           ./scripts/disk-mgr/linux_loop.sh purge-cache "${{ matrix.mount_path }}"
           ./target/release/hw-probe \
@@ -228,7 +270,7 @@ jobs:
             --raw-results "results/${RAM_LABEL}/raw_results.json" \
             --out "results/${RAM_LABEL}/benchmark_report.md" \
             --json-out "results/${RAM_LABEL}/normalized_results.json" \
-            --title-suffix "(${RAM_LABEL} /dev/shm)"
+            --title-suffix "(${RAM_LABEL} | ${{ inputs.preset }} /dev/shm)"
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           cat "results/${RAM_LABEL}/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
@@ -238,6 +280,6 @@ jobs:
       - name: Upload Benchmark Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-${{ matrix.target_label }}
+          name: benchmark-results-${{ matrix.target_label }}-${{ inputs.preset }}
           path: results/
           retention-days: 30

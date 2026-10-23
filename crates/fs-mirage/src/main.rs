@@ -2,11 +2,50 @@ mod materializer;
 mod topology;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
-use topology::{TopologyConfig, TopologyPlan};
+use topology::{ScalePreset, TopologyConfig, TopologyPlan};
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
+enum CliPreset {
+    /// 100,000 items (10万项), 100 GB logical size
+    #[value(name = "very-lite")]
+    VeryLite,
+    /// 400,000 items (40万项), 350 GB logical size
+    #[value(name = "lite")]
+    Lite,
+    /// 1,000,000 items (100万项), 500 GB logical size
+    #[value(name = "low")]
+    Low,
+    /// 3,000,000 items (300万项), 1 TB (1024 GB) logical size
+    #[value(name = "mid")]
+    Mid,
+    /// 5,000,000 items (500万项), 2 TB (2048 GB) logical size
+    #[value(name = "high")]
+    High,
+    /// 9,000,000 items (900万项), 3 TB (3072 GB) logical size
+    #[value(name = "very-high")]
+    VeryHigh,
+    /// Custom scale via --files and --logical-gb
+    #[value(name = "custom")]
+    Custom,
+}
+
+impl From<CliPreset> for ScalePreset {
+    fn from(val: CliPreset) -> Self {
+        match val {
+            CliPreset::VeryLite => ScalePreset::VeryLite,
+            CliPreset::Lite => ScalePreset::Lite,
+            CliPreset::Low => ScalePreset::Low,
+            CliPreset::Mid => ScalePreset::Mid,
+            CliPreset::High => ScalePreset::High,
+            CliPreset::VeryHigh => ScalePreset::VeryHigh,
+            CliPreset::Custom => ScalePreset::Custom,
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -18,17 +57,21 @@ struct Args {
     #[arg(long)]
     root: PathBuf,
 
-    /// Total number of file items to generate (e.g. 10000, 1000000, 3000000)
-    #[arg(long, default_value_t = 100_000)]
-    files: usize,
+    /// Benchmark scale preset tier (very-lite, lite, low, mid, high, very-high, custom)
+    #[arg(long, value_enum)]
+    preset: Option<CliPreset>,
+
+    /// Total number of file items to generate (overrides preset if specified)
+    #[arg(long)]
+    files: Option<usize>,
+
+    /// Target total logical size in GiB (overrides preset if specified)
+    #[arg(long)]
+    logical_gb: Option<f64>,
 
     /// Deterministic PRNG seed (ChaCha8Rng)
     #[arg(long, default_value_t = 42)]
     seed: u64,
-
-    /// Target total logical size in GiB (e.g. 500, 20480). If omitted, uses natural 1GB..100GB distribution
-    #[arg(long)]
-    logical_gb: Option<f64>,
 
     /// Maximum physical disk budget in MiB (default: 1500 MiB)
     #[arg(long, default_value_t = 1500)]
@@ -43,15 +86,38 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let t0 = Instant::now();
 
+    let scale_preset: ScalePreset = match args.preset {
+        Some(p) => p.into(),
+        None => {
+            if args.files.is_some() {
+                ScalePreset::Custom
+            } else {
+                ScalePreset::VeryLite
+            }
+        }
+    };
+
+    let (default_files, _) = scale_preset.spec().unwrap_or((100_000, 100.0));
+    let total_files = args.files.unwrap_or(default_files);
+    let target_logical_gb = match args.logical_gb {
+        Some(gb) => Some(gb),
+        None => scale_preset.spec().map(|(_, gb)| gb),
+    };
+
     println!(
-        "[fs-mirage] Generating deterministic topology (files={}, seed={}, logical_gb={:?}, max_physical_mb={})...",
-        args.files, args.seed, args.logical_gb, args.max_physical_mb
+        "[fs-mirage] Generating deterministic topology (preset={}, files={}, seed={}, logical_gb={:?}, max_physical_mb={})...",
+        scale_preset.as_str(),
+        total_files,
+        args.seed,
+        target_logical_gb,
+        args.max_physical_mb
     );
 
     let cfg = TopologyConfig {
-        total_files: args.files,
+        preset: scale_preset.as_str().to_string(),
+        total_files,
         seed: args.seed,
-        target_logical_gb: args.logical_gb,
+        target_logical_gb,
         max_physical_mb: args.max_physical_mb,
     };
 

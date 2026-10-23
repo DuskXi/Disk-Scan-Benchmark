@@ -36,6 +36,7 @@ def generate_report(
     arch_name = baseline.get("arch", "unknown")
     cores = baseline.get("logical_cores", 1)
 
+    preset_name = gt.get("preset", "custom")
     total_files = int(gt.get("total_files", 0))
     total_dirs = int(gt.get("total_dirs", 0))
     apparent_bytes = int(gt.get("apparent_size_bytes", 0))
@@ -106,6 +107,7 @@ def generate_report(
         "",
         "| Property | Ground Truth Value | Notes |",
         "| :--- | :--- | :--- |",
+        f"| **Scale Preset Tier** | `{preset_name}` | Configurable scale preset (`very-lite` / `lite` / `low` / `mid` / `high` / `very-high`) |",
         f"| **Total File Items** | `{total_files:,}` | Includes `{hardlinks:,}` Hard Links & `{symlinks:,}` Symlinks/Loop Traps |",
         f"| **Total Directories** | `{total_dirs:,}` | Deep chains (8-25 levels) + Flat high-density buckets |",
         f"| **Apparent Logical Size** | `{format_bytes_gib(apparent_bytes)}` (`{apparent_bytes:,} B`) | Deduplicated logical volume across all zones |",
@@ -134,8 +136,8 @@ def generate_report(
         [
             "",
             "### Metric Definitions",
-            "- **$\\eta_{\\text{io}}$ (Cold Cache I/O Efficiency)**: $\\frac{\\text{Scanner Cold Speed (files/sec)}}{B_{\\text{meta}}} \\times 100\\%$. Standard filesystem API scanners fall within `0% ~ 100%`; raw `$MFT` bypass engines (e.g., WizTree on NTFS) can exceed `500%+`.",
-            "- **Warm CPU Cost Ratio**: $\\frac{T_{\\text{scanner\\_warm}}}{T_{\\text{baseline\\_cpu}}}$. Lower values indicate less user-space tree construction, string allocation, and sorting overhead.",
+            "- **$\\eta_{\\text{io}}$ (Cold Cache I/O Efficiency)**: $\\eta_{\\text{io}} = \\frac{\\text{Scanner Cold Speed}}{B_{\\text{meta}}} \\times 100$ (%). Standard filesystem API scanners fall within `0% ~ 100%`; raw `$MFT` bypass engines (e.g., WizTree on NTFS) can exceed `500%+`.",
+            "- **Warm CPU Cost Ratio**: $\\text{CPU Cost Ratio} = \\frac{T_{\\text{scanner-warm}}}{T_{\\text{baseline-cpu}}}$. Lower values indicate less user-space tree construction, string allocation, and sorting overhead.",
             "- **Accuracy Diff %**: Percentage deviation between scanner-reported volume size and `ground_truth.json` (reveals hard-link double counting or sparse block miscalculation).",
             "",
         ]

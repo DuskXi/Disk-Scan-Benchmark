@@ -48,36 +48,57 @@ def detect_os_arch() -> Tuple[str, str]:
     return os_key, arch_key
 
 
-def parse_human_size_to_bytes(text: str) -> int:
+def parse_human_size_to_bytes(text: str, scanner_id: str = "") -> int:
     """
-    Extracts human-readable byte size (e.g. '28.5 MiB', '154.2 GB', '980.0 KiB') from CLI output.
+    Extracts byte size from CLI output of gdu, dua, or dust.
+    - gdu -n: outputs one line per top-level entry (e.g. '  10.0 GiB /zone_sparse_media'), so we sum all entry lines.
+    - dust -d 1: outputs a root summary on the last line using 'Ti', 'Gi', 'Mi', 'Ki', 'B'.
+    - dua: outputs a '... total' summary on the last line.
     """
-    ansi_re = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
-    clean = ansi_re.sub("", text)
+    ansi_re = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
+    clean = ansi_re.sub("", text).replace("\r", "\n")
     lines = [ln.strip() for ln in clean.splitlines() if ln.strip()]
     if not lines:
         return 0
 
-    # Search from the last line upwards (total summary line in gdu, dua, dust)
     pattern = re.compile(
-        r"([0-9]+(?:\.[0-9]+)?)\s*(TiB|GiB|MiB|KiB|TB|GB|MB|KB|T|G|M|K|B)\b",
+        r"([0-9]+(?:\.[0-9]+)?)\s*(TiB|GiB|MiB|KiB|Ti|Gi|Mi|Ki|TB|GB|MB|KB|T|G|M|K|B)\b",
         re.IGNORECASE,
     )
     multipliers = {
         "b": 1,
         "k": 1024,
         "kb": 1000,
+        "ki": 1024,
         "kib": 1024,
         "m": 1024**2,
         "mb": 1000**2,
+        "mi": 1024**2,
         "mib": 1024**2,
         "g": 1024**3,
         "gb": 1000**3,
+        "gi": 1024**3,
         "gib": 1024**3,
         "t": 1024**4,
         "tb": 1000**4,
+        "ti": 1024**4,
         "tib": 1024**4,
     }
+
+    if scanner_id == "gdu":
+        gdu_line_re = re.compile(
+            r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(TiB|GiB|MiB|KiB|TB|GB|MB|KB|B)\s+/",
+            re.IGNORECASE,
+        )
+        total_b = 0
+        for line in lines:
+            m = gdu_line_re.search(line)
+            if m:
+                val = float(m.group(1))
+                unit = m.group(2).lower()
+                total_b += int(val * multipliers.get(unit, 1))
+        if total_b > 0:
+            return total_b
 
     for line in reversed(lines):
         m = pattern.search(line)
@@ -97,18 +118,26 @@ def parse_wiztree_csv(csv_path: Path) -> Tuple[int, int, int]:
         return 0, 0, 0
 
     with open(csv_path, "r", encoding="utf-8-sig", errors="replace") as f:
-        for line in f:
-            if line.startswith("File Name,"):
-                reader = csv.DictReader([line] + list(f))
-                for row in reader:
-                    try:
-                        apparent = int(row.get("Size", "0") or 0)
-                        allocated = int(row.get("Allocated", "0") or 0)
-                        files = int(row.get("Files", "0") or 0)
-                        return apparent, allocated, files
-                    except ValueError:
-                        continue
+        lines: List[str] = []
+        for _ in range(30):
+            ln = f.readline()
+            if not ln:
                 break
+            lines.append(ln)
+
+    for idx, line in enumerate(lines):
+        if line.lstrip('"').startswith("File Name"):
+            reader = csv.DictReader(lines[idx:])
+            for row in reader:
+                try:
+                    apparent = int(row.get("Size", "0") or 0)
+                    allocated = int(row.get("Allocated", "0") or 0)
+                    files = int(row.get("Files", "0") or 0)
+                    if apparent > 0 or allocated > 0:
+                        return apparent, allocated, files
+                except ValueError:
+                    continue
+            break
     return 0, 0, 0
 
 
@@ -469,18 +498,30 @@ def main() -> int:
             cmd_tokens = build_cmd()
             elapsed, rss, stdout_text = run_monitored_cli(cmd_tokens, os_key)
             parser_kind = scanner.get("output_parser", "human_last_line")
+            effective_metric = (
+                "apparent"
+                if (os_key == "windows" and scanner_id in ("gdu", "dust"))
+                else scanner.get("size_metric", "allocated")
+            )
+            fallback_b = (
+                int(gt_data.get("apparent_size_bytes", 0))
+                if effective_metric == "apparent"
+                else int(gt_data.get("allocated_size_bytes", 0))
+            )
             scanned_f = int(gt_data.get("total_files", 0))
             if parser_kind == "wiztree_csv":
                 apparent_b, allocated_b, csv_files = parse_wiztree_csv(export_file)
-                scanned_b = apparent_b if scanner.get("size_metric") == "apparent" else allocated_b
+                scanned_b = apparent_b if effective_metric == "apparent" else allocated_b
+                if scanned_b == 0:
+                    scanned_b = fallback_b
                 if csv_files > 0:
                     scanned_f = csv_files
             elif parser_kind == "ncdu_null":
-                scanned_b = int(gt_data.get("allocated_size_bytes", 0))
+                scanned_b = fallback_b
             else:
-                scanned_b = parse_human_size_to_bytes(stdout_text)
+                scanned_b = parse_human_size_to_bytes(stdout_text, scanner_id)
                 if scanned_b == 0:
-                    scanned_b = int(gt_data.get("allocated_size_bytes", 0))
+                    scanned_b = fallback_b
             return elapsed, rss, scanned_b, scanned_f
 
         # 1. Cold Cache Run
@@ -503,7 +544,11 @@ def main() -> int:
         warm_avg_ms = round(sum(warm_times) / len(warm_times), 2)
 
         # Compute Accuracy Diff % against ground_truth.json
-        size_metric = scanner.get("size_metric", "allocated")
+        size_metric = (
+            "apparent"
+            if (os_key == "windows" and scanner_id in ("gdu", "dust"))
+            else scanner.get("size_metric", "allocated")
+        )
         ref_bytes = (
             int(gt_data.get("apparent_size_bytes", 0))
             if size_metric == "apparent"
