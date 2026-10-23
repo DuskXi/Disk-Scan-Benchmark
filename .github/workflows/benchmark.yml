@@ -204,39 +204,8 @@ jobs:
             --out "results/${{ matrix.target_label }}/raw_results.json" \
             --bin-dir "./bin"
 
-      - name: ReFS Cross-Check Pass - Create, Materialize & Scan (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          REFS_DIR="results/${{ matrix.target_label }}-refs"
-          mkdir -p "$REFS_DIR"
-          EXTRA_ARGS=()
-          if [ "${{ inputs.preset }}" = "custom" ]; then
-            if [ -n "${{ inputs.files }}" ]; then
-              EXTRA_ARGS+=(--files "${{ inputs.files }}")
-            fi
-            if [ -n "${{ inputs.logical_gb }}" ]; then
-              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
-            fi
-          fi
-          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 create "${{ inputs.disk_size_gb }}" "Y:/bench" refs
-          ./target/release/fs-mirage             --root "Y:/bench"             --preset "${{ inputs.preset }}"             --seed "${{ inputs.seed }}"             --max-physical-mb "${{ inputs.max_physical_mb }}"             --manifest-out "$REFS_DIR/ground_truth.json"             "${EXTRA_ARGS[@]}"
-          python ./scripts/wrappers/run_cli_scanners.py             --path "Y:/bench"             --ground-truth "$REFS_DIR/ground_truth.json"             --out "$REFS_DIR/raw_results.json"             --bin-dir "./bin"
-
-      - name: NTFS vs ReFS Cross-Filesystem Audit (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          python ./scripts/refs_audit.py             --ntfs-results "results/${{ matrix.target_label }}/raw_results.json"             --refs-results "results/${{ matrix.target_label }}-refs/raw_results.json"             --md-out "results/${{ matrix.target_label }}/refs_audit.md"
-          cat "results/${{ matrix.target_label }}/refs_audit.md" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Teardown ReFS Virtual Disk (Windows)
-        if: always() && runner.os == 'Windows'
-        shell: bash
-        run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "Y:/bench" || true
-
       - name: Generate Normalized Report & Append to Step Summary
+        if: runner.os != 'Windows'  # Windows report is produced by windows-summary after the ReFS cross-check
         shell: bash
         run: |
           python ./scripts/report_gen.py \
@@ -325,5 +294,138 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-${{ matrix.target_label }}-${{ inputs.preset }}
+          path: results/
+          retention-days: 30
+
+  benchmark-refs:
+    name: "Bench (windows-x86_64-refs | ${{ inputs.preset }})"
+    runs-on: windows-latest
+    env:
+      LABEL: windows-x86_64-refs
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Core Engines (fs-mirage & hw-probe)
+        shell: bash
+        run: cargo build --release --workspace
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: "Create & Mount Dynamic ReFS VHDX (Windows)"
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ inputs.disk_size_gb }}" "X:/bench" refs
+
+      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
+        shell: bash
+        run: |
+          mkdir -p "results/$LABEL"
+          EXTRA_ARGS=()
+          if [ "${{ inputs.preset }}" = "custom" ]; then
+            if [ -n "${{ inputs.files }}" ]; then
+              EXTRA_ARGS+=(--files "${{ inputs.files }}")
+            fi
+            if [ -n "${{ inputs.logical_gb }}" ]; then
+              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
+            fi
+          fi
+          ./target/release/fs-mirage \
+            --root "X:/bench" \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "results/$LABEL/ground_truth.json" \
+            "${EXTRA_ARGS[@]}"
+
+      - name: Run All Windows Scanners on ReFS
+        shell: bash
+        run: |
+          python ./scripts/wrappers/run_cli_scanners.py \
+            --path "X:/bench" \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --out "results/$LABEL/raw_results.json" \
+            --bin-dir "./bin"
+
+      - name: Teardown ReFS Virtual Disk
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+      - name: Upload ReFS Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-windows-x86_64-refs-${{ inputs.preset }}
+          path: results/
+          retention-days: 30
+
+  windows-summary:
+    name: "Windows NTFS+ReFS Summary (${{ inputs.preset }})"
+    needs: [benchmark, benchmark-refs]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download NTFS & ReFS Windows Results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-results-windows-x86_64*-${{ inputs.preset }}
+          path: results/
+          merge-multiple: true
+
+      - name: NTFS vs ReFS Cross-Filesystem Audit & Windows Report
+        shell: bash
+        run: |
+          N="results/windows-x86_64"
+          R="results/windows-x86_64-refs"
+          if [ ! -f "$N/raw_results.json" ]; then
+            echo "::error::NTFS raw_results.json missing; cannot build Windows report"
+            exit 1
+          fi
+          if [ -f "$R/raw_results.json" ]; then
+            python ./scripts/refs_audit.py \
+              --ntfs-results "$N/raw_results.json" \
+              --refs-results "$R/raw_results.json" \
+              --md-out "$N/refs_audit.md"
+          else
+            echo "> [!WARNING]
+          > ReFS run produced no results; NTFS vs ReFS cross-check skipped." > "$N/refs_audit.md"
+          fi
+
+          python ./scripts/report_gen.py \
+            --ground-truth "$N/ground_truth.json" \
+            --baseline "$N/baseline.json" \
+            --raw-results "$N/raw_results.json" \
+            --out "$N/benchmark_report.md" \
+            --json-out "$N/normalized_results.json" \
+            --title-suffix "(windows-x86_64 | ${{ inputs.preset }})"
+
+          cat "$N/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat "$N/refs_audit.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Final Windows Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-windows-final-${{ inputs.preset }}
           path: results/
           retention-days: 30
