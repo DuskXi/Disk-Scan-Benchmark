@@ -87,8 +87,10 @@ def generate_report(
         }
         normalized_rows.append(row)
 
-    # Sort by Cold Cache time ascending (fastest first)
+    # Sort by Cold Cache time ascending (fastest first); rows that failed the traversal sanity check are not ranked
     normalized_rows.sort(key=lambda r: r["cold_time_ms"])
+    invalid_rows = [r for r in normalized_rows if r.get("valid", True) is False]
+    ranked_rows = [r for r in normalized_rows if r.get("valid", True) is not False]
 
     header_title = f"# Disk Scanner Benchmark Report {title_suffix}".strip()
     lines = [
@@ -119,7 +121,7 @@ def generate_report(
         "| :---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
 
-    for idx, r in enumerate(normalized_rows, start=1):
+    for idx, r in enumerate(ranked_rows, start=1):
         lines.append(
             f"| {idx} | **{r['scanner']}** | `{r.get('version', '-')}` "
             f"| `{r['cold_time_ms']:,.1f}` "
@@ -131,6 +133,22 @@ def generate_report(
             f"| `{r['accuracy_diff_pct']:+.2f}%` "
             f"| `{r['projected_nvme_1m_sec']:.2f}s` |"
         )
+
+    if invalid_rows:
+        lines.extend(
+            [
+                "",
+                "### Excluded (failed traversal sanity check)",
+                "",
+                "| Scanner | Version | Raw Cold (ms) | Raw Warm (ms) | Reason |",
+                "| :--- | :--- | ---: | ---: | :--- |",
+            ]
+        )
+        for r in invalid_rows:
+            lines.append(
+                f"| **{r['scanner']}** | `{r.get('version', '-')}` | `{r['cold_time_ms']:,.1f}` "
+                f"| `{r['warm_time_ms']:,.1f}` | {r.get('invalid_reason', '-')} |"
+            )
 
     lines.extend(
         [

@@ -261,6 +261,12 @@ $PeakRssMb = [Math]::Round(($PeakRssBytes / (1024.0 * 1024.0)), 2)
 
 $ResultObj = [ordered]@{
     exe = $ExePath
+    launched_non_admin = [bool]($StartedPid -gt 0)
+    # Cumulative directory-enumeration (Other) / file-content (Read) I/O ops issued by the scanner process.
+    # Used by run_cli_scanners.py as a sanity check: a real traversal of N directories must issue >= N
+    # NtQueryDirectoryFile calls, so near-zero OtherOps means the GUI never actually scanned (e.g. blocked by a dialog).
+    other_ops_total = [uint64]$PrevOtherOps
+    read_ops_total = [uint64]$PrevReadOps
     with_gui_render = [bool]$WithGuiRender
     elapsed_ms = [Math]::Round($DeductedMs, 2)
     raw_elapsed_ms = [Math]::Round($TotalRawMs, 2)

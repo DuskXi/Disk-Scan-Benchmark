@@ -547,6 +547,33 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
     return None
 
 
+def configure_windows_gui_scanner(scanner_id: str, os_key: str) -> None:
+    """
+    Applies per-user settings that force Windows GUI scanners onto standard Win32 directory traversal
+    (no MFT / Backup-privilege fast paths) and disable extra work unrelated to size scanning.
+    Must run before every benchmark (not only at install time) because cached binaries skip the installer.
+    """
+    if os_key != "windows":
+        return
+    if scanner_id == "windirstat":
+        # WinDirStat 2.x stores options under HKCU\Software\WinDirStat\WinDirStat\<Section>
+        reg_values = [
+            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "UseFastScanEngine", 0),  # MFT engine when elevated
+            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "UseBackupRestore", 0),   # SeBackupPrivilege
+            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "AutoElevate", 0),
+            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "ShowElevationPrompt", 0),
+            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "PacmanAnimation", 0),
+            (r"HKCU\Software\WinDirStat\WinDirStat\DupeView", "ScanForDuplicates", 0),  # no content hashing
+        ]
+        for key, name, val in reg_values:
+            subprocess.run(
+                ["reg", "add", key, "/v", name, "/t", "REG_DWORD", "/d", str(val), "/f"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+
+
 def prewarm_scanner_binary(scanner: Dict[str, Any], bin_path: str, os_key: str) -> None:
     """
     Performs a lightweight dry-launch of the scanner binary BEFORE invoke_purge_cache and the Cold Cache run.
@@ -719,6 +746,9 @@ def main() -> int:
                 payload = json.loads(lines[-1]) if lines else {}
                 elapsed = float(payload.get("elapsed_ms", 0.0))
                 rss = float(payload.get("peak_rss_mb", 0.0))
+                gui_io_samples.append(
+                    (int(payload.get("other_ops_total", 0) or 0), bool(payload.get("launched_non_admin", False)))
+                )
                 # GUI tools do not export machine-readable totals; report ground truth apparent size for tree coverage
                 scanned_b = int(gt_data.get("apparent_size_bytes", 0))
                 scanned_f = int(gt_data.get("total_files", 0))
@@ -760,6 +790,8 @@ def main() -> int:
             return elapsed, rss, scanned_b, scanned_f
 
         # 0. Pre-warm binary executable (eliminates Windows Defender / DLL cold-start noise without touching scan_path)
+        gui_io_samples: List[Tuple[int, bool]] = []
+        configure_windows_gui_scanner(scanner_id, os_key)
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
         # 1. Cold Cache Run
@@ -780,6 +812,24 @@ def main() -> int:
             print(f"  [Warm #{w_idx + 1}]   {w_ms:.2f} ms | Peak RSS: {w_rss:.2f} MB")
 
         warm_avg_ms = round(sum(warm_times) / len(warm_times), 2)
+
+        # Sanity check for GUI scanners whose totals cannot be parsed: a real traversal of N directories
+        # must issue at least N directory-enumeration (Other) I/O operations. If not, the GUI never scanned
+        # (e.g. blocked by a license / elevation dialog) and its timing must not be ranked.
+        valid = True
+        invalid_reason = ""
+        if scanner["runner_type"] == "win_gui" and gui_io_samples:
+            min_other_ops = min(s[0] for s in gui_io_samples)
+            expected_min_ops = int(gt_data.get("total_dirs", 0))
+            if expected_min_ops > 0 and min_other_ops < expected_min_ops:
+                valid = False
+                invalid_reason = (
+                    f"no real traversal detected: OtherOps={min_other_ops:,} < total_dirs={expected_min_ops:,}"
+                )
+            if not all(s[1] for s in gui_io_samples):
+                invalid_reason = (invalid_reason + "; " if invalid_reason else "") + "non-admin launch fell back to elevated token"
+                valid = False
+            print(f"  [Sanity] min OtherOps={min_other_ops:,} | valid={valid} {invalid_reason}")
 
         # Compute Accuracy Diff % against ground_truth.json
         size_metric = (
@@ -813,6 +863,8 @@ def main() -> int:
                 "scanned_bytes": scanned_bytes,
                 "reference_bytes": ref_bytes,
                 "accuracy_diff_pct": accuracy_diff_pct,
+                "valid": valid,
+                "invalid_reason": invalid_reason,
             }
         )
 
