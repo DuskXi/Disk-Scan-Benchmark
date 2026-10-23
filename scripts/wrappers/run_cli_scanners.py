@@ -762,6 +762,9 @@ def prewarm_scanner_binary(scanner: Dict[str, Any], bin_path: str, os_key: str) 
 
 
 def main() -> int:
+    # Windows runners default stdout to cp1252, which cannot encode the status emoji in log lines
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Run disk space scanner benchmarks across CLI and GUI tools")
     parser.add_argument("--path", default=".", help="Root path of the benchmark volume to scan")
     parser.add_argument("--ground-truth", default="ground_truth.json", help="Path to ground_truth.json")

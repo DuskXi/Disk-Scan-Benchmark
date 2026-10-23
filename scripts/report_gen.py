@@ -265,6 +265,7 @@ def generate_report(
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Generate Markdown & JSON benchmark reports")
     parser.add_argument("--ground-truth", default="ground_truth.json", help="Path to ground_truth.json")
     parser.add_argument("--baseline", default="baseline.json", help="Path to baseline.json")
