@@ -28,6 +28,7 @@ def generate_report(
     baseline: Dict[str, Any],
     raw_results: List[Dict[str, Any]],
     title_suffix: str = "",
+    cross_fs_checked: bool = False,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     b_meta = float(baseline.get("b_meta_files_per_sec", 1.0)) or 1.0
     b_seq = float(baseline.get("b_seq_mb_per_sec", 1.0)) or 1.0
@@ -185,9 +186,10 @@ def generate_report(
                 f"| `{r['warm_time_ms']:,.1f}` | `{r['accuracy_diff_pct']:+.2f}%` | {reason} |"
             )
     else:
-        lines.append(
-            "> [!NOTE]\n> 所有参与测试的扫描器均通过了扫描边界、真实目录遍历完整性与 NTFS/ReFS 跨文件系统一致性核验，无违规或失败成绩。"
-        )
+        checks = "扫描边界与真实目录遍历完整性核验"
+        if cross_fs_checked:
+            checks += "，以及 NTFS/ReFS 跨文件系统一致性核验（排除 $MFT 逃逸）"
+        lines.append(f"> [!NOTE]\n> 所有参与测试的扫描器均通过了{checks}，无违规或失败成绩。")
 
     # Section 5: Directory Structure Sampling Comparison Table
     lines.extend(
@@ -275,6 +277,11 @@ def main() -> int:
     parser.add_argument("--out", default="benchmark_report.md", help="Output Markdown report path")
     parser.add_argument("--json-out", default="normalized_results.json", help="Output normalized JSON path")
     parser.add_argument("--title-suffix", default="", help="Optional suffix for report heading")
+    parser.add_argument(
+        "--cross-fs-checked",
+        action="store_true",
+        help="Mention the NTFS/ReFS cross-filesystem audit in the all-clear note (Windows only)",
+    )
     args = parser.parse_args()
 
     with open(args.ground_truth, "r", encoding="utf-8") as f:
@@ -284,7 +291,7 @@ def main() -> int:
     with open(args.raw_results, "r", encoding="utf-8") as f:
         raw_results = json.load(f)
 
-    md_text, norm_rows = generate_report(gt, baseline, raw_results, args.title_suffix)
+    md_text, norm_rows = generate_report(gt, baseline, raw_results, args.title_suffix, args.cross_fs_checked)
 
     out_md = Path(args.out)
     out_md.parent.mkdir(parents=True, exist_ok=True)

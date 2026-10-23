@@ -6,8 +6,9 @@ ReFS has no $MFT, so a scanner that quietly parses the raw NTFS MFT instead of w
 directory tree gets a large speed-up on NTFS that disappears on ReFS. Honest API-based scanners
 slow down by roughly the same factor when moving NTFS -> ReFS. This script computes, per scanner,
 the ratio  refs_time / ntfs_time  (cold and warm), takes the median ratio over all scanners as the
-"overall average difference", and flags scanners whose own ratio deviates from it by more than
---max-deviation (in either direction) as cheating.
+"overall average difference", and flags scanners whose own ratio exceeds it by more than
+--max-deviation as cheating. Only the slow side is suspicious: a scanner that is relatively FASTER on
+ReFS than the others cannot be using the MFT, so it is never flagged.
 
 Flagged scanners are marked valid=False / DISQUALIFIED in BOTH raw_results files (in place), so
 report_gen.py ranks them nowhere and lists them in its disqualification audit.
@@ -53,9 +54,9 @@ def audit(ntfs: List[Dict[str, Any]], refs: List[Dict[str, Any]], max_dev: float
             r = ratios[m][sid]
             dev = r / center
             info[m] = {"refs_over_ntfs": round(r, 3), "relative_to_median": round(dev, 3)}
-            if dev > max_dev or dev < 1.0 / max_dev:
+            if dev > max_dev:
                 report["flagged"].setdefault(sid, []).append(
-                    f"{m} ReFS/NTFS ratio {r:.2f}x is {dev:.2f}x the overall median {center:.2f}x (allowed 1/{max_dev:g}..{max_dev:g})"
+                    f"{m} ReFS/NTFS ratio {r:.2f}x is {dev:.2f}x the overall median {center:.2f}x (allowed up to {max_dev:g}x)"
                 )
         report["scanners"][sid] = info
     return report
@@ -83,7 +84,7 @@ def render_md(report: Dict[str, Any], names: Dict[str, str]) -> str:
     lines.append(
         "Median ReFS/NTFS slowdown: "
         + ", ".join(f"`{m}` = {v:.2f}x" for m, v in c.items())
-        + f". Scanners deviating more than {report['max_deviation']:g}x from the median are disqualified."
+        + f". Scanners that slow down more than {report['max_deviation']:g}x beyond the median (relatively slower on ReFS) are disqualified; being relatively faster on ReFS is fine."
     )
     lines += [
         "",

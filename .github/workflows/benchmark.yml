@@ -439,7 +439,8 @@ jobs:
             --raw-results "$N/raw_results.json" \
             --out "$N/benchmark_report.md" \
             --json-out "$N/normalized_results.json" \
-            --title-suffix "(windows-x86_64 | ${{ inputs.preset }})"
+            --title-suffix "(windows-x86_64 | ${{ inputs.preset }})" \
+            --cross-fs-checked
 
           cat "$N/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
