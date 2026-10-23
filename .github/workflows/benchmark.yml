@@ -8,7 +8,7 @@ run-name: >-
   inputs.preset == 'mid' && '3M files / 1TB' ||
   inputs.preset == 'high' && '5M files / 2TB' ||
   inputs.preset == 'very-high' && '9M files / 3TB' ||
-  format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }} | ${{ substr(github.sha, 0, 7) }}
+  format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }}
 
 on:
   # Triggered exclusively via manual workflow_dispatch (no schedule / cron)
