@@ -252,6 +252,12 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
         subprocess.run(["brew", "install", pkg], check=False)
         return shutil.which(scanner_id)
 
+    if spec.startswith("apt:"):
+        pkg = spec.split(":", 1)[1]
+        subprocess.run(["sudo", "apt-get", "update", "-qq"], check=False)
+        subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", pkg], check=False)
+        return shutil.which(scanner_id)
+
     if spec.startswith("choco:"):
         parts = spec.split(":")
         pkg = parts[1]
@@ -274,8 +280,16 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
         archive_name = spec.split("/")[-1]
         archive_path = tmp_dir / archive_name
         req = urllib.request.Request(spec, headers={"User-Agent": "disk-scanner-bench/0.1"})
-        with urllib.request.urlopen(req, timeout=120) as resp, open(archive_path, "wb") as out_f:
-            shutil.copyfileobj(resp, out_f)
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp, open(archive_path, "wb") as out_f:
+                shutil.copyfileobj(resp, out_f)
+        except Exception as dl_err:
+            if os_key == "linux" and scanner_id == "ncdu":
+                print(f"[installer] Direct download failed ({dl_err}); falling back to apt-get install ncdu...")
+                subprocess.run(["sudo", "apt-get", "update", "-qq"], check=False)
+                subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "ncdu"], check=False)
+                return shutil.which("ncdu")
+            raise
 
         extract_dir = tmp_dir / "extracted"
         extract_dir.mkdir(parents=True, exist_ok=True)

@@ -63,12 +63,12 @@ jobs:
             platform: macos
             arch: x86_64
             target_label: macos-x86_64
-            mount_path: /Volumes/BenchVol
+            mount_path: /tmp/BenchVol
           - os: macos-15
             platform: macos
             arch: aarch64
             target_label: macos-arm64
-            mount_path: /Volumes/BenchVol
+            mount_path: /tmp/BenchVol
 
           # Windows x86_64
           - os: windows-latest

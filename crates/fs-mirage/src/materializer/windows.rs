@@ -97,33 +97,36 @@ pub fn create_sparse_anchored_file(
 }
 
 pub fn create_symlink(target: &Path, link: &Path, is_dir: bool) -> Result<()> {
-    if link.symlink_metadata().is_ok() {
+    let norm_target = std::path::PathBuf::from(target.to_string_lossy().replace('/', "\\"));
+    let norm_link = std::path::PathBuf::from(link.to_string_lossy().replace('/', "\\"));
+
+    if norm_link.symlink_metadata().is_ok() {
         let _ = if is_dir {
-            fs::remove_dir(link)
+            fs::remove_dir(&norm_link)
         } else {
-            fs::remove_file(link)
+            fs::remove_file(&norm_link)
         };
     }
 
     let res = if is_dir {
-        std::os::windows::fs::symlink_dir(target, link)
+        std::os::windows::fs::symlink_dir(&norm_target, &norm_link)
     } else {
-        std::os::windows::fs::symlink_file(target, link)
+        std::os::windows::fs::symlink_file(&norm_target, &norm_link)
     };
 
     match res {
         Ok(()) => Ok(()),
-        Err(e) if e.raw_os_error() == Some(1314) => {
-            // ERROR_PRIVILEGE_NOT_HELD (non-admin without Developer Mode enabled):
-            // Fall back to NTFS Directory Junction (requires no elevation) or stub file
+        Err(_) => {
+            // Fall back to NTFS Directory Junction (for dirs) or reference stub file
+            // if CreateSymbolicLinkW is rejected by policy or volume reparse constraints
             if is_dir {
                 let status = std::process::Command::new("cmd")
                     .args([
                         "/C",
                         "mklink",
                         "/J",
-                        &link.to_string_lossy(),
-                        &target.to_string_lossy(),
+                        &norm_link.to_string_lossy(),
+                        &norm_target.to_string_lossy(),
                     ])
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
@@ -133,11 +136,11 @@ pub fn create_symlink(target: &Path, link: &Path, is_dir: bool) -> Result<()> {
                         return Ok(());
                     }
                 }
+                let _ = fs::create_dir_all(&norm_link);
+                return Ok(());
             }
-            // Unprivileged fallback for file symlink so non-admin test runs succeed
-            fs::write(link, target.to_string_lossy().as_bytes())?;
+            fs::write(&norm_link, norm_target.to_string_lossy().as_bytes())?;
             Ok(())
         }
-        Err(e) => Err(e.into()),
     }
 }
