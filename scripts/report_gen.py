@@ -138,9 +138,7 @@ def generate_report(
             z_files = int(z_data.get("files", 0))
             z_dirs = int(z_data.get("dirs", 0))
             z_bytes = int(z_data.get("apparent_size_bytes", 0))
-            lines.append(
-                f"| `{z_name}` | {desc} | `{z_files:,}` | `{z_dirs:,}` | `{format_bytes_gib(z_bytes)}` |"
-            )
+            lines.append(f"| `{z_name}` | {desc} | `{z_files:,}` | `{z_dirs:,}` | `{format_bytes_gib(z_bytes)}` |")
 
     lines.extend(
         [
@@ -187,7 +185,9 @@ def generate_report(
                 f"| `{r['warm_time_ms']:,.1f}` | `{r['accuracy_diff_pct']:+.2f}%` | {reason} |"
             )
     else:
-        lines.append("> [!NOTE]\n> 所有参与测试的扫描器均通过了扫描边界、真实目录遍历完整性与 NTFS/ReFS 跨文件系统一致性核验，无违规或失败成绩。")
+        lines.append(
+            "> [!NOTE]\n> 所有参与测试的扫描器均通过了扫描边界、真实目录遍历完整性与 NTFS/ReFS 跨文件系统一致性核验，无违规或失败成绩。"
+        )
 
     # Section 5: Directory Structure Sampling Comparison Table
     lines.extend(
@@ -205,7 +205,11 @@ def generate_report(
     # Format Ground Truth reference row
     gt_deep_str = f"{gt_zones.get('zone_deep', {}).get('files', 0):,} files" if gt_zones else "-"
     gt_flat_str = f"{gt_zones.get('zone_flat_cache', {}).get('files', 0):,} files" if gt_zones else "-"
-    gt_media_bytes = int(gt_zones.get("zone_sparse_media", {}).get("apparent_size_bytes", apparent_bytes)) if gt_zones else apparent_bytes
+    gt_media_bytes = (
+        int(gt_zones.get("zone_sparse_media", {}).get("apparent_size_bytes", apparent_bytes))
+        if gt_zones
+        else apparent_bytes
+    )
     gt_media_str = format_bytes_gib(gt_media_bytes)
     gt_edge_str = f"{gt_zones.get('zone_edge', {}).get('files', 0):,} files" if gt_zones else "-"
 
@@ -221,9 +225,7 @@ def generate_report(
                 note = "N/A (GUI Monitor)"
             else:
                 note = "N/A (Summary-only)"
-            lines.append(
-                f"| **{r['scanner']}** | `{note}` | `{note}` | `{note}` | `{note}` |"
-            )
+            lines.append(f"| **{r['scanner']}** | `{note}` | `{note}` | `{note}` | `{note}` |")
             continue
 
         def _fmt_zone(z_name: str) -> str:
@@ -265,7 +267,7 @@ def generate_report(
 
 
 def main() -> int:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     parser = argparse.ArgumentParser(description="Generate Markdown & JSON benchmark reports")
     parser.add_argument("--ground-truth", default="ground_truth.json", help="Path to ground_truth.json")
     parser.add_argument("--baseline", default="baseline.json", help="Path to baseline.json")
@@ -307,4 +309,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     from typing import Tuple
+
     sys.exit(main())

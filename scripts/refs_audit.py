@@ -63,7 +63,7 @@ def audit(ntfs: List[Dict[str, Any]], refs: List[Dict[str, Any]], max_dev: float
 
 def apply_flags(entries: List[Dict[str, Any]], flagged: Dict[str, List[str]], fs_label: str) -> None:
     for e in entries:
-        reasons = flagged.get(e.get("id"))
+        reasons = flagged.get(e["id"])
         if not reasons:
             continue
         e["valid"] = False
@@ -85,7 +85,11 @@ def render_md(report: Dict[str, Any], names: Dict[str, str]) -> str:
         + ", ".join(f"`{m}` = {v:.2f}x" for m, v in c.items())
         + f". Scanners deviating more than {report['max_deviation']:g}x from the median are disqualified."
     )
-    lines += ["", "| Scanner | " + " | ".join(f"{m} ReFS/NTFS (vs median)" for m in c) + " | Verdict |", "| :--- | " + " | ".join("---:" for _ in c) + " | :---: |"]
+    lines += [
+        "",
+        "| Scanner | " + " | ".join(f"{m} ReFS/NTFS (vs median)" for m in c) + " | Verdict |",
+        "| :--- | " + " | ".join("---:" for _ in c) + " | :---: |",
+    ]
     for sid, info in report["scanners"].items():
         cells = []
         for m in c:
@@ -97,12 +101,19 @@ def render_md(report: Dict[str, Any], names: Dict[str, str]) -> str:
 
 
 def main() -> int:
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     ap = argparse.ArgumentParser(description="NTFS vs ReFS cross-filesystem anti-cheat audit")
     ap.add_argument("--ntfs-results", required=True, help="raw_results.json from the NTFS run (updated in place)")
     ap.add_argument("--refs-results", required=True, help="raw_results.json from the ReFS run (updated in place)")
-    ap.add_argument("--max-deviation", type=float, default=2.0, help="Max allowed factor between a scanner's ReFS/NTFS ratio and the median ratio")
-    ap.add_argument("--min-scanners", type=int, default=3, help="Minimum scanners valid on both filesystems needed to run the audit")
+    ap.add_argument(
+        "--max-deviation",
+        type=float,
+        default=2.0,
+        help="Max allowed factor between a scanner's ReFS/NTFS ratio and the median ratio",
+    )
+    ap.add_argument(
+        "--min-scanners", type=int, default=3, help="Minimum scanners valid on both filesystems needed to run the audit"
+    )
     ap.add_argument("--md-out", default="", help="Optional Markdown summary path")
     args = ap.parse_args()
 
