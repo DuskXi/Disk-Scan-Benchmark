@@ -287,29 +287,60 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
                 zf.extractall(extract_dir)
 
         target_bin = bin_dir / (scanner["name"] + exe_suffix if os_key == "windows" else scanner_id)
+        matched_files: List[Path] = []
+        cand_lower_set = {c.lower() for c in candidates}
         for root, _, files in os.walk(extract_dir):
             for fn in files:
                 fn_lower = fn.lower()
-                if any(fn_lower == c.lower() for c in candidates) or fn_lower.startswith(scanner_id.lower()):
-                    if fn_lower.endswith((".txt", ".md", ".1", ".csv", ".dll", ".pdb")):
-                        continue
-                    src_file = Path(root) / fn
-                    shutil.copy2(src_file, target_bin)
-                    if os_key != "windows":
-                        target_bin.chmod(target_bin.stat().st_mode | stat.S_IEXEC)
-                    return str(target_bin)
+                if os_key == "windows" and not fn_lower.endswith(".exe"):
+                    continue
+                if fn_lower.endswith((".txt", ".md", ".1", ".csv", ".dll", ".pdb", ".xml", ".ini", ".chm", ".pdf", ".html", ".sig", ".asc")):
+                    continue
+                if fn_lower in cand_lower_set or fn_lower.startswith(scanner_id.lower()):
+                    matched_files.append(Path(root) / fn)
+
+        if matched_files:
+            # Sort exact candidate filename matches first, and prefer architecture-matching subfolder (e.g. 'x64/WinDirStat.exe')
+            preferred_arch_token = "x64" if arch_key == "x86_64" else "arm64"
+            matched_files.sort(
+                key=lambda mf: (
+                    0 if mf.name.lower() in cand_lower_set else 1,
+                    0 if preferred_arch_token in [p.lower() for p in mf.parts] else 1,
+                )
+            )
+            chosen = matched_files[0]
+
+            shutil.copy2(chosen, target_bin)
+            if os_key != "windows":
+                target_bin.chmod(target_bin.stat().st_mode | stat.S_IEXEC)
+
+            # Create portable config files for WizTree / SpaceSniffer to suppress first-run dialogs
+            if scanner_id == "wiztree":
+                ini_path = bin_dir / "WizTree3.ini"
+                if not ini_path.exists():
+                    ini_path.write_text(
+                        "[frmWizTreeMain]\r\nactWindowsContextMenu_Checked=FALSE\r\nactRunAsAdmin_Checked=FALSE\r\n",
+                        encoding="ascii",
+                    )
+            elif scanner_id == "spacesniffer":
+                cfg_path = bin_dir / "SpaceSnifferConfig.xml"
+                if not cfg_path.exists():
+                    cfg_path.write_text("", encoding="utf-8")
+
+            return str(target_bin)
 
     return None
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run disk space scanner benchmarks across CLI and GUI tools")
-    parser.add_argument("--path", required=True, help="Root path of the benchmark volume to scan")
+    parser.add_argument("--path", default=".", help="Root path of the benchmark volume to scan")
     parser.add_argument("--ground-truth", default="ground_truth.json", help="Path to ground_truth.json")
     parser.add_argument("--out", default="raw_results.json", help="Output path for raw_results.json")
     parser.add_argument("--registry", default=None, help="Path to scanners_registry.json")
     parser.add_argument("--bin-dir", default="./bin", help="Directory to store/find downloaded scanner binaries")
     parser.add_argument("--install-missing", action="store_true", help="Automatically install missing scanners using pinned URLs")
+    parser.add_argument("--install-only", action="store_true", help="Only download/install pinned scanners for current platform and exit")
     parser.add_argument("--skip-purge", action="store_true", help="Skip OS disk-mgr purge-cache (for local folder runs)")
     parser.add_argument("--warm-runs", type=int, default=3, help="Number of consecutive Warm Cache runs to average (default: 3)")
     parser.add_argument("--scanners", default=None, help="Optional comma-separated filter of scanner IDs to run")
@@ -321,14 +352,28 @@ def main() -> int:
     with open(registry_path, "r", encoding="utf-8") as f:
         registry_data = json.load(f)
 
+    os_key, arch_key = detect_os_arch()
+    bin_dir = Path(args.bin_dir).resolve()
+
+    if args.install_only:
+        for scanner in registry_data.get("scanners", []):
+            if not scanner.get("enabled", True):
+                continue
+            if os_key not in scanner.get("platforms", []) or arch_key not in scanner.get("architectures", []):
+                continue
+            try:
+                installed = install_pinned_scanner(scanner, os_key, arch_key, bin_dir)
+                print(f"[provision] {scanner['name']} v{scanner['version']} -> {installed}")
+            except Exception as exc:
+                print(f"[provision] Warning: failed to install {scanner['name']}: {exc}", file=sys.stderr)
+        return 0
+
     gt_data: Dict[str, Any] = {}
     gt_path = Path(args.ground_truth)
     if gt_path.exists():
         with open(gt_path, "r", encoding="utf-8") as f:
             gt_data = json.load(f)
 
-    os_key, arch_key = detect_os_arch()
-    bin_dir = Path(args.bin_dir).resolve()
     scan_path = str(Path(args.path).resolve())
 
     allowed_ids = [s.strip() for s in args.scanners.split(",") if s.strip()] if args.scanners else None

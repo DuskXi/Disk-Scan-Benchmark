@@ -70,16 +70,16 @@ cargo run --release --bin fs-mirage -- \
 
 所有待测软件均在 [`scripts/wrappers/scanners_registry.json`](scripts/wrappers/scanners_registry.json) 中通过声明式规则管理，无需修改核心调度代码即可扩展新软件并锁定版本。
 
-### 3.1 当前内置软件列表（已锁定版本）
+### 3.1 当前内置软件列表（已锁定近期稳定版 / 多线程版）
 | ID | 名称 | 锁定版本 | 支持平台 | 支持架构 | 运行模式 | 校验口径 |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `gdu` | `gdu` | `5.29.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
-| `dua` | `dua-cli` | `2.29.2` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
-| `dust` | `dust` | `1.1.1` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
-| `ncdu` | `ncdu` | `2.7` | Linux, macOS | `x86_64`, `aarch64` | CLI | `allocated` |
-| `wiztree` | `WizTree64` | `4.23` | Windows | `x86_64` | CLI (`/export`) | `apparent` |
-| `spacesniffer` | `SpaceSniffer` | `1.3.0.2` | Windows | `x86_64` | `win_gui` | `apparent` |
-| `windirstat` | `WinDirStat` | `2.1.2` | Windows | `x86_64` | `win_gui` | `apparent` |
+| `gdu` | `gdu` | `5.38.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
+| `dua` | `dua-cli` | `2.46.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
+| `dust` | `dust` | `1.2.6` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
+| `ncdu` | `ncdu` | `2.9.2` | Linux, macOS | `x86_64`, `aarch64` | CLI | `allocated` |
+| `wiztree` | `WizTree64` | `4.33` | Windows | `x86_64` | CLI (`/export`) | `apparent` |
+| `spacesniffer` | `SpaceSniffer` | `2.2.0.27` | Windows | `x86_64` | `win_gui` (原生 x64) | `apparent` |
+| `windirstat` | `WinDirStat` | `2.9.3` | Windows | `x86_64` | `win_gui` (2.x 多线程引擎) | `apparent` |
 
 ### 3.2 新增待测程序规范
 在 [`scripts/wrappers/scanners_registry.json`](scripts/wrappers/scanners_registry.json) 的 `"scanners"` 数组中添加如下结构的对象即可自动纳入安装与评测流水线：

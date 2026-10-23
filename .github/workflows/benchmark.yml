@@ -59,12 +59,12 @@ jobs:
             mount_path: /mnt/bench
 
           # macOS x86_64 (Intel) & ARM64 (Apple Silicon)
-          - os: macos-13
+          - os: macos-15-intel
             platform: macos
             arch: x86_64
             target_label: macos-x86_64
             mount_path: /Volumes/BenchVol
-          - os: macos-14
+          - os: macos-15
             platform: macos
             arch: aarch64
             target_label: macos-arm64
@@ -106,18 +106,7 @@ jobs:
       - name: Install Pinned Target Scanners (Same-Runner Provisioning)
         shell: bash
         run: |
-          python3 -c '
-          import json, pathlib, sys
-          sys.path.insert(0, "scripts/wrappers")
-          import run_cli_scanners as r
-          os_key, arch_key = r.detect_os_arch()
-          reg = json.loads(pathlib.Path("scripts/wrappers/scanners_registry.json").read_text(encoding="utf-8"))
-          bin_dir = pathlib.Path("./bin").resolve()
-          for sc in reg["scanners"]:
-              if sc.get("enabled", True) and os_key in sc["platforms"] and arch_key in sc["architectures"]:
-                  path = r.install_pinned_scanner(sc, os_key, arch_key, bin_dir)
-                  print(f"[provision] {sc[\"name\"]} v{sc[\"version\"]} -> {path}")
-          '
+          python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
 
       - name: Create & Mount Virtual Disk Container (Linux / macOS)
         if: runner.os != 'Windows'
@@ -170,7 +159,7 @@ jobs:
       - name: Run All Platform Scanners Sequentially on Same Instance
         shell: bash
         run: |
-          python3 ./scripts/wrappers/run_cli_scanners.py \
+          python ./scripts/wrappers/run_cli_scanners.py \
             --path "${{ matrix.mount_path }}" \
             --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
             --out "results/${{ matrix.target_label }}/raw_results.json" \
@@ -179,7 +168,7 @@ jobs:
       - name: Generate Normalized Report & Append to Step Summary
         shell: bash
         run: |
-          python3 ./scripts/report_gen.py \
+          python ./scripts/report_gen.py \
             --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
             --baseline "results/${{ matrix.target_label }}/baseline.json" \
             --raw-results "results/${{ matrix.target_label }}/raw_results.json" \
@@ -227,13 +216,13 @@ jobs:
             --root "${{ matrix.mount_path }}" \
             --out "results/${RAM_LABEL}/baseline.json"
 
-          python3 ./scripts/wrappers/run_cli_scanners.py \
+          python ./scripts/wrappers/run_cli_scanners.py \
             --path "${{ matrix.mount_path }}" \
             --ground-truth "results/${RAM_LABEL}/ground_truth.json" \
             --out "results/${RAM_LABEL}/raw_results.json" \
             --bin-dir "./bin"
 
-          python3 ./scripts/report_gen.py \
+          python ./scripts/report_gen.py \
             --ground-truth "results/${RAM_LABEL}/ground_truth.json" \
             --baseline "results/${RAM_LABEL}/baseline.json" \
             --raw-results "results/${RAM_LABEL}/raw_results.json" \

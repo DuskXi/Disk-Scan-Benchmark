@@ -29,13 +29,13 @@
     }
   },
   "todo_platforms": [
-    "windows-arm64 (TODO: Add ARM64 Windows native scanner binaries and runner matrix once GitHub Actions public Windows ARM64 VHDX pipeline is enabled)"
+    "windows-arm64 (TODO: Enable Windows ARM64 runner matrix once GitHub Actions public windows-11-arm VHDX mounting and SpaceSniffer ARM64 support are available)"
   ],
   "scanners": [
     {
       "id": "gdu",
       "name": "gdu",
-      "version": "5.29.0",
+      "version": "5.38.0",
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["linux", "macos", "windows"],
@@ -44,17 +44,17 @@
       "command_template": ["{bin}", "-n", "{path}"],
       "output_parser": "human_last_line",
       "install": {
-        "linux_x86_64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_linux_amd64.tgz",
-        "linux_aarch64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_linux_arm64.tgz",
-        "macos_x86_64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_darwin_amd64.tgz",
-        "macos_aarch64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_darwin_arm64.tgz",
-        "windows_x86_64": "https://github.com/dundee/gdu/releases/download/v5.29.0/gdu_windows_amd64.exe.zip"
+        "linux_x86_64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_linux_amd64.tgz",
+        "linux_aarch64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_linux_arm64.tgz",
+        "macos_x86_64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_darwin_amd64.tgz",
+        "macos_aarch64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_darwin_arm64.tgz",
+        "windows_x86_64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_windows_amd64.exe.zip"
       }
     },
     {
       "id": "dua",
       "name": "dua-cli",
-      "version": "2.29.2",
+      "version": "2.46.0",
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["linux", "macos", "windows"],
@@ -63,17 +63,17 @@
       "command_template": ["{bin}", "{path}"],
       "output_parser": "human_last_line",
       "install": {
-        "linux_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-x86_64-unknown-linux-musl.tar.gz",
-        "linux_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-aarch64-unknown-linux-musl.tar.gz",
-        "macos_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-x86_64-apple-darwin.tar.gz",
-        "macos_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-aarch64-apple-darwin.tar.gz",
-        "windows_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.29.2/dua-v2.29.2-x86_64-pc-windows-msvc.zip"
+        "linux_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-x86_64-unknown-linux-musl.tar.gz",
+        "linux_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-aarch64-unknown-linux-musl.tar.gz",
+        "macos_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-x86_64-apple-darwin.tar.gz",
+        "macos_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-aarch64-apple-darwin.tar.gz",
+        "windows_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-x86_64-pc-windows-msvc.zip"
       }
     },
     {
       "id": "dust",
       "name": "dust",
-      "version": "1.1.1",
+      "version": "1.2.6",
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["linux", "macos", "windows"],
@@ -82,17 +82,17 @@
       "command_template": ["{bin}", "-d", "1", "{path}"],
       "output_parser": "human_last_line",
       "install": {
-        "linux_x86_64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-x86_64-unknown-linux-musl.tar.gz",
-        "linux_aarch64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-aarch64-unknown-linux-musl.tar.gz",
-        "macos_x86_64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-x86_64-apple-darwin.tar.gz",
-        "macos_aarch64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-aarch64-apple-darwin.tar.gz",
-        "windows_x86_64": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-x86_64-pc-windows-msvc.zip"
+        "linux_x86_64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-x86_64-unknown-linux-musl.tar.gz",
+        "linux_aarch64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-aarch64-unknown-linux-musl.tar.gz",
+        "macos_x86_64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-x86_64-apple-darwin.tar.gz",
+        "macos_aarch64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-aarch64-apple-darwin.tar.gz",
+        "windows_x86_64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-x86_64-pc-windows-msvc.zip"
       }
     },
     {
       "id": "ncdu",
       "name": "ncdu",
-      "version": "2.7",
+      "version": "2.9.2",
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["linux", "macos"],
@@ -101,8 +101,8 @@
       "command_template": ["{bin}", "-0", "-o", "/dev/null", "{path}"],
       "output_parser": "ncdu_null",
       "install": {
-        "linux_x86_64": "https://dev.yorhel.nl/download/ncdu-2.7-linux-x86_64.tar.gz",
-        "linux_aarch64": "https://dev.yorhel.nl/download/ncdu-2.7-linux-aarch64.tar.gz",
+        "linux_x86_64": "https://dev.yorhel.nl/download/ncdu-2.9.2-linux-x86_64.tar.gz",
+        "linux_aarch64": "https://dev.yorhel.nl/download/ncdu-2.9.2-linux-aarch64.tar.gz",
         "macos_x86_64": "brew:ncdu",
         "macos_aarch64": "brew:ncdu"
       }
@@ -110,7 +110,7 @@
     {
       "id": "wiztree",
       "name": "WizTree64",
-      "version": "4.23",
+      "version": "4.33",
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["windows"],
@@ -119,13 +119,13 @@
       "command_template": ["{bin}", "{path}", "/export={export_file}", "/admin=1"],
       "output_parser": "wiztree_csv",
       "install": {
-        "windows_x86_64": "https://www.diskanalyzer.com/files/wiztree_4_23_portable.zip"
+        "windows_x86_64": "https://www.diskanalyzer.com/files/wiztree_4_33_portable.zip"
       }
     },
     {
       "id": "spacesniffer",
       "name": "SpaceSniffer",
-      "version": "1.3.0.2",
+      "version": "2.2.0.27",
       "enabled": true,
       "runner_type": "win_gui",
       "platforms": ["windows"],
@@ -134,13 +134,13 @@
       "command_template": ["{bin}", "scan", "{path}"],
       "output_parser": "gui_monitor",
       "install": {
-        "windows_x86_64": "choco:spacesniffer:1.3.0.2"
+        "windows_x86_64": "https://www.uderzo.it/main_products/space_sniffer/files/spacesniffer_2_2_0_27_x64.zip"
       }
     },
     {
       "id": "windirstat",
       "name": "WinDirStat",
-      "version": "2.1.2",
+      "version": "2.9.3",
       "enabled": true,
       "runner_type": "win_gui",
       "platforms": ["windows"],
@@ -149,7 +149,7 @@
       "command_template": ["{bin}", "{path}"],
       "output_parser": "gui_monitor",
       "install": {
-        "windows_x86_64": "https://github.com/windirstat/windirstat/releases/download/release%2Fv2.1.2/WinDirStat-x64.zip"
+        "windows_x86_64": "https://github.com/windirstat/windirstat/releases/download/release%2Fv2.9.3/WinDirStat.zip"
       }
     }
   ]

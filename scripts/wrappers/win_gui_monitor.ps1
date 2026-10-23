@@ -16,7 +16,7 @@ param(
 
     [switch]$WithGuiRender,
 
-    [int]$TimeoutSec = 600,
+    [int]$TimeoutSec = 90,
 
     [string]$JsonOut = ""
 )
@@ -109,7 +109,7 @@ try {
         $PrevWallMs = $NowWallMs
 
         if ($NowWallMs -ge $StartupGraceMs) {
-            if (($DeltaReadOps -eq 0) -and ($DeltaReadBytes -eq 0) -and ($CpuPercent -lt 1.0)) {
+            if (($DeltaReadBytes -eq 0) -and (($DeltaReadOps -eq 0 -and $CpuPercent -lt 2.5) -or ($PrevReadBytes -gt 0 -and $CpuPercent -lt 5.0))) {
                 $QuietDurationMs += $PollIntervalMs
             } else {
                 $QuietDurationMs = 0
