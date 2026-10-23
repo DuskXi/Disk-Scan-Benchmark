@@ -1,5 +1,15 @@
 name: Cross-Platform Disk Scanner Benchmark
 
+run-name: >-
+  Bench ${{ inputs.preset }} | ${{
+  inputs.preset == 'very-lite' && '100k files / 100GB' ||
+  inputs.preset == 'lite' && '400k files / 350GB' ||
+  inputs.preset == 'low' && '1M files / 500GB' ||
+  inputs.preset == 'mid' && '3M files / 1TB' ||
+  inputs.preset == 'high' && '5M files / 2TB' ||
+  inputs.preset == 'very-high' && '9M files / 3TB' ||
+  format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }} | ${{ substr(github.sha, 0, 7) }}
+
 on:
   # Triggered exclusively via manual workflow_dispatch (no schedule / cron)
   workflow_dispatch:
