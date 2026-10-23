@@ -64,7 +64,7 @@ fn traverse_dir<'s>(
     let mut local_bytes = 0u64;
 
     for entry in read_dir.flatten() {
-        let meta = match entry.symlink_metadata() {
+        let meta = match entry.metadata() {
             Ok(m) => m,
             Err(_) => continue,
         };
