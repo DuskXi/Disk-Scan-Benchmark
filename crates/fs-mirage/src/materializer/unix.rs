@@ -19,17 +19,19 @@ pub fn create_sparse_anchored_file(
     // Establish full logical size (creates implicit sparse hole on ext4 / APFS / XFS)
     file.set_len(logical_size)?;
 
-    if dirty_blocks > 0 && logical_size > 0 {
-        let mut buf = [fill_byte; BLOCK_SIZE as usize];
-        // Mix deterministic non-zero header/footer inside block to defeat inline zero-page dedup
-        buf[0] = fill_byte ^ 0x5A;
-        buf[buf.len() - 1] = fill_byte.wrapping_add(17).max(1);
+    if dirty_blocks == 0 || logical_size == 0 {
+        return Ok(0);
+    }
 
-        let offsets = compute_dirty_anchor_offsets(logical_size, dirty_blocks);
-        for off in offsets {
-            let write_len = (logical_size - off).min(BLOCK_SIZE) as usize;
-            file.write_all_at(&buf[..write_len], off)?;
-        }
+    let mut buf = [fill_byte; BLOCK_SIZE as usize];
+    // Mix deterministic non-zero header/footer inside block to defeat inline zero-page dedup
+    buf[0] = fill_byte ^ 0x5A;
+    buf[buf.len() - 1] = fill_byte.wrapping_add(17).max(1);
+
+    let offsets = compute_dirty_anchor_offsets(logical_size, dirty_blocks);
+    for off in offsets {
+        let write_len = (logical_size - off).min(BLOCK_SIZE) as usize;
+        file.write_all_at(&buf[..write_len], off)?;
     }
 
     let meta = file.metadata()?;

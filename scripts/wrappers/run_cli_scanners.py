@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.request
 import zipfile
@@ -174,6 +175,8 @@ def query_windows_peak_rss_mb(process_handle: int) -> float:
 def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tuple[float, float, str]:
     """
     Executes a CLI command and returns (elapsed_ms, peak_rss_mb, stdout_text).
+    Drains stdout concurrently on a background thread so OS pipe buffers (e.g. 64KB on macOS)
+    can never fill up and deadlock while polling process memory.
     """
     t0 = time.perf_counter()
     proc = subprocess.Popen(
@@ -186,18 +189,45 @@ def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tu
     )
 
     peak_rss_mb = 0.0
-    if os_key == "windows":
-        stdout_text, _ = proc.communicate(timeout=timeout_sec)
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+    if os_key == "windows" or os_key == "macos":
         try:
-            peak_rss_mb = query_windows_peak_rss_mb(int(proc._handle))
-        except Exception:
-            peak_rss_mb = 0.0
+            stdout_text, _ = proc.communicate(timeout=timeout_sec)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout_text, _ = proc.communicate()
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        if os_key == "windows":
+            try:
+                peak_rss_mb = query_windows_peak_rss_mb(int(proc._handle))
+            except Exception:
+                peak_rss_mb = 0.0
+        else:
+            try:
+                import resource
+                rusage = resource.getrusage(resource.RUSAGE_CHILDREN)
+                peak_rss_mb = round(rusage.ru_maxrss / (1024.0 * 1024.0), 2)
+            except Exception:
+                peak_rss_mb = 0.0
     else:
-        # Poll /proc/<pid>/status VmHWM on Linux while waiting, and also check resource usage
+        stdout_chunks: List[str] = []
+
+        def _drain_stdout() -> None:
+            if proc.stdout is not None:
+                try:
+                    stdout_chunks.append(proc.stdout.read())
+                except Exception:
+                    pass
+
+        reader_thread = threading.Thread(target=_drain_stdout, daemon=True)
+        reader_thread.start()
+
+        # Poll /proc/<pid>/status VmHWM on Linux while stdout is concurrently drained
         pid = proc.pid
         proc_status_path = Path(f"/proc/{pid}/status")
         while proc.poll() is None:
+            if (time.perf_counter() - t0) > timeout_sec:
+                proc.kill()
+                break
             if proc_status_path.exists():
                 try:
                     content = proc_status_path.read_text(encoding="utf-8", errors="ignore")
@@ -211,17 +241,15 @@ def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tu
                     pass
             time.sleep(0.015)
 
-        stdout_text, _ = proc.communicate(timeout=timeout_sec)
+        proc.wait()
+        reader_thread.join(timeout=5.0)
+        stdout_text = "".join(stdout_chunks)
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         if peak_rss_mb == 0.0:
             try:
                 import resource
                 rusage = resource.getrusage(resource.RUSAGE_CHILDREN)
-                # Linux reports ru_maxrss in KiB; macOS reports ru_maxrss in Bytes
-                if os_key == "macos":
-                    peak_rss_mb = round(rusage.ru_maxrss / (1024.0 * 1024.0), 2)
-                else:
-                    peak_rss_mb = round(rusage.ru_maxrss / 1024.0, 2)
+                peak_rss_mb = round(rusage.ru_maxrss / 1024.0, 2)
             except Exception:
                 pass
 

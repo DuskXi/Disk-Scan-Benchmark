@@ -29,10 +29,15 @@ case "$CMD" in
 
         hdiutil create -size "${SIZE_GB}g" -type SPARSE -fs APFS -volname BenchVol -ov "$SPARSE_IMG" >/dev/null
         mkdir -p "$MOUNT_PATH"
-        hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null || \
-            sudo hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null
+        hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse -noowners >/dev/null || \
+            sudo hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse -noowners >/dev/null
         chmod 777 "$MOUNT_PATH" 2>/dev/null || sudo chmod 777 "$MOUNT_PATH" || true
-        echo "[macos_dmg] Mounted ${SPARSE_IMG} at ${MOUNT_PATH}"
+        # Disable Spotlight indexing and FSEvents logging on the synthetic benchmark volume
+        touch "$MOUNT_PATH/.metadata_never_index" 2>/dev/null || true
+        mkdir -p "$MOUNT_PATH/.fseventsd" 2>/dev/null || true
+        touch "$MOUNT_PATH/.fseventsd/no_log" 2>/dev/null || true
+        mdutil -i off "$MOUNT_PATH" >/dev/null 2>&1 || sudo mdutil -i off "$MOUNT_PATH" >/dev/null 2>&1 || true
+        echo "[macos_dmg] Mounted ${SPARSE_IMG} at ${MOUNT_PATH} (Spotlight & FSEvents disabled)"
         ;;
 
     purge-cache)
@@ -42,8 +47,9 @@ case "$CMD" in
         hdiutil detach "$MOUNT_PATH" -force >/dev/null 2>&1 || sudo hdiutil detach "$MOUNT_PATH" -force >/dev/null
         sudo purge || true
         mkdir -p "$MOUNT_PATH"
-        hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null || \
-            sudo hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null
+        hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse -noowners >/dev/null || \
+            sudo hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse -noowners >/dev/null
+        mdutil -i off "$MOUNT_PATH" >/dev/null 2>&1 || sudo mdutil -i off "$MOUNT_PATH" >/dev/null 2>&1 || true
         echo "[macos_dmg] Cold cache state restored for ${MOUNT_PATH}"
         ;;
 

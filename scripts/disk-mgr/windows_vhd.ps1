@@ -82,7 +82,13 @@ assign letter=$DriveLetter
 "@
             Invoke-DiskpartScript $dp
         }
-        Write-Host "[windows_vhd] Mounted NTFS volume at ${DriveLetter}:\"
+        try {
+            Add-MpPreference -ExclusionPath "${DriveLetter}:\" -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionPath $VhdPath -ErrorAction SilentlyContinue
+            & fsutil 8dot3name set "${DriveLetter}:" 1 | Out-Null
+            & fsutil behavior set disablelastaccess 1 | Out-Null
+        } catch {}
+        Write-Host "[windows_vhd] Mounted NTFS volume at ${DriveLetter}:\ (Defender excluded, 8.3 disabled)"
     }
 
     "purge-cache" {

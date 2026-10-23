@@ -29,9 +29,10 @@ pub fn create_sparse_anchored_file(
     let raw_handle = file.as_raw_handle() as HANDLE;
 
     // Step 1: Mark file handle as sparse via FSCTL_SET_SPARSE when creating sparse holes
-    // (either pure sparse small files with dirty_blocks == 0, or large files >= 64KB with multi-extent runlists).
+    // (either pure sparse files > 512B with dirty_blocks == 0, or large files >= 64KB with multi-extent runlists).
+    // Tiny files <= 512B with dirty_blocks == 0 already reside inside the 1KB NTFS MFT record ($DATA resident, 0 clusters).
     // Sampled small files (dirty_blocks == 1, logical_size < 64KB) remain non-sparse so NTFS allocates real 4KB clusters.
-    if dirty_blocks == 0 || logical_size >= 65536 {
+    if (dirty_blocks == 0 && logical_size > 512) || logical_size >= 65536 {
         let mut bytes_returned: u32 = 0;
         let ok = unsafe {
             DeviceIoControl(
@@ -58,8 +59,12 @@ pub fn create_sparse_anchored_file(
     // Step 2: Set full logical size
     file.set_len(logical_size)?;
 
+    if dirty_blocks == 0 {
+        return Ok(0);
+    }
+
     // Step 3: Write 4KB dirty anchor blocks at 4096-aligned offsets using seek_write
-    if dirty_blocks > 0 && logical_size > 0 {
+    if logical_size > 0 {
         let mut buf = [fill_byte; BLOCK_SIZE as usize];
         buf[0] = fill_byte ^ 0x5A;
         buf[buf.len() - 1] = fill_byte.wrapping_add(17).max(1);
