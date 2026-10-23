@@ -168,6 +168,27 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
         Ok(())
     })?;
 
+    // 5. On Unix (ext4 / XFS), directories themselves allocate 4KB+ physical blocks (st_blocks)
+    // that CLI disk usage tools (gdu, dua, dust, ncdu) include in the volume total.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let dir_blocks_bytes: u64 = plan
+            .directories
+            .par_iter()
+            .map(|rel_dir| {
+                let p = to_os_path(root, rel_dir);
+                fs::symlink_metadata(&p)
+                    .map(|m| m.blocks().saturating_mul(512))
+                    .unwrap_or(0)
+            })
+            .sum();
+        let root_blocks_bytes = fs::symlink_metadata(root)
+            .map(|m| m.blocks().saturating_mul(512))
+            .unwrap_or(0);
+        total_allocated.fetch_add(dir_blocks_bytes + root_blocks_bytes, Ordering::Relaxed);
+    }
+
     let allocated_bytes = total_allocated.load(Ordering::Relaxed);
     let extra_hl_alloc = hardlink_extra_alloc.load(Ordering::Relaxed);
 

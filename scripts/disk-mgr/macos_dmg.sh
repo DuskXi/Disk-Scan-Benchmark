@@ -42,10 +42,9 @@ case "$CMD" in
 
     purge-cache)
         MOUNT_PATH="${1:-/tmp/BenchVol}"
-        echo "[macos_dmg] Evicting macOS unified buffer cache (hdiutil detach + sudo purge + attach)..."
+        echo "[macos_dmg] Evicting APFS volume cache via hdiutil detach + attach cycle on ${MOUNT_PATH}..."
         sync
         hdiutil detach "$MOUNT_PATH" -force >/dev/null 2>&1 || sudo hdiutil detach "$MOUNT_PATH" -force >/dev/null
-        sudo purge || true
         mkdir -p "$MOUNT_PATH"
         hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null || \
             sudo hdiutil attach "$SPARSE_IMG" -mountpoint "$MOUNT_PATH" -nobrowse >/dev/null

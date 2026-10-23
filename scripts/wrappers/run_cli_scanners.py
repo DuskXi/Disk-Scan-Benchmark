@@ -88,7 +88,7 @@ def parse_human_size_to_bytes(text: str, scanner_id: str = "") -> int:
 
     if scanner_id == "gdu":
         gdu_line_re = re.compile(
-            r"^\s*([0-9]+(?:\.[0-9]+)?)\s*(TiB|GiB|MiB|KiB|TB|GB|MB|KB|B)\s+/",
+            r"([0-9]+(?:\.[0-9]+)?)\s*(TiB|GiB|MiB|KiB|TB|GB|MB|KB|B)\s+/",
             re.IGNORECASE,
         )
         total_b = 0
