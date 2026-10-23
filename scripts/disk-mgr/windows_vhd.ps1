@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Windows NTFS Dynamic VHDX Manager & Cold-Cache Evictor for disk-scanner-bench
+    Windows NTFS/ReFS Dynamic VHDX Manager & Cold-Cache Evictor for disk-scanner-bench
 .DESCRIPTION
     Supports three subcommands:
-      .\windows_vhd.ps1 create <size_gb> <mount_path>
+      .\windows_vhd.ps1 create <size_gb> <mount_path> [ntfs|refs]
       .\windows_vhd.ps1 purge-cache <mount_path>
       .\windows_vhd.ps1 teardown <mount_path>
 #>
@@ -16,11 +16,19 @@ param(
     [string]$Arg1 = "60",
 
     [Parameter(Position=2)]
-    [string]$Arg2 = "X:\"
+    [string]$Arg2 = "X:\",
+
+    [Parameter(Position=3)]
+    [ValidateSet("ntfs", "refs")]
+    [string]$FsType = "ntfs"
 )
 
 $ErrorActionPreference = "Stop"
-$VhdPath = Join-Path $env:TEMP "disk_scanner_bench.vhdx"
+
+function Get-VhdPath([string]$Letter) {
+    # One backing VHDX per drive letter so NTFS and ReFS volumes can coexist
+    return (Join-Path $env:TEMP "disk_scanner_bench_${Letter}.vhdx")
+}
 
 function Get-DriveLetterFromPath([string]$PathStr) {
     $clean = $PathStr.Trim()
@@ -49,7 +57,9 @@ switch ($Action) {
     "create" {
         $SizeGb = [int64]$Arg1
         $DriveLetter = Get-DriveLetterFromPath $Arg2
-        Write-Host "[windows_vhd] Creating ${SizeGb}GB Dynamic NTFS VHDX at $VhdPath (Drive ${DriveLetter}:)..."
+        $VhdPath = Get-VhdPath $DriveLetter
+        $FsName = $FsType.ToUpper()
+        Write-Host "[windows_vhd] Creating ${SizeGb}GB Dynamic $FsName VHDX at $VhdPath (Drive ${DriveLetter}:)..."
 
         if (Test-Path $VhdPath) {
             try {
@@ -68,7 +78,7 @@ switch ($Action) {
             $disk = $vhd | Mount-VHD -Passthru | Get-Disk
             Initialize-Disk -Number $disk.Number -PartitionStyle GPT -ErrorAction SilentlyContinue
             $part = New-Partition -DiskNumber $disk.Number -UseMaximumSize -DriveLetter $DriveLetter
-            Format-Volume -DriveLetter $DriveLetter -FileSystem NTFS -NewFileSystemLabel "BenchVol" -Confirm:$false | Out-Null
+            Format-Volume -DriveLetter $DriveLetter -FileSystem $FsName -NewFileSystemLabel "BenchVol" -Confirm:$false | Out-Null
         } else {
             $sizeMb = $SizeGb * 1024
             $dp = @"
@@ -77,27 +87,13 @@ select vdisk file="$VhdPath"
 attach vdisk
 convert gpt
 create partition primary
-format fs=ntfs label="BenchVol" quick
+format fs=$FsType label="BenchVol" quick
 assign letter=$DriveLetter
 "@
             Invoke-DiskpartScript $dp
         }
         New-Item -ItemType Directory -Path "${DriveLetter}:\bench" -Force | Out-Null
 
-        # Deploy MFT Bypass Canary Trap at ${DriveLetter}:\__MFT_CANARY_POISON__
-        # If any scanner illegally reads raw \\.\X: (MFT bypass) instead of traversing X:\bench,
-        # it will ingest this 100 TiB decoy tree + 5,000 decoy MFT records, causing summary/structure checks to fail.
-        $CanaryDir = "${DriveLetter}:\__MFT_CANARY_POISON__"
-        New-Item -ItemType Directory -Path $CanaryDir -Force | Out-Null
-        $TrapFile = Join-Path $CanaryDir "canary_trap_sparse_100tib.dat"
-        try {
-            & fsutil file createnew $TrapFile 109951162777600 | Out-Null
-            & fsutil sparse setflag $TrapFile | Out-Null
-        } catch {}
-        for ($k = 0; $k -lt 5000; $k++) {
-            $fn = Join-Path $CanaryDir ("poison_mft_record_{0:D6}.fake" -f $k)
-            [System.IO.File]::WriteAllBytes($fn, [byte[]]::new(0))
-        }
         try {
             Set-MpPreference -DisableRealtimeMonitoring $true -DisableIOAVProtection $true -DisableBehaviorMonitoring $true -DisableScriptScanning $true -ErrorAction SilentlyContinue
             Add-MpPreference -ExclusionPath "${DriveLetter}:\" -ErrorAction SilentlyContinue
@@ -107,11 +103,12 @@ assign letter=$DriveLetter
             & fsutil 8dot3name set "${DriveLetter}:" 1 | Out-Null
             & fsutil behavior set disablelastaccess 1 | Out-Null
         } catch {}
-        Write-Host "[windows_vhd] Mounted NTFS volume at ${DriveLetter}:\bench (Defender disabled & excluded, 8.3 disabled)"
+        Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (Defender disabled & excluded, 8.3 disabled)"
     }
 
     "purge-cache" {
         $DriveLetter = Get-DriveLetterFromPath $Arg1
+        $VhdPath = Get-VhdPath $DriveLetter
         Write-Host "[windows_vhd] Evicting Windows NTFS cache via Dismount-VHD + Host VHDX Unbuffered Cache Purge + Mount-VHD on ${DriveLetter}:..."
         if (-not (Test-Path $VhdPath)) {
             Write-Warning "[windows_vhd] VHDX not found at $VhdPath; skipping VHD remount."
@@ -162,6 +159,7 @@ attach vdisk
 
     "teardown" {
         $DriveLetter = Get-DriveLetterFromPath $Arg1
+        $VhdPath = Get-VhdPath $DriveLetter
         Write-Host "[windows_vhd] Tearing down ${DriveLetter}: and removing $VhdPath..."
         if (Test-Path $VhdPath) {
             try {

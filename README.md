@@ -31,7 +31,7 @@ disk-scanner-bench/
 ├── scripts/
 │   ├── disk-mgr/                   # 核心模块3：虚拟磁盘镜像创建、挂载与冷缓存清除脚本
 │   │   ├── linux_loop.sh           # ext4 稀疏镜像创建 (-N 高 inode) 与 /dev/shm RAMDisk 挂载
-│   │   ├── windows_vhd.ps1         # NTFS 动态 VHDX 创建、挂载为独立盘符 X: 及卸载清缓存
+│   │   ├── windows_vhd.ps1         # NTFS/ReFS 动态 VHDX 创建、挂载为独立盘符 X: 及卸载清缓存
 │   │   └── macos_dmg.sh            # APFS sparseimage 创建与挂载
 │   ├── wrappers/                   # 核心模块4：待测软件注册表、适配调度与 GUI 自动化监控包装器
 │   │   ├── scanners_registry.json  # 待测程序声明式注册表与版本锁定配置

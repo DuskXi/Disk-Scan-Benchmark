@@ -194,6 +194,38 @@ jobs:
             --out "results/${{ matrix.target_label }}/raw_results.json" \
             --bin-dir "./bin"
 
+      - name: ReFS Cross-Check Pass - Create, Materialize & Scan (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          REFS_DIR="results/${{ matrix.target_label }}-refs"
+          mkdir -p "$REFS_DIR"
+          EXTRA_ARGS=()
+          if [ "${{ inputs.preset }}" = "custom" ]; then
+            if [ -n "${{ inputs.files }}" ]; then
+              EXTRA_ARGS+=(--files "${{ inputs.files }}")
+            fi
+            if [ -n "${{ inputs.logical_gb }}" ]; then
+              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
+            fi
+          fi
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 create "${{ inputs.disk_size_gb }}" "Y:/bench" refs
+          ./target/release/fs-mirage             --root "Y:/bench"             --preset "${{ inputs.preset }}"             --seed "${{ inputs.seed }}"             --max-physical-mb "${{ inputs.max_physical_mb }}"             --manifest-out "$REFS_DIR/ground_truth.json"             "${EXTRA_ARGS[@]}"
+          python ./scripts/wrappers/run_cli_scanners.py             --path "Y:/bench"             --ground-truth "$REFS_DIR/ground_truth.json"             --out "$REFS_DIR/raw_results.json"             --bin-dir "./bin"
+
+      - name: NTFS vs ReFS Cross-Filesystem Audit (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python ./scripts/refs_audit.py             --ntfs-results "results/${{ matrix.target_label }}/raw_results.json"             --refs-results "results/${{ matrix.target_label }}-refs/raw_results.json"             --md-out "results/${{ matrix.target_label }}/refs_audit.md"
+          cat "results/${{ matrix.target_label }}/refs_audit.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Teardown ReFS Virtual Disk (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "Y:/bench" || true
+
       - name: Generate Normalized Report & Append to Step Summary
         shell: bash
         run: |

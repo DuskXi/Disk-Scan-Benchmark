@@ -187,7 +187,7 @@ def generate_report(
                 f"| `{r['warm_time_ms']:,.1f}` | `{r['accuracy_diff_pct']:+.2f}%` | {reason} |"
             )
     else:
-        lines.append("> [!NOTE]\n> 所有参与测试的扫描器均通过了 MFT 防逃逸诱饵（Canary Trap）与真实目录遍历完整性核验，无违规或失败成绩。")
+        lines.append("> [!NOTE]\n> 所有参与测试的扫描器均通过了扫描边界、真实目录遍历完整性与 NTFS/ReFS 跨文件系统一致性核验，无违规或失败成绩。")
 
     # Section 5: Directory Structure Sampling Comparison Table
     lines.extend(
@@ -195,10 +195,10 @@ def generate_report(
             "",
             "## 5. Directory Structure Sampling & Ground Truth Verification (目录结构采样对比与完整性核对)",
             "",
-            "采样对比各扫描器对顶层分区（`zone_deep`, `zone_flat_cache`, `zone_sparse_media`, `zone_edge`）的识别情况，以及对根分区外的 MFT 诱饵陷阱（`__MFT_CANARY_POISON__`）的防逃逸核验：",
+            "采样对比各扫描器对顶层分区（`zone_deep`, `zone_flat_cache`, `zone_sparse_media`, `zone_edge`）的识别情况：",
             "",
-            "| Scanner | `zone_deep` | `zone_flat_cache` | `zone_sparse_media` | `zone_edge` | MFT Canary Trap Status |",
-            "| :--- | :--- | :--- | :--- | :--- | :---: |",
+            "| Scanner | `zone_deep` | `zone_flat_cache` | `zone_sparse_media` | `zone_edge` |",
+            "| :--- | :--- | :--- | :--- | :--- |",
         ]
     )
 
@@ -210,13 +210,11 @@ def generate_report(
     gt_edge_str = f"{gt_zones.get('zone_edge', {}).get('files', 0):,} files" if gt_zones else "-"
 
     lines.append(
-        f"| **Ground Truth (基准真值)** | `{gt_deep_str}` | `{gt_flat_str}` | `{gt_media_str}` | `{gt_edge_str}` | `🛡️ Clean (Reference)` |"
+        f"| **Ground Truth (基准真值)** | `{gt_deep_str}` | `{gt_flat_str}` | `{gt_media_str}` | `{gt_edge_str}` |"
     )
 
     for r in normalized_rows:
         samples: Dict[str, Dict[str, Any]] = r.get("structure_samples", {})
-        canary_hit = r.get("canary_triggered", False)
-        canary_status = "❌ INGESTED (DISQUALIFIED)" if canary_hit else "🛡️ Safe (No Escape)"
 
         if not samples:
             if r.get("runner_type") == "win_gui":
@@ -224,7 +222,7 @@ def generate_report(
             else:
                 note = "N/A (Summary-only)"
             lines.append(
-                f"| **{r['scanner']}** | `{note}` | `{note}` | `{note}` | `{note}` | `{canary_status}` |"
+                f"| **{r['scanner']}** | `{note}` | `{note}` | `{note}` | `{note}` |"
             )
             continue
 
@@ -249,7 +247,7 @@ def generate_report(
 
         lines.append(
             f"| **{r['scanner']}** | `{_fmt_zone('zone_deep')}` | `{_fmt_zone('zone_flat_cache')}` "
-            f"| `{_fmt_zone('zone_sparse_media')}` | `{_fmt_zone('zone_edge')}` | `{canary_status}` |"
+            f"| `{_fmt_zone('zone_sparse_media')}` | `{_fmt_zone('zone_edge')}` |"
         )
 
     lines.extend(
