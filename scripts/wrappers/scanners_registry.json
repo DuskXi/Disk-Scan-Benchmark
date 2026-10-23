@@ -142,12 +142,12 @@
       "name": "WinDirStat",
       "version": "2.9.3",
       "enabled": true,
-      "runner_type": "win_gui",
+      "runner_type": "cli",
       "platforms": ["windows"],
       "architectures": ["x86_64"],
       "size_metric": "apparent",
-      "command_template": ["{bin}", "{path}"],
-      "output_parser": "gui_monitor",
+      "command_template": ["{bin}", "/SaveTo", "{export_file}", "{path}"],
+      "output_parser": "windirstat_csv",
       "install": {
         "windows_x86_64": "https://github.com/windirstat/windirstat/releases/download/release%2Fv2.9.3/WinDirStat.zip"
       }

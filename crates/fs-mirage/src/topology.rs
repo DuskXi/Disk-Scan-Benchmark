@@ -102,6 +102,13 @@ pub struct TopologyConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoneGroundTruth {
+    pub files: usize,
+    pub dirs: usize,
+    pub apparent_size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroundTruthManifest {
     pub preset: String,
     pub seed: u64,
@@ -121,6 +128,9 @@ pub struct GroundTruthManifest {
     pub allocated_size_bytes: u64,
     /// Actual OS-reported allocated physical bytes on disk (counting hardlinks multiple times)
     pub allocated_size_with_hardlinks_bytes: u64,
+    /// Ground truth breakdown per top-level zone (zone_deep, zone_flat_cache, zone_sparse_media, zone_edge)
+    #[serde(default)]
+    pub zones: std::collections::BTreeMap<String, ZoneGroundTruth>,
 }
 
 #[derive(Debug)]
@@ -222,14 +232,11 @@ impl TopologyPlan {
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
             let logical_size = if write_dirty {
                 BLOCK_SIZE
-            } else if rng.gen_bool(0.90) {
-                // 90% of clean small files use 0-byte logical size (created via single openat/CreateFileW
-                // without a second ftruncate/SetFileInformationByHandle metadata transaction;
+            } else {
+                // All clean small files use 0-byte logical size (created via single openat/CreateFileW
+                // without ftruncate/SetFileInformationByHandle metadata transactions;
                 // zone_sparse_media absorbs the remaining logical volume so total apparent_size is exact).
                 0
-            } else {
-                // Remaining 10% <= 680B (fits in NTFS Resident $MFT record without requiring FSCTL_SET_SPARSE)
-                rng.gen_range(64..=680)
             };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;
@@ -269,10 +276,8 @@ impl TopologyPlan {
                     && rng.gen_range(0..10_000) < small_dirty_rate_bp;
                 let logical_size = if write_dirty {
                     BLOCK_SIZE
-                } else if rng.gen_bool(0.90) {
-                    0
                 } else {
-                    rng.gen_range(128..=680)
+                    0
                 };
                 let dirty_blocks = if write_dirty {
                     small_dirty_allocated += 1;
@@ -311,10 +316,8 @@ impl TopologyPlan {
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
             let logical_size = if write_dirty {
                 BLOCK_SIZE
-            } else if rng.gen_bool(0.90) {
-                0
             } else {
-                rng.gen_range(256..=680)
+                0
             };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;
@@ -471,6 +474,32 @@ impl TopologyPlan {
         let total_symlinks = symlinks.len();
         let actual_total_files = total_regular_files + total_hardlinks + total_symlinks;
 
+        let mut zones: std::collections::BTreeMap<String, ZoneGroundTruth> = std::collections::BTreeMap::new();
+        for d in &directories {
+            let top = d.split('/').next().unwrap_or("unknown");
+            let entry = zones.entry(top.to_string()).or_insert(ZoneGroundTruth {
+                files: 0,
+                dirs: 0,
+                apparent_size_bytes: 0,
+            });
+            entry.dirs += 1;
+        }
+        for f in regular_files.iter().chain(hardlinks.iter()).chain(symlinks.iter()) {
+            let top = f.rel_path.split('/').next().unwrap_or("unknown");
+            let sz = match f.kind {
+                EntryKind::RegularFile { logical_size, .. } => logical_size,
+                EntryKind::HardLink { logical_size, .. } => logical_size,
+                _ => 0,
+            };
+            let entry = zones.entry(top.to_string()).or_insert(ZoneGroundTruth {
+                files: 0,
+                dirs: 0,
+                apparent_size_bytes: 0,
+            });
+            entry.files += 1;
+            entry.apparent_size_bytes += sz;
+        }
+
         let manifest = GroundTruthManifest {
             preset: cfg.preset.clone(),
             seed: cfg.seed,
@@ -485,6 +514,7 @@ impl TopologyPlan {
             planned_dirty_bytes,
             allocated_size_bytes: 0,
             allocated_size_with_hardlinks_bytes: 0,
+            zones,
         };
 
         TopologyPlan {

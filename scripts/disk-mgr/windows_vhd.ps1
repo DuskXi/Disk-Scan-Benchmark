@@ -83,6 +83,21 @@ assign letter=$DriveLetter
             Invoke-DiskpartScript $dp
         }
         New-Item -ItemType Directory -Path "${DriveLetter}:\bench" -Force | Out-Null
+
+        # Deploy MFT Bypass Canary Trap at ${DriveLetter}:\__MFT_CANARY_POISON__
+        # If any scanner illegally reads raw \\.\X: (MFT bypass) instead of traversing X:\bench,
+        # it will ingest this 100 TiB decoy tree + 5,000 decoy MFT records, causing summary/structure checks to fail.
+        $CanaryDir = "${DriveLetter}:\__MFT_CANARY_POISON__"
+        New-Item -ItemType Directory -Path $CanaryDir -Force | Out-Null
+        $TrapFile = Join-Path $CanaryDir "canary_trap_sparse_100tib.dat"
+        try {
+            & fsutil file createnew $TrapFile 109951162777600 | Out-Null
+            & fsutil sparse setflag $TrapFile | Out-Null
+        } catch {}
+        for ($k = 0; $k -lt 5000; $k++) {
+            $fn = Join-Path $CanaryDir ("poison_mft_record_{0:D6}.fake" -f $k)
+            [System.IO.File]::WriteAllBytes($fn, [byte[]]::new(0))
+        }
         try {
             Set-MpPreference -DisableRealtimeMonitoring $true -DisableIOAVProtection $true -DisableBehaviorMonitoring $true -DisableScriptScanning $true -ErrorAction SilentlyContinue
             Add-MpPreference -ExclusionPath "${DriveLetter}:\" -ErrorAction SilentlyContinue
