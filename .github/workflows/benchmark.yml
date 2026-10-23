@@ -118,6 +118,8 @@ jobs:
 
       - name: Install Pinned Target Scanners (Same-Runner Provisioning)
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
 

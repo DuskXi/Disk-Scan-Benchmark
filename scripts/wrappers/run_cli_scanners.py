@@ -110,6 +110,68 @@ def parse_human_size_to_bytes(text: str, scanner_id: str = "") -> int:
     return 0
 
 
+def parse_spaceknife_output(text: str, effective_metric: str, os_key: str) -> Tuple[int, int]:
+    """
+    Parses `spaceknife-backend scan <path> --no-snapshot` summary panel output.
+    Extracts:
+      - `Size on disk <val> <unit>` (or `占用 <val> <unit>`) -> allocated bytes
+      - `Logical size <val> <unit>` (or `逻辑大小 <val> <unit>`) -> apparent bytes
+      - `files <N>` (or `文件 <N>`) -> scanned file count
+    Note: SpaceKnife uses binary 1024 multiples for KB/MB/GB/TB on Windows and Linux, and 1000 on macOS.
+    """
+    ansi_re = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
+    clean = ansi_re.sub("", text).replace("\r", "\n")
+
+    base = 1000 if os_key == "macos" else 1024
+    unit_map = {
+        "b": 1,
+        "kb": base,
+        "kib": 1024,
+        "mb": base**2,
+        "mib": 1024**2,
+        "gb": base**3,
+        "gib": 1024**3,
+        "tb": base**4,
+        "tib": 1024**4,
+        "pb": base**5,
+        "pib": 1024**5,
+    }
+
+    alloc_re = re.compile(
+        r"(?:Size on disk|占用)\s+([0-9]+(?:\.[0-9]+)?)\s*(PiB|TiB|GiB|MiB|KiB|PB|TB|GB|MB|KB|B)\b",
+        re.IGNORECASE,
+    )
+    logical_re = re.compile(
+        r"(?:Logical size|逻辑大小)\s+([0-9]+(?:\.[0-9]+)?)\s*(PiB|TiB|GiB|MiB|KiB|PB|TB|GB|MB|KB|B)\b",
+        re.IGNORECASE,
+    )
+    files_re = re.compile(r"(?:files|文件)\s+([0-9,]+)", re.IGNORECASE)
+
+    alloc_bytes = 0
+    logical_bytes = 0
+    scanned_files = 0
+
+    m_alloc = alloc_re.search(clean)
+    if m_alloc:
+        alloc_bytes = int(float(m_alloc.group(1)) * unit_map.get(m_alloc.group(2).lower(), 1))
+
+    m_logical = logical_re.search(clean)
+    if m_logical:
+        logical_bytes = int(float(m_logical.group(1)) * unit_map.get(m_logical.group(2).lower(), 1))
+
+    m_files = files_re.search(clean)
+    if m_files:
+        try:
+            scanned_files = int(m_files.group(1).replace(",", ""))
+        except ValueError:
+            scanned_files = 0
+
+    chosen_bytes = logical_bytes if effective_metric == "apparent" else alloc_bytes
+    if chosen_bytes == 0:
+        chosen_bytes = alloc_bytes or logical_bytes
+    return chosen_bytes, scanned_files
+
+
 def parse_wiztree_csv(csv_path: Path) -> Tuple[int, int, int]:
     """
     Parses WizTree CSV export to return (apparent_bytes, allocated_bytes, scanned_files).
@@ -179,6 +241,8 @@ def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tu
     can never fill up and deadlock while polling process memory.
     """
     t0 = time.perf_counter()
+    child_env = os.environ.copy()
+    child_env["SPACEKNIFE_LANGUAGE"] = "en"
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -186,6 +250,7 @@ def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tu
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=child_env,
     )
 
     peak_rss_mb = 0.0
@@ -295,6 +360,15 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
         if which_cand:
             return which_cand
 
+    # Check portable bundle directories for SpaceKnife and TreeSize
+    portable_bundle_dir = bin_dir / f"{scanner_id}_portable"
+    if portable_bundle_dir.exists():
+        target_exe_name = (scanner["name"] + exe_suffix).lower()
+        for root, _, files in os.walk(portable_bundle_dir):
+            for fn in files:
+                if fn.lower() == target_exe_name:
+                    return str(Path(root) / fn)
+
     install_map = scanner.get("install", {})
     target_key = f"{os_key}_{arch_key}"
     spec = install_map.get(target_key)
@@ -303,6 +377,48 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
 
     bin_dir.mkdir(parents=True, exist_ok=True)
     print(f"[installer] Installing pinned {scanner['name']} v{scanner['version']} for {target_key} from {spec}...")
+
+    if spec.startswith("gh-artifact:"):
+        # Format: gh-artifact:<owner/repo>:<run_id>:<artifact_name>
+        _, repo_slug, run_id, artifact_name = spec.split(":", 3)
+        portable_bundle_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory() as tmpd:
+            tmp_dir = Path(tmpd)
+            gh_res = subprocess.run(
+                ["gh", "run", "download", run_id, "-R", repo_slug, "-n", artifact_name, "-D", str(tmp_dir)],
+                check=False,
+            )
+            if gh_res.returncode != 0:
+                nightly_url = f"https://nightly.link/{repo_slug}/actions/runs/{run_id}/{artifact_name}.zip"
+                print(f"[installer] gh run download returned {gh_res.returncode}; downloading via {nightly_url}...")
+                outer_zip = tmp_dir / f"{artifact_name}.zip"
+                req = urllib.request.Request(nightly_url, headers={"User-Agent": "disk-scanner-bench/0.1"})
+                with urllib.request.urlopen(req, timeout=180) as resp, open(outer_zip, "wb") as out_f:
+                    shutil.copyfileobj(resp, out_f)
+                with zipfile.ZipFile(outer_zip, "r") as zf:
+                    zf.extractall(tmp_dir)
+                outer_zip.unlink(missing_ok=True)
+
+            # Extract nested *-portable.zip or *-portable.tar.gz inside the downloaded artifact
+            for item in tmp_dir.rglob("*"):
+                if not item.is_file():
+                    continue
+                if item.name.endswith((".tar.gz", ".tgz")):
+                    with tarfile.open(item, "r:gz") as tf:
+                        tf.extractall(portable_bundle_dir)
+                elif item.name.endswith(".zip"):
+                    with zipfile.ZipFile(item, "r") as zf:
+                        zf.extractall(portable_bundle_dir)
+
+        target_exe_name = (scanner["name"] + exe_suffix).lower()
+        for root, _, files in os.walk(portable_bundle_dir):
+            for fn in files:
+                if fn.lower() == target_exe_name:
+                    resolved = Path(root) / fn
+                    if os_key != "windows":
+                        resolved.chmod(resolved.stat().st_mode | stat.S_IEXEC)
+                    return str(resolved)
+        return None
 
     if spec.startswith("brew:"):
         pkg = spec.split(":", 1)[1]
@@ -348,7 +464,7 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
                 return shutil.which("ncdu")
             raise
 
-        extract_dir = tmp_dir / "extracted"
+        extract_dir = (bin_dir / f"{scanner_id}_portable") if scanner_id == "treesize" else (tmp_dir / "extracted")
         extract_dir.mkdir(parents=True, exist_ok=True)
         if archive_name.endswith((".tar.gz", ".tgz")):
             with tarfile.open(archive_path, "r:gz") as tf:
@@ -356,6 +472,12 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
         elif archive_name.endswith(".zip"):
             with zipfile.ZipFile(archive_path, "r") as zf:
                 zf.extractall(extract_dir)
+
+        if scanner_id == "treesize":
+            for root, _, files in os.walk(extract_dir):
+                for fn in files:
+                    if fn.lower() == "treesizefree.exe":
+                        return str(Path(root) / fn)
 
         target_bin = bin_dir / (scanner["name"] + exe_suffix if os_key == "windows" else scanner_id)
         matched_files: List[Path] = []
@@ -469,11 +591,22 @@ def main() -> int:
             local_check = bin_dir / (scanner["name"] + exe_suffix if os_key == "windows" else scanner_id)
             if local_check.exists():
                 bin_path = str(local_check)
-            elif args.install_missing:
-                try:
-                    bin_path = install_pinned_scanner(scanner, os_key, arch_key, bin_dir)
-                except Exception as exc:
-                    print(f"[runner] Warning: failed to install {scanner['name']}: {exc}", file=sys.stderr)
+            else:
+                portable_bundle_dir = bin_dir / f"{scanner_id}_portable"
+                if portable_bundle_dir.exists():
+                    target_exe_name = (scanner["name"] + exe_suffix).lower()
+                    for root, _, files in os.walk(portable_bundle_dir):
+                        for fn in files:
+                            if fn.lower() == target_exe_name:
+                                bin_path = str(Path(root) / fn)
+                                break
+                        if bin_path:
+                            break
+                if not bin_path and args.install_missing:
+                    try:
+                        bin_path = install_pinned_scanner(scanner, os_key, arch_key, bin_dir)
+                    except Exception as exc:
+                        print(f"[runner] Warning: failed to install {scanner['name']}: {exc}", file=sys.stderr)
 
         if not bin_path:
             print(f"[runner] Skipping {scanner['name']} (binary not found and not installed)")
@@ -546,6 +679,12 @@ def main() -> int:
                     scanned_f = csv_files
             elif parser_kind == "ncdu_null":
                 scanned_b = fallback_b
+            elif parser_kind == "spaceknife_cli":
+                scanned_b, sk_files = parse_spaceknife_output(stdout_text, effective_metric, os_key)
+                if scanned_b == 0:
+                    scanned_b = fallback_b
+                if sk_files > 0:
+                    scanned_f = sk_files
             else:
                 scanned_b = parse_human_size_to_bytes(stdout_text, scanner_id)
                 if scanned_b == 0:
