@@ -121,10 +121,21 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
       - name: Build Core Engines (fs-mirage & hw-probe)
         shell: bash
         run: |
           cargo build --release --workspace
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
 
       - name: Install Pinned Target Scanners (Same-Runner Provisioning)
         shell: bash
@@ -314,9 +325,20 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
       - name: Build Core Engines (fs-mirage & hw-probe)
         shell: bash
         run: cargo build --release --workspace
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
 
       - name: Install Pinned Target Scanners
         shell: bash
