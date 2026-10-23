@@ -116,7 +116,7 @@
       "platforms": ["windows"],
       "architectures": ["x86_64"],
       "size_metric": "apparent",
-      "command_template": ["{bin}", "{path}", "/export={export_file}", "/exportfiles=0", "/admin=1"],
+      "command_template": ["{bin}", "{path}", "/export={export_file}", "/exportfiles=0", "/admin=0"],
       "output_parser": "wiztree_csv",
       "install": {
         "windows_x86_64": "https://www.diskanalyzer.com/files/wiztree_4_33_portable.zip"
@@ -156,7 +156,7 @@
       "id": "treesize",
       "name": "TreeSizeFree",
       "version": "4.7.3",
-      "enabled": false,
+      "enabled": true,
       "runner_type": "win_gui",
       "platforms": ["windows"],
       "architectures": ["x86_64"],
@@ -171,7 +171,7 @@
       "id": "spaceknife",
       "name": "spaceknife-backend",
       "version": "dev-27fbec7 (run-40021330167)",
-      "enabled": false,
+      "enabled": true,
       "runner_type": "cli",
       "platforms": ["linux", "windows"],
       "architectures": ["x86_64"],

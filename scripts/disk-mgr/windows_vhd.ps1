@@ -82,18 +82,22 @@ assign letter=$DriveLetter
 "@
             Invoke-DiskpartScript $dp
         }
+        New-Item -ItemType Directory -Path "${DriveLetter}:\bench" -Force | Out-Null
         try {
+            Set-MpPreference -DisableRealtimeMonitoring $true -DisableIOAVProtection $true -DisableBehaviorMonitoring $true -DisableScriptScanning $true -ErrorAction SilentlyContinue
             Add-MpPreference -ExclusionPath "${DriveLetter}:\" -ErrorAction SilentlyContinue
             Add-MpPreference -ExclusionPath $VhdPath -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionPath $PWD.Path -ErrorAction SilentlyContinue
+            Add-MpPreference -ExclusionPath $env:TEMP -ErrorAction SilentlyContinue
             & fsutil 8dot3name set "${DriveLetter}:" 1 | Out-Null
             & fsutil behavior set disablelastaccess 1 | Out-Null
         } catch {}
-        Write-Host "[windows_vhd] Mounted NTFS volume at ${DriveLetter}:\ (Defender excluded, 8.3 disabled)"
+        Write-Host "[windows_vhd] Mounted NTFS volume at ${DriveLetter}:\bench (Defender disabled & excluded, 8.3 disabled)"
     }
 
     "purge-cache" {
         $DriveLetter = Get-DriveLetterFromPath $Arg1
-        Write-Host "[windows_vhd] Evicting Windows NTFS cache via Dismount-VHD / Mount-VHD cycle on ${DriveLetter}:..."
+        Write-Host "[windows_vhd] Evicting Windows NTFS cache via Dismount-VHD + Host VHDX Unbuffered Cache Purge + Mount-VHD on ${DriveLetter}:..."
         if (-not (Test-Path $VhdPath)) {
             Write-Warning "[windows_vhd] VHDX not found at $VhdPath; skipping VHD remount."
             exit 0
@@ -105,16 +109,39 @@ assign letter=$DriveLetter
 
         if ($HasHyperVCmdlets) {
             Dismount-VHD -Path $VhdPath
-            Mount-VHD -Path $VhdPath | Out-Null
         } else {
             $dp = @"
 select vdisk file="$VhdPath"
 detach vdisk
+"@
+            Invoke-DiskpartScript $dp
+        }
+
+        # While the VHDX is dismounted and has no open cached handles, opening it on the host C:\ drive
+        # with FILE_FLAG_NO_BUFFERING (0x20000000) forces the Windows NT Cache Manager (CcPurgeCacheSection)
+        # to evict all cached pages of the VHDX backing file from host RAM.
+        try {
+            $fs = New-Object System.IO.FileStream(
+                $VhdPath,
+                [System.IO.FileMode]::Open,
+                [System.IO.FileAccess]::Read,
+                [System.IO.FileShare]::ReadWrite,
+                4096,
+                ([System.IO.FileOptions]0x20000000)
+            )
+            $fs.Close()
+        } catch {}
+
+        if ($HasHyperVCmdlets) {
+            Mount-VHD -Path $VhdPath | Out-Null
+        } else {
+            $dp = @"
+select vdisk file="$VhdPath"
 attach vdisk
 "@
             Invoke-DiskpartScript $dp
         }
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Milliseconds 1000
         Write-Host "[windows_vhd] Cold cache state restored for ${DriveLetter}:\"
     }
 

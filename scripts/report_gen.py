@@ -136,7 +136,7 @@ def generate_report(
         [
             "",
             "### Metric Definitions",
-            "- **$\\eta_{\\text{io}}$ (Cold Cache I/O Efficiency)**: $\\eta_{\\text{io}} = \\frac{\\text{Scanner Cold Speed}}{B_{\\text{meta}}} \\times 100$ (%). Standard filesystem API scanners fall within `0% ~ 100%`; raw `$MFT` bypass engines (e.g., WizTree on NTFS) can exceed `500%+`.",
+            "- **$\\eta_{\\text{io}}$ (Cold Cache I/O Efficiency)**: $\\eta_{\\text{io}} = \\frac{\\text{Scanner Cold Speed}}{B_{\\text{meta}}} \\times 100$ (%). All scanners are evaluated with raw `$MFT` bypass disabled (standard OS filesystem API traversal mode).",
             "- **Warm CPU Cost Ratio**: $\\text{CPU Cost Ratio} = \\frac{T_{\\text{scanner-warm}}}{T_{\\text{baseline-cpu}}}$. Lower values indicate less user-space tree construction, string allocation, and sorting overhead.",
             "- **Accuracy Diff %**: Percentage deviation between scanner-reported volume size and `ground_truth.json` (reveals hard-link double counting or sparse block miscalculation).",
             "",
