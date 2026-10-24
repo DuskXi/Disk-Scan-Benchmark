@@ -95,6 +95,19 @@ PROJECTS: List[Tuple[str, Dict[str, str], Optional[List[str]]]] = [
         },
         None,
     ),
+    # Other versions ship their own binaries, so they add real, non-deduplicated data to reach the size target
+    ("playwright-1-44", {"@playwright/test": "1.44.1"}, ["pnpm", "exec", "playwright", "install"]),
+    ("playwright-1-40", {"@playwright/test": "1.40.1"}, ["pnpm", "exec", "playwright", "install"]),
+    ("electron-32", {"electron": "32.2.6"}, None),
+    ("electron-31", {"electron": "31.7.5"}, None),
+    ("electron-30", {"electron": "30.5.1"}, None),
+    ("electron-29", {"electron": "29.4.6"}, None),
+    ("cypress-13-13", {"cypress": "13.13.0"}, None),
+    ("cypress-12", {"cypress": "12.17.4"}, None),
+    ("puppeteer-22", {"puppeteer": "22.15.0"}, None),
+    ("puppeteer-21", {"puppeteer": "21.11.0"}, None),
+    ("next-13", {**REACT, "next": "13.5.7", "typescript": "5.4.5", "@types/react": "18.2.79"}, None),
+    ("nuxt-3-12", {"nuxt": "3.12.4", "vue": "3.4.38"}, None),
 ]
 
 
@@ -103,11 +116,21 @@ def run(cmd: List[str], cwd: Path, env: Dict[str, str], timeout: int = 1800) -> 
     # pnpm is a .cmd shim on Windows, so resolve it through the shell PATH lookup
     exe = shutil.which(cmd[0]) or cmd[0]
     try:
-        proc = subprocess.run([exe, *cmd[1:]], cwd=str(cwd), env=env, timeout=timeout, text=True, capture_output=True)
+        # pnpm prints UTF-8; the Windows default (cp1252) crashed the reader thread on some package output,
+        # leaving proc.stdout as None
+        proc = subprocess.run(
+            [exe, *cmd[1:]],
+            cwd=str(cwd),
+            env=env,
+            timeout=timeout,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
     except (subprocess.TimeoutExpired, OSError) as exc:
         print(f"  ! {' '.join(cmd)} failed to run: {exc}")
         return False
-    tail = "\n".join((proc.stdout + proc.stderr).strip().splitlines()[-6:])
+    tail = "\n".join(((proc.stdout or "") + (proc.stderr or "")).strip().splitlines()[-6:])
     print(f"  {' '.join(cmd)} -> exit {proc.returncode} in {time.time() - started:.0f}s\n{tail}")
     return proc.returncode == 0
 
