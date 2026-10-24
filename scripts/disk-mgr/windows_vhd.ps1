@@ -36,7 +36,10 @@ function Get-VhdPath([string]$Letter, [int64]$VirtualGb = 0) {
     # much slower but roomy system drive C:. A dynamic VHDX that outgrows D: makes the virtual disk vanish mid-run
     # (ERROR_NO_SUCH_DEVICE, os error 433), which killed the 3M-file preset, so big volumes go to C:.
     $Base = $env:TEMP
-    if ($env:RUNNER_TEMP -and $VirtualGb -gt 0 -and $VirtualGb -le 700) {
+    if ($env:BENCH_VHD_DRIVE -eq "system") {
+        # Workflow request for presets whose metadata alone would not fit on the small D: drive (ReFS included)
+        $Base = $env:TEMP
+    } elseif ($env:RUNNER_TEMP -and $VirtualGb -gt 0 -and $VirtualGb -le 700) {
         $Base = $env:RUNNER_TEMP
     } elseif ($env:RUNNER_TEMP -and $VirtualGb -le 0) {
         $Base = $env:RUNNER_TEMP

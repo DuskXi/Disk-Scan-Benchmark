@@ -148,6 +148,10 @@ jobs:
         run: |
           VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
           echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          case "${{ inputs.preset }}" in
+            mid|high|very-high) echo "BENCH_VHD_DRIVE=system" >> "$GITHUB_ENV" ;;
+            custom) if [ "${{ inputs.files }}" -gt 1500000 ] 2>/dev/null; then echo "BENCH_VHD_DRIVE=system" >> "$GITHUB_ENV"; fi ;;
+          esac
           echo "Virtual disk capacity: ${VDISK_GB} GiB"
 
       - name: Create & Mount Virtual Disk Container (Linux / macOS)
@@ -351,6 +355,10 @@ jobs:
         run: |
           VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
           echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          case "${{ inputs.preset }}" in
+            mid|high|very-high) echo "BENCH_VHD_DRIVE=system" >> "$GITHUB_ENV" ;;
+            custom) if [ "${{ inputs.files }}" -gt 1500000 ] 2>/dev/null; then echo "BENCH_VHD_DRIVE=system" >> "$GITHUB_ENV"; fi ;;
+          esac
           echo "Virtual disk capacity: ${VDISK_GB} GiB"
 
       - name: "Create & Mount Dynamic NTFS VHDX (Windows)"
@@ -445,6 +453,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: Pick Backing Drive for the ReFS Image
+        shell: bash
+        run: |
+          case "${{ inputs.preset }}" in
+            mid|high|very-high) echo "BENCH_VHD_DRIVE=system" >> "$GITHUB_ENV" ;;
+            custom) if [ "${{ inputs.files }}" -gt 1500000 ] 2>/dev/null; then echo "BENCH_VHD_DRIVE=system" >> "$GITHUB_ENV"; fi ;;
+          esac
 
       - name: "Create & Mount Dynamic ReFS VHDX (Windows)"
         shell: pwsh

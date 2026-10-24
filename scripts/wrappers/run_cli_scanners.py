@@ -1013,6 +1013,9 @@ def main() -> int:
                     "-ScanArgs",
                     gui_args,
                 ]
+                # win_gui_monitor.ps1 gives up after 90 s by default, which is far too short for millions of files
+                gui_timeout = max(90, int(gt_data.get("total_files", 0)) // 4000 + 90)
+                ps_cmd.extend(["-TimeoutSec", str(gui_timeout)])
                 if args.with_gui_render:
                     ps_cmd.append("-WithGuiRender")
                 if args.mft_mode:
@@ -1034,7 +1037,9 @@ def main() -> int:
                 return elapsed, rss, scanned_b, scanned_f, {}
 
             cmd_tokens = build_cmd()
-            elapsed, rss, stdout_text = run_monitored_cli(cmd_tokens, os_key)
+            # Large presets (millions of files) need far more than the 15 minute default per scan run
+            cli_timeout = max(900, int(gt_data.get("total_files", 0)) // 1000)
+            elapsed, rss, stdout_text = run_monitored_cli(cmd_tokens, os_key, cli_timeout)
             parser_kind = scanner.get("output_parser", "human_last_line")
             effective_metric = (
                 "apparent"
