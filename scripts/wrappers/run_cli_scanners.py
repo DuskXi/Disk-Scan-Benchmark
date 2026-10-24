@@ -1131,7 +1131,7 @@ def main() -> int:
         if ref_bytes > 0 and scanned_bytes > 3.0 * ref_bytes and scanned_bytes > 20 * (1024**3):
             valid = False
             invalid_reason = f"❌ DISQUALIFIED: Scan boundary escape (scanned bytes {scanned_bytes:,} abnormally exceeded target boundary {ref_bytes:,})"
-        elif expected_files > 0 and scanned_files > expected_files + 3000:
+        elif expected_files > 0 and scanned_files > expected_files + 3000 + int(gt_data.get("scan_slack_files", 0)):
             valid = False
             invalid_reason = f"❌ DISQUALIFIED: Scan boundary escape (scanned files {scanned_files:,} exceeded tree total {expected_files:,})"
 

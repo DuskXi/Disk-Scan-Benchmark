@@ -1,0 +1,183 @@
+name: NTFS Synthetic + Real pnpm Mix Benchmark
+
+# Standalone, manually triggered: one NTFS volume that holds the synthetic fs-mirage tree (100 GiB logical by default)
+# AND a real, heavy pnpm install (hard-linked node_modules, junctions, native binaries). It exists to see how the
+# scanners rank on messy real-world data compared with the purely synthetic benchmark.
+
+run-name: >-
+  Mix Bench ${{ inputs.preset }} + ${{ inputs.pnpm_target_gb }}GB real pnpm
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Synthetic fs-mirage preset (very-lite = 100k files / 100GB)"
+        required: true
+        default: "very-lite"
+        type: choice
+        options:
+          - very-lite
+          - lite
+          - low
+          - mid
+      pnpm_target_gb:
+        description: "Apparent size (GiB) of the real pnpm trees to install on the same volume"
+        required: true
+        default: "10"
+        type: string
+      max_physical_mb:
+        description: "Maximum physical dirty-extent allocation in MiB (default: 1500)"
+        required: true
+        default: "1500"
+        type: string
+      seed:
+        description: "Deterministic PRNG seed (ChaCha8Rng)"
+        required: true
+        default: "42"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mix-benchmark:
+    name: "Mix Bench (windows-x86_64 NTFS | ${{ inputs.preset }} + ${{ inputs.pnpm_target_gb }}GB pnpm)"
+    runs-on: windows-latest
+    timeout-minutes: 340
+    env:
+      LABEL: windows-x86_64-mix
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build Core Engines (fs-mirage & hw-probe)
+        shell: bash
+        run: cargo build --release --workspace
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: Enable Windows Long Paths and Install pnpm
+        shell: pwsh
+        run: |
+          reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+          git config --system core.longpaths true
+          npm install -g pnpm@9.15.0
+          pnpm --version
+
+      - name: Resolve Virtual Disk Capacity
+        shell: bash
+        run: |
+          BASE=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb 60)
+          # The real trees need room for the pnpm store (once) plus every hard-linked project, with headroom
+          VDISK_GB=$(( BASE + ${{ inputs.pnpm_target_gb }} * 3 + 20 ))
+          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          echo "BENCH_VHD_DRIVE=system" >> "$GITHUB_ENV"
+          echo "Virtual disk capacity: ${VDISK_GB} GiB"
+
+      - name: "Create & Mount Dynamic NTFS VHDX (Windows)"
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" ntfs
+
+      - name: Materialize Synthetic Filesystem (fs-mirage)
+        shell: bash
+        run: |
+          mkdir -p "results/$LABEL"
+          ./target/release/fs-mirage \
+            --root "X:/bench" \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "results/$LABEL/ground_truth.json"
+
+      - name: Install Real pnpm Projects onto the Same Volume
+        shell: bash
+        run: |
+          python ./scripts/ci/pnpm_real_tree.py \
+            --dest "X:/bench/real_pnpm" \
+            --store "X:/pnpm-store" \
+            --target-gb "${{ inputs.pnpm_target_gb }}" \
+            --stats-out "results/$LABEL/real_tree_stats.json"
+
+      - name: Add the Real Tree to the Ground Truth (independent walker reference)
+        shell: bash
+        run: |
+          python ./scripts/ci/augment_ground_truth.py \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --real-dir "X:/bench/real_pnpm"
+
+      - name: Measure Hardware Ceiling Baseline (hw-probe)
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "X:/bench"
+          ./target/release/hw-probe \
+            --root "X:/bench" \
+            --out "results/$LABEL/baseline.json"
+
+      - name: Run All Windows Scanners (standard API traversal)
+        shell: bash
+        run: |
+          python ./scripts/wrappers/run_cli_scanners.py \
+            --path "X:/bench" \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --out "results/$LABEL/raw_results.json" \
+            --bin-dir "./bin"
+
+      - name: Generate Normalized Report & Append to Step Summary
+        shell: bash
+        run: |
+          python ./scripts/report_gen.py \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --baseline "results/$LABEL/baseline.json" \
+            --raw-results "results/$LABEL/raw_results.json" \
+            --out "results/$LABEL/benchmark_report.md" \
+            --json-out "results/$LABEL/normalized_results.json" \
+            --title-suffix "(windows-x86_64 NTFS | ${{ inputs.preset }} synthetic + ${{ inputs.pnpm_target_gb }}GB real pnpm)"
+          {
+            echo "### Real pnpm tree (independent walker reference)"
+            echo '```json'
+            cat "results/$LABEL/real_tree_stats.json"
+            echo '```'
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "results/$LABEL/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Teardown Virtual Disk
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+      - name: Upload Benchmark Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-windows-x86_64-mix-${{ inputs.preset }}
+          path: results/
+          retention-days: 30
