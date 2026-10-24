@@ -293,7 +293,9 @@ impl TopologyPlan {
 
         // 1. Generate Deep Source / Dependency Zone (50%)
         // Create realistic deep hierarchies where each step adds exactly 1 directory level (depth 8..=25)
-        let num_deep_chains = (count_deep / 80).clamp(8, 1200);
+        // About one directory per 8-10 files overall (a real 2.8 TB system drive has ~8M files in ~1M folders),
+        // so the chain count grows with the preset instead of being capped.
+        let num_deep_chains = (count_deep / 60).max(8);
         let mut deep_leaf_dirs = Vec::with_capacity(num_deep_chains * 4);
         let pkg_names = [
             "core", "runtime", "compiler", "serde", "tokio", "syn", "libc", "vfs", "index", "cache",
@@ -372,7 +374,8 @@ impl TopologyPlan {
         let mut bucket_id = 0usize;
         let mut flat_file_idx = 0usize;
         while flat_remaining > 0 {
-            let bucket_cap = rng.gen_range(10_000..=20_000);
+            // Heavy-tailed flat directories (30 .. 20,000 files, log-uniform) instead of uniform 10k-20k buckets.
+            let bucket_cap = (rng.gen_range(30f64.ln()..20_000f64.ln()).exp()) as usize;
             let count_in_bucket = flat_remaining.min(bucket_cap);
             let bucket_dir = format!("zone_flat_cache/bucket_{:03}", bucket_id);
             add_dir_with_ancestors(&bucket_dir, &mut dir_set);
@@ -428,7 +431,7 @@ impl TopologyPlan {
         let long_base_dir = "zone_edge/long_paths/nested_container/subcomponent";
         add_dir_with_ancestors(long_base_dir, &mut dir_set);
         for i in 0..count_long {
-            let sub_bucket = format!("{}/shard_{:03}", long_base_dir, i / 500);
+            let sub_bucket = format!("{}/shard_{:03}", long_base_dir, i / 60);
             add_dir_with_ancestors(&sub_bucket, &mut dir_set);
             let pad_len = rng.gen_range(100..=140);
             let pad: String = (0..pad_len)

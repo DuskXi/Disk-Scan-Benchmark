@@ -86,6 +86,10 @@ struct Args {
     #[arg(long)]
     no_realism: bool,
 
+    /// Only plan the topology and print its statistics (no files are written).
+    #[arg(long)]
+    plan_only: bool,
+
     /// Output path for the Ground Truth manifest JSON
     #[arg(long, default_value = "ground_truth.json")]
     manifest_out: PathBuf,
@@ -141,6 +145,21 @@ fn main() -> Result<()> {
         plan.manifest.total_symlinks,
         plan.manifest.apparent_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
     );
+
+    if args.plan_only {
+        let m = &plan.manifest;
+        println!(
+            "[fs-mirage] plan-only: files={} dirs={} files_per_dir={:.1} folder_share={:.1}% hardlinks={} symlinks={} apparent_gib={:.1}",
+            m.total_files,
+            m.total_dirs,
+            m.total_files as f64 / m.total_dirs.max(1) as f64,
+            100.0 * m.total_dirs as f64 / (m.total_files + m.total_dirs).max(1) as f64,
+            m.total_hardlinks,
+            m.total_symlinks,
+            m.apparent_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+        );
+        return Ok(());
+    }
 
     let t1 = Instant::now();
     let manifest =
