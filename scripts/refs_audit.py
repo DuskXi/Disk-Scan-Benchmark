@@ -53,7 +53,12 @@ def audit(ntfs: List[Dict[str, Any]], refs: List[Dict[str, Any]], max_dev: float
                 continue
             r = ratios[m][sid]
             dev = r / center
-            info[m] = {"refs_over_ntfs": round(r, 3), "relative_to_median": round(dev, 3)}
+            info[m] = {
+                "refs_over_ntfs": round(r, 3),
+                "relative_to_median": round(dev, 3),
+                "ntfs_ms": float(ntfs_by_id[sid][m]),
+                "refs_ms": float(refs_by_id[sid][m]),
+            }
             if dev > max_dev:
                 report["flagged"].setdefault(sid, []).append(
                     f"{m} ReFS/NTFS ratio {r:.2f}x is {dev:.2f}x the overall median {center:.2f}x (allowed up to {max_dev:g}x)"
@@ -88,14 +93,21 @@ def render_md(report: Dict[str, Any], names: Dict[str, str]) -> str:
     )
     lines += [
         "",
-        "| Scanner | " + " | ".join(f"{m} ReFS/NTFS (vs median)" for m in c) + " | Verdict |",
+        "| Scanner | " + " | ".join(f"{m}: NTFS / ReFS / ratio (vs median)" for m in c) + " | Verdict |",
         "| :--- | " + " | ".join("---:" for _ in c) + " | :---: |",
     ]
     for sid, info in report["scanners"].items():
         cells = []
         for m in c:
             d = info.get(m)
-            cells.append(f"`{d['refs_over_ntfs']:.2f}x` ({d['relative_to_median']:.2f}x)" if d else "-")
+            cells.append(
+                (
+                    f"`{d['ntfs_ms']:,.0f}` / `{d['refs_ms']:,.0f}` / "
+                    f"`{d['refs_over_ntfs']:.2f}x` ({d['relative_to_median']:.2f}x)"
+                )
+                if d
+                else "-"
+            )
         verdict = "❌ DISQUALIFIED" if sid in report["flagged"] else "✅ Consistent"
         lines.append(f"| **{names.get(sid, sid)}** | " + " | ".join(cells) + f" | {verdict} |")
     return "\n".join(lines) + "\n"
