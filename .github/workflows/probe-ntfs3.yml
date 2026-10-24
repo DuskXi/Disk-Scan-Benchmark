@@ -61,7 +61,7 @@ jobs:
           truncate -s "${CAP}G" /tmp/bench.ntfs
           mkntfs -F -Q -L BenchVol /tmp/bench.ntfs
           sudo mkdir -p /mnt/bench
-          sudo mount -t ntfs3 -o noatime,windows_names,prealloc /tmp/bench.ntfs /mnt/bench
+          sudo mount -t ntfs3 -o loop,noatime,windows_names,prealloc /tmp/bench.ntfs /mnt/bench
           sudo chmod 777 /mnt/bench
           mount | grep /mnt/bench
           mkdir -p results
