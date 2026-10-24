@@ -18,6 +18,23 @@ mod windows;
 const CHURN_EVERY: usize = 48;
 const CHURN_PHASE: usize = 5;
 
+/// Deterministic Fisher-Yates shuffle seeded from the directory name (xorshift64*), so runs stay reproducible.
+fn shuffle_deterministic<T>(items: &mut [T], seed_text: &str) {
+    let mut state: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in seed_text.bytes() {
+        state ^= b as u64;
+        state = state.wrapping_mul(0x0100_0000_01b3);
+    }
+    state |= 1;
+    for i in (1..items.len()).rev() {
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        let r = state.wrapping_mul(0x2545_f491_4f6c_dd1d);
+        items.swap(i, (r % (i as u64 + 1)) as usize);
+    }
+}
+
 pub fn to_os_path(root: &Path, rel_path: &str) -> PathBuf {
     let mut p = root.to_path_buf();
     for seg in rel_path.split('/').filter(|s| !s.is_empty()) {
@@ -103,7 +120,10 @@ pub fn materialize_tree(
     #[cfg(not(windows))]
     const MAX_FILES_PER_BATCH: usize = usize::MAX;
     let mut work_batches: Vec<(&str, Vec<&FileEntry>)> = Vec::with_capacity(dir_groups.len());
-    for (parent, entries) in dir_groups {
+    for (parent, mut entries) in dir_groups {
+        // Insert names in a pseudo-random order instead of ascending: ascending inserts build perfectly packed
+        // directory indexes, random order half-fills and splits index pages like a long-lived directory. Free to do.
+        shuffle_deterministic(&mut entries, parent);
         for chunk in entries.chunks(MAX_FILES_PER_BATCH) {
             work_batches.push((parent, chunk.to_vec()));
         }

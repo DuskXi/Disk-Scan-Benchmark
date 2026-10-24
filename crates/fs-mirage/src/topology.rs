@@ -32,11 +32,14 @@ fn realistic_small_size(rng: &mut ChaCha8Rng) -> u64 {
         2f64.powf(e) as u64
     };
     match roll {
-        0..=79 => 0,
-        80..=579 => log_uniform(rng, 1.0, 4096.0),
-        580..=879 => log_uniform(rng, 4097.0, 65536.0),
-        880..=979 => log_uniform(rng, 65537.0, 1048576.0),
-        980..=997 => log_uniform(rng, 1048577.0, 16777216.0),
+        // ~45% empty and ~35% resident-sized (<= 680 B) files keep creation cheap on NTFS (no sparse/allocation work);
+        // the remaining ~20% carry the realistic mid/large sizes.
+        0..=449 => 0,
+        450..=799 => log_uniform(rng, 1.0, 680.0),
+        800..=919 => log_uniform(rng, 681.0, 4096.0),
+        920..=969 => log_uniform(rng, 4097.0, 65536.0),
+        970..=994 => log_uniform(rng, 65537.0, 1048576.0),
+        995..=998 => log_uniform(rng, 1048577.0, 16777216.0),
         _ => log_uniform(rng, 16777217.0, 134217728.0),
     }
 }
