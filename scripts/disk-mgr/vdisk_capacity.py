@@ -15,9 +15,7 @@ PRESET_GB = {"very-lite": 100, "lite": 350, "low": 500, "mid": 1024, "high": 204
 
 
 def capacity_gb(preset: str, logical_gb: Optional[float], minimum_gb: int) -> int:
-    base = PRESET_GB.get(preset)
-    if base is None:
-        base = float(logical_gb) if logical_gb else 100.0
+    base: float = float(PRESET_GB[preset]) if preset in PRESET_GB else (logical_gb or 100.0)
     return max(minimum_gb, math.ceil(base * 1.15) + 20)
 
 
