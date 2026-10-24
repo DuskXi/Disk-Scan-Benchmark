@@ -128,6 +128,41 @@ def parse_spaceknife_scan_ms(text: str) -> Optional[float]:
     return value if unit in ("ms", "毫秒") or unit.startswith("milli") else value * 1000.0
 
 
+def spaceknife_mft_fallback(text: str) -> Optional[str]:
+    """
+    For `scan --mft`: None when SpaceKnife read the volume's $MFT ("Method MFT quick scan" / "方式 MFT 快速扫描"),
+    else why it fell back to a full scan. Anchored on the method line: the note under a full scan also mentions the
+    MFT quick scan.
+    """
+    clean = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text).replace("\r", "\n")
+    if re.search(r"(?:Method|方式)\s+MFT\s*(?:quick scan|快速扫描)", clean):
+        return None
+    m = re.search(r"Method full scan \((.*?)\)|方式\s*硬扫描（(.*?)）", clean, re.DOTALL)
+    if m:
+        return " ".join((m.group(1) or m.group(2) or "").split()) or "no reason given"
+    return "no scan method line in the output"
+
+
+def parse_spaceknife_subtree(text: str, name: str, os_key: str) -> Tuple[int, int]:
+    """
+    Size on disk and file count of one first-level row of the `scan` summary table ("▸ bench  512.3 GB  98.1% ███ 1,000,006").
+    An MFT scan has to be pointed at the volume root, so the benchmark subtree is read from its row.
+    """
+    clean = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text).replace("\r", "\n")
+    base = 1000 if os_key == "macos" else 1024
+    units = {"b": 1, "kb": base, "mb": base**2, "gb": base**3, "tb": base**4, "pb": base**5}
+    units.update({"kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4, "pib": 1024**5})
+    row_re = re.compile(
+        rf"^[\s│▸▾]*{re.escape(name)}\s+([0-9]+(?:\.[0-9]+)?)\s*(PiB|TiB|GiB|MiB|KiB|PB|TB|GB|MB|KB|B)\s+"
+        r"[0-9.]+%.*?([0-9][0-9,]*)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    m = row_re.search(clean)
+    if not m:
+        return 0, 0
+    return int(float(m.group(1)) * units.get(m.group(2).lower(), 1)), int(m.group(3).replace(",", ""))
+
+
 def parse_spaceknife_output(text: str, effective_metric: str, os_key: str) -> Tuple[int, int]:
     """
     Parses `spaceknife-backend scan <path> --no-snapshot` summary panel output.
@@ -1073,6 +1108,12 @@ def main() -> int:
                 sk_scan_ms = parse_spaceknife_scan_ms(stdout_text)
                 if sk_scan_ms is not None:
                     tool_scan_ms_samples.append(sk_scan_ms)
+                if args.mft_mode:
+                    # scanned the volume root: take the benchmark subtree's row, and check the $MFT was really read
+                    sk_mft_fallbacks.append(spaceknife_mft_fallback(stdout_text))
+                    sub_b, sub_f = parse_spaceknife_subtree(stdout_text, Path(scan_path).name, os_key)
+                    if sub_b > 0:
+                        scanned_b, sk_files = sub_b, sub_f
                 sampled_zones = parse_cli_structure_samples(stdout_text, "spaceknife")
                 if scanned_b == 0:
                     scanned_b = fallback_b
@@ -1088,6 +1129,7 @@ def main() -> int:
         # 0. Pre-warm binary executable (eliminates Windows Defender / DLL cold-start noise without touching scan_path)
         gui_io_samples: List[Tuple[int, bool]] = []
         tool_scan_ms_samples: List[float] = []
+        sk_mft_fallbacks: List[Optional[str]] = []
         configure_windows_gui_scanner(scanner_id, os_key, bin_path, args.mft_mode)
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
@@ -1134,6 +1176,13 @@ def main() -> int:
         elif expected_files > 0 and scanned_files > expected_files + 3000 + int(gt_data.get("scan_slack_files", 0)):
             valid = False
             invalid_reason = f"❌ DISQUALIFIED: Scan boundary escape (scanned files {scanned_files:,} exceeded tree total {expected_files:,})"
+
+        # 1b. SpaceKnife's --mft falls back to a full scan (with the reason) when it cannot read the $MFT; that run would
+        # be timed as an MFT scan otherwise
+        fallbacks = [r for r in sk_mft_fallbacks if r]
+        if valid and fallbacks:
+            valid = False
+            invalid_reason = f"❌ INVALID: no MFT scan, SpaceKnife fell back to a full scan ({fallbacks[0]})"
 
         # 2. GUI Traversal Sanity Check
         if valid and scanner["runner_type"] == "win_gui" and gui_io_samples:
