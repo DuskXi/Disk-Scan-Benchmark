@@ -110,6 +110,24 @@ def parse_human_size_to_bytes(text: str, scanner_id: str = "") -> int:
     return 0
 
 
+def parse_spaceknife_scan_ms(text: str) -> Optional[float]:
+    """
+    Extracts the scan duration SpaceKnife reports about itself ("Time 85 ms" / "用时 85 毫秒"). It excludes process
+    start-up, so comparing it with the wall-clock time shows how much fixed overhead a small preset contains.
+    """
+    clean = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text).replace("\r", "\n")
+    m = re.search(
+        r"(?:Time|Duration|Elapsed|用时)\s+([0-9][0-9,]*(?:\.[0-9]+)?)\s*(ms|milliseconds?|毫秒|secs?|seconds?|秒|s)\b",
+        clean,
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    value = float(m.group(1).replace(",", ""))
+    unit = m.group(2).lower()
+    return value if unit in ("ms", "毫秒") or unit.startswith("milli") else value * 1000.0
+
+
 def parse_spaceknife_output(text: str, effective_metric: str, os_key: str) -> Tuple[int, int]:
     """
     Parses `spaceknife-backend scan <path> --no-snapshot` summary panel output.
@@ -1047,6 +1065,9 @@ def main() -> int:
                 scanned_b = fallback_b
             elif parser_kind == "spaceknife_cli":
                 scanned_b, sk_files = parse_spaceknife_output(stdout_text, effective_metric, os_key)
+                sk_scan_ms = parse_spaceknife_scan_ms(stdout_text)
+                if sk_scan_ms is not None:
+                    tool_scan_ms_samples.append(sk_scan_ms)
                 sampled_zones = parse_cli_structure_samples(stdout_text, "spaceknife")
                 if scanned_b == 0:
                     scanned_b = fallback_b
@@ -1061,6 +1082,7 @@ def main() -> int:
 
         # 0. Pre-warm binary executable (eliminates Windows Defender / DLL cold-start noise without touching scan_path)
         gui_io_samples: List[Tuple[int, bool]] = []
+        tool_scan_ms_samples: List[float] = []
         configure_windows_gui_scanner(scanner_id, os_key, bin_path, args.mft_mode)
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
@@ -1150,6 +1172,11 @@ def main() -> int:
                 "cold_time_ms": round(cold_ms, 2),
                 "warm_time_ms": warm_avg_ms,
                 "warm_runs_ms": warm_times,
+                "tool_reported_scan_ms": (
+                    round(sorted(tool_scan_ms_samples)[len(tool_scan_ms_samples) // 2], 1)
+                    if tool_scan_ms_samples
+                    else None
+                ),
                 "peak_rss_mb": round(peak_rss, 2),
                 "scanned_files": scanned_files,
                 "scanned_bytes": scanned_bytes,

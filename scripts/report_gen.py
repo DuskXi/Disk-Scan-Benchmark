@@ -81,6 +81,7 @@ def generate_report(
         row = {
             **entry,
             "cold_files_per_sec": round(cold_speed_fps, 1),
+            "warm_files_per_sec": round(scanned_files / max(warm_ms / 1000.0, 1e-6), 1),
             "eta_io_percent": round(eta_io_pct, 2),
             "cpu_cost_ratio": round(cpu_cost_ratio, 3),
             "accuracy_diff_pct": round(acc_diff_pct, 2),
@@ -146,17 +147,21 @@ def generate_report(
             "",
             "## 3. Normalized Scanner Benchmark Results (有效成绩排行榜)",
             "",
-            "| Rank | Scanner | Version | Cold Time (ms) | Warm Avg (ms) | Cold Speed (files/s) | $\\eta_{\\text{io}}$ Efficiency | Warm CPU Cost Ratio | Peak RSS (MB) | Accuracy Diff % | Est. PC 1M Scan (s) |",
-            "| :---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Rank | Scanner | Version | Cold Time (ms) | Warm Avg (ms) | Cold Speed (files/s) | Warm Speed (files/s) | Tool-reported Scan (ms) | $\\eta_{\\text{io}}$ Efficiency | Warm CPU Cost Ratio | Peak RSS (MB) | Accuracy Diff % | Est. PC 1M Scan (s) |",
+            "| :---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
 
     for idx, r in enumerate(ranked_rows, start=1):
+        reported = r.get("tool_reported_scan_ms")
+        tool_ms = f"{reported:,.1f}" if reported is not None else "-"
         lines.append(
             f"| {idx} | **{r['scanner']}** | `{r.get('version', '-')}` "
             f"| `{r['cold_time_ms']:,.1f}` "
             f"| `{r['warm_time_ms']:,.1f}` "
             f"| `{r['cold_files_per_sec']:,.0f}` "
+            f"| `{r['warm_files_per_sec']:,.0f}` "
+            f"| `{tool_ms}` "
             f"| **{r['eta_io_percent']:.1f}%** "
             f"| `{r['cpu_cost_ratio']:.2f}x` "
             f"| `{r['peak_rss_mb']:.1f}` "
@@ -258,6 +263,7 @@ def generate_report(
         [
             "",
             "### Metric Definitions",
+            "- **Small presets (<= 400k files) and speed ranking**: whole-process wall time includes fixed start-up cost (interpreter / thread-pool init, and a 2.2 s floor for GUI monitors), so use `Warm Speed (files/s)` at `mid` or larger for throughput comparisons. `Tool-reported Scan (ms)` is the scan time a tool prints about itself, excluding start-up.",
             "- **$\\eta_{\\text{io}}$ (Cold Cache I/O Efficiency)**: $\\eta_{\\text{io}} = \\frac{\\text{Scanner Cold Speed}}{B_{\\text{meta}}} \\times 100$ (%). All scanners are evaluated with raw `$MFT` bypass disabled (standard OS filesystem API traversal mode).",
             "- **Warm CPU Cost Ratio**: $\\text{CPU Cost Ratio} = \\frac{T_{\\text{scanner-warm}}}{T_{\\text{baseline-cpu}}}$. Lower values indicate less user-space tree construction, string allocation, and sorting overhead.",
             "- **Accuracy Diff %**: Percentage deviation between scanner-reported volume size and `ground_truth.json` (reveals hard-link double counting or sparse block miscalculation).",
