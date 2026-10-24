@@ -162,20 +162,23 @@ impl TopologyPlan {
         let count_media = (total / 1000).max(1);
         let remaining = total.saturating_sub(count_deep + count_flat + count_media);
         let count_hardlinks = (total * 5 / 100).min(remaining / 2);
-        let count_symlinks = (total / 250).clamp(2, 500).min(remaining.saturating_sub(count_hardlinks));
+        let count_symlinks = (total / 250)
+            .clamp(2, 500)
+            .min(remaining.saturating_sub(count_hardlinks));
         let count_long = remaining.saturating_sub(count_hardlinks + count_symlinks);
 
         let mut dir_set = std::collections::BTreeSet::new();
-        let add_dir_with_ancestors = |dir_path: &str, set: &mut std::collections::BTreeSet<String>| {
-            let mut current = String::new();
-            for part in dir_path.split('/').filter(|s| !s.is_empty()) {
-                if !current.is_empty() {
-                    current.push('/');
+        let add_dir_with_ancestors =
+            |dir_path: &str, set: &mut std::collections::BTreeSet<String>| {
+                let mut current = String::new();
+                for part in dir_path.split('/').filter(|s| !s.is_empty()) {
+                    if !current.is_empty() {
+                        current.push('/');
+                    }
+                    current.push_str(part);
+                    set.insert(current.clone());
                 }
-                current.push_str(part);
-                set.insert(current.clone());
-            }
-        };
+            };
 
         // Physical block budget calculation:
         // Reserve physical budget for media files first (up to 8 * 4KB = 32KB each).
@@ -191,7 +194,8 @@ impl TopologyPlan {
         let small_dirty_rate_bp: u32 = if total_small_regular == 0 {
             0
         } else {
-            let raw_bp = ((max_small_dirty_files as u64) * 10_000 / (total_small_regular as u64)).min(2000);
+            let raw_bp =
+                ((max_small_dirty_files as u64) * 10_000 / (total_small_regular as u64)).min(2000);
             raw_bp.max(100) as u32
         };
 
@@ -203,7 +207,9 @@ impl TopologyPlan {
         // Create realistic deep hierarchies where each step adds exactly 1 directory level (depth 8..=25)
         let num_deep_chains = (count_deep / 80).clamp(8, 1200);
         let mut deep_leaf_dirs = Vec::with_capacity(num_deep_chains * 4);
-        let pkg_names = ["core", "runtime", "compiler", "serde", "tokio", "syn", "libc", "vfs", "index", "cache"];
+        let pkg_names = [
+            "core", "runtime", "compiler", "serde", "tokio", "syn", "libc", "vfs", "index", "cache",
+        ];
         for chain_idx in 0..num_deep_chains {
             let target_depth = rng.gen_range(8..=25);
             let mut path = format!("zone_deep/ws_{:03}", chain_idx / 16);
@@ -274,11 +280,7 @@ impl TopologyPlan {
                 flat_file_idx += 1;
                 let write_dirty = small_dirty_allocated < max_small_dirty_files
                     && rng.gen_range(0..10_000) < small_dirty_rate_bp;
-                let logical_size = if write_dirty {
-                    BLOCK_SIZE
-                } else {
-                    0
-                };
+                let logical_size = if write_dirty { BLOCK_SIZE } else { 0 };
                 let dirty_blocks = if write_dirty {
                     small_dirty_allocated += 1;
                     planned_dirty_bytes += BLOCK_SIZE;
@@ -314,11 +316,7 @@ impl TopologyPlan {
             let rel_path = format!("{}/long_{:07}_{}.dat", sub_bucket, i, pad);
             let write_dirty = small_dirty_allocated < max_small_dirty_files
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
-            let logical_size = if write_dirty {
-                BLOCK_SIZE
-            } else {
-                0
-            };
+            let logical_size = if write_dirty { BLOCK_SIZE } else { 0 };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;
                 planned_dirty_bytes += BLOCK_SIZE;
@@ -366,10 +364,13 @@ impl TopologyPlan {
         // If user specified --logical-gb, scale media sizes so total logical volume hits target_logical_gb
         if let Some(target_gb) = cfg.target_logical_gb {
             let target_bytes = (target_gb * (GB as f64)) as u64;
-            let desired_media_sum = target_bytes.saturating_sub(small_logical_sum).max(count_media as u64 * MB * 16);
+            let desired_media_sum = target_bytes
+                .saturating_sub(small_logical_sum)
+                .max(count_media as u64 * MB * 16);
             let current_media_sum: u64 = raw_media_sizes.iter().sum::<u64>().max(1);
             for sz in &mut raw_media_sizes {
-                let scaled = ((*sz as u128) * (desired_media_sum as u128) / (current_media_sum as u128)) as u64;
+                let scaled = ((*sz as u128) * (desired_media_sum as u128)
+                    / (current_media_sum as u128)) as u64;
                 *sz = (scaled & !(BLOCK_SIZE - 1)).max(16 * MB);
             }
         }
@@ -474,7 +475,8 @@ impl TopologyPlan {
         let total_symlinks = symlinks.len();
         let actual_total_files = total_regular_files + total_hardlinks + total_symlinks;
 
-        let mut zones: std::collections::BTreeMap<String, ZoneGroundTruth> = std::collections::BTreeMap::new();
+        let mut zones: std::collections::BTreeMap<String, ZoneGroundTruth> =
+            std::collections::BTreeMap::new();
         for d in &directories {
             let top = d.split('/').next().unwrap_or("unknown");
             let entry = zones.entry(top.to_string()).or_insert(ZoneGroundTruth {
@@ -484,7 +486,11 @@ impl TopologyPlan {
             });
             entry.dirs += 1;
         }
-        for f in regular_files.iter().chain(hardlinks.iter()).chain(symlinks.iter()) {
+        for f in regular_files
+            .iter()
+            .chain(hardlinks.iter())
+            .chain(symlinks.iter())
+        {
             let top = f.rel_path.split('/').next().unwrap_or("unknown");
             let sz = match f.kind {
                 EntryKind::RegularFile { logical_size, .. } => logical_size,
@@ -577,7 +583,10 @@ mod tests {
         let plan2 = TopologyPlan::generate(&cfg);
 
         assert_eq!(plan1.manifest.total_files, 1000);
-        assert_eq!(plan1.manifest.apparent_size_bytes, plan2.manifest.apparent_size_bytes);
+        assert_eq!(
+            plan1.manifest.apparent_size_bytes,
+            plan2.manifest.apparent_size_bytes
+        );
         assert_eq!(plan1.regular_files.len(), plan2.regular_files.len());
         assert_eq!(plan1.directories, plan2.directories);
         for (a, b) in plan1.regular_files.iter().zip(plan2.regular_files.iter()) {

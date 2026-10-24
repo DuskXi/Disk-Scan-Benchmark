@@ -151,8 +151,12 @@ fn main() -> Result<()> {
     }
     let json_str = serde_json::to_string_pretty(&manifest)
         .context("Failed to serialize ground_truth manifest")?;
-    fs::write(&args.manifest_out, json_str)
-        .with_context(|| format!("Failed to write manifest to {}", args.manifest_out.display()))?;
+    fs::write(&args.manifest_out, json_str).with_context(|| {
+        format!(
+            "Failed to write manifest to {}",
+            args.manifest_out.display()
+        )
+    })?;
 
     println!(
         "[fs-mirage] Ground truth saved to {}",

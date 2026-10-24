@@ -27,7 +27,10 @@ $ErrorActionPreference = "Stop"
 
 function Get-VhdPath([string]$Letter) {
     # One backing VHDX per drive letter so NTFS and ReFS volumes can coexist
-    return (Join-Path $env:TEMP "disk_scanner_bench_${Letter}.vhdx")
+    # On GitHub-hosted runners RUNNER_TEMP lives on the fast D: scratch SSD, whereas TEMP is on the much slower
+    # system drive C:; a dynamic VHDX on C: made every metadata write of the benchmark volume 2-3x slower.
+    $Base = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+    return (Join-Path $Base "disk_scanner_bench_${Letter}.vhdx")
 }
 
 function Get-DriveLetterFromPath([string]$PathStr) {

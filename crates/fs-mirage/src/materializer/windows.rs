@@ -5,26 +5,130 @@ use std::io::Write;
 use std::mem::{size_of, zeroed};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::FileExt;
-use std::os::windows::io::AsRawHandle;
+use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::Path;
 use std::ptr::{null, null_mut};
-use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE};
+use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
+use windows_sys::Wdk::Storage::FileSystem::NtCreateFile;
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
+};
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, CREATE_ALWAYS,
-    FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO,
+    FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, OPEN_EXISTING, SYNCHRONIZE,
 };
-use windows_sys::Win32::System::IO::DeviceIoControl;
 use windows_sys::Win32::System::Ioctl::FSCTL_SET_SPARSE;
+use windows_sys::Win32::System::IO::{DeviceIoControl, IO_STATUS_BLOCK};
+
+/// Directory handle used as the RootDirectory of relative NtCreateFile opens, the Windows counterpart of the
+/// `openat(dir_fd, name)` fast path on Unix: it skips re-resolving (and re-ACL-checking) 8..25 path components
+/// for every one of the million files created below the same directory.
+pub struct DirHandle(HANDLE);
+
+// A directory HANDLE may be used from any thread; it is only read by NtCreateFile.
+unsafe impl Send for DirHandle {}
+unsafe impl Sync for DirHandle {}
+
+impl Drop for DirHandle {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+pub fn open_dir_handle(dir: &Path) -> Option<DirHandle> {
+    let mut wide: Vec<u16> = Vec::with_capacity(dir.as_os_str().len() + 1);
+    wide.extend(dir.as_os_str().encode_wide());
+    wide.push(0);
+    let h = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            FILE_LIST_DIRECTORY | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            0 as HANDLE,
+        )
+    };
+    if h == INVALID_HANDLE_VALUE {
+        None
+    } else {
+        Some(DirHandle(h))
+    }
+}
+
+const FILE_OVERWRITE_IF: u32 = 5;
+const FILE_NON_DIRECTORY_FILE: u32 = 0x40;
+const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x20;
+const OBJ_CASE_INSENSITIVE: u32 = 0x40;
+
+/// Creates (or truncates) `name` inside `dir` with a single relative NtCreateFile call.
+fn nt_create_relative(dir: &DirHandle, name: &str) -> Option<HANDLE> {
+    let wide: Vec<u16> = name.encode_utf16().collect();
+    if wide.is_empty() || wide.len() > 255 {
+        return None;
+    }
+    let byte_len = (wide.len() * 2) as u16;
+    let us = UNICODE_STRING {
+        Length: byte_len,
+        MaximumLength: byte_len,
+        Buffer: wide.as_ptr() as *mut u16,
+    };
+    let oa = OBJECT_ATTRIBUTES {
+        Length: size_of::<OBJECT_ATTRIBUTES>() as u32,
+        RootDirectory: dir.0,
+        ObjectName: &us,
+        Attributes: OBJ_CASE_INSENSITIVE,
+        SecurityDescriptor: null(),
+        SecurityQualityOfService: null(),
+    };
+    let mut iosb: IO_STATUS_BLOCK = unsafe { zeroed() };
+    let mut handle: HANDLE = 0 as HANDLE;
+    let status = unsafe {
+        NtCreateFile(
+            &mut handle,
+            GENERIC_WRITE | SYNCHRONIZE,
+            &oa,
+            &mut iosb,
+            null(),
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OVERWRITE_IF,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+            null(),
+            0,
+        )
+    };
+    if status >= 0 {
+        Some(handle)
+    } else {
+        None
+    }
+}
 
 pub fn create_sparse_anchored_file(
+    dir: Option<&DirHandle>,
+    file_name: &str,
     path: &Path,
     logical_size: u64,
     dirty_blocks: u8,
     fill_byte: u8,
 ) -> Result<u64> {
-    // Ultra-fast path for 0-byte clean files: single CreateFileW + CloseHandle (2 syscalls total,
-    // zero SetFileInformationByHandle or DeviceIoControl overhead).
+    // Relative open through the parent directory handle; falls back to the full-path open if it is refused.
+    let rel_handle = dir.and_then(|d| nt_create_relative(d, file_name));
+
+    // Ultra-fast path for 0-byte clean files: a single create + close.
     if dirty_blocks == 0 && logical_size == 0 {
+        if let Some(h) = rel_handle {
+            unsafe {
+                CloseHandle(h);
+            }
+            return Ok(0);
+        }
+        // Relative open unavailable: single full-path CreateFileW + CloseHandle.
         let mut wide: Vec<u16> = Vec::with_capacity(path.as_os_str().len() + 1);
         wide.extend(path.as_os_str().encode_wide());
         wide.push(0);
@@ -47,11 +151,14 @@ pub fn create_sparse_anchored_file(
         }
     }
 
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)?;
+    let mut file = match rel_handle {
+        Some(h) => unsafe { std::fs::File::from_raw_handle(h as _) },
+        None => OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?,
+    };
 
     // Fast path 1: Tiny files <= 680B with dirty_blocks == 0 fit directly inside the 1KB NTFS $MFT record
     // as Resident $DATA (AllocationSize == 0 naturally without requiring FSCTL_SET_SPARSE).
