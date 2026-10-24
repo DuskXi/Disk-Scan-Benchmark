@@ -8,6 +8,36 @@ const MB: u64 = 1024 * 1024;
 /// Extra apparent-only volume of the sparse hole files relative to the preallocated media volume (500 -> 700).
 const HOLE_EXTRA_RATIO: f64 = 0.4;
 
+/// Name fragments with accents, CJK, Cyrillic and spaces so scanners also exercise non-ASCII / UTF-8 / UTF-16 paths.
+const ODD_NAME_TAGS: [&str; 8] = [
+    "r\u{e9}sum\u{e9}",
+    "\u{65e5}\u{672c}\u{8a9e}",
+    "\u{4e2d}\u{6587}\u{540d}",
+    "na\u{ef}ve",
+    "\u{43a}\u{43b}\u{44e}\u{447}",
+    "\u{30c7}\u{30fc}\u{30bf}",
+    "with space",
+    "UPPER_lower_Mix",
+];
+
+/// Draws a realistic file size: ~8% empty, mostly small (resident / single cluster), a long tail of larger files.
+/// The bytes are only *reserved* (preallocation / metadata), never written, so generation stays fast.
+fn realistic_small_size(rng: &mut ChaCha8Rng) -> u64 {
+    let roll = rng.gen_range(0..1000u32);
+    let log_uniform = |rng: &mut ChaCha8Rng, lo: f64, hi: f64| -> u64 {
+        let e = rng.gen_range(lo.log2()..hi.log2());
+        2f64.powf(e) as u64
+    };
+    match roll {
+        0..=79 => 0,
+        80..=579 => log_uniform(rng, 1.0, 4096.0),
+        580..=879 => log_uniform(rng, 4097.0, 65536.0),
+        880..=979 => log_uniform(rng, 65537.0, 1048576.0),
+        980..=997 => log_uniform(rng, 1048577.0, 16777216.0),
+        _ => log_uniform(rng, 16777217.0, 134217728.0),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileZone {
     DeepSource,
@@ -243,16 +273,25 @@ impl TopologyPlan {
         for i in 0..count_deep {
             let dir = &deep_leaf_dirs[rng.gen_range(0..deep_leaf_dirs.len())];
             let ext = extensions[rng.gen_range(0..extensions.len())];
-            let rel_path = format!("{}/f_{:07}.{}", dir, i, ext);
+            let rel_path = if i % 20 == 7 {
+                format!(
+                    "{}/f_{:07}_{}.{}",
+                    dir,
+                    i,
+                    ODD_NAME_TAGS[(i / 20) % ODD_NAME_TAGS.len()],
+                    ext
+                )
+            } else {
+                format!("{}/f_{:07}.{}", dir, i, ext)
+            };
             let write_dirty = small_dirty_allocated < max_small_dirty_files
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
-            let logical_size = if write_dirty {
-                BLOCK_SIZE
+            // Sampled files carry a real 4KB data block; the rest get a realistic size that is only reserved.
+            let (logical_size, preallocate) = if write_dirty {
+                (BLOCK_SIZE, false)
             } else {
-                // All clean small files use 0-byte logical size (created via single openat/CreateFileW
-                // without ftruncate/SetFileInformationByHandle metadata transactions;
-                // zone_sparse_media absorbs the remaining logical volume so total apparent_size is exact).
-                0
+                let sz = realistic_small_size(&mut rng);
+                (sz, sz > 0)
             };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;
@@ -269,7 +308,7 @@ impl TopologyPlan {
                     logical_size,
                     dirty_blocks,
                     fill_byte,
-                    preallocate: false,
+                    preallocate,
                 },
             });
         }
@@ -287,11 +326,25 @@ impl TopologyPlan {
             add_dir_with_ancestors(&bucket_dir, &mut dir_set);
 
             for _ in 0..count_in_bucket {
-                let rel_path = format!("{}/cache_{:08}.log", bucket_dir, flat_file_idx);
+                let rel_path = if flat_file_idx % 25 == 11 {
+                    format!(
+                        "{}/cache_{:08}_{}.log",
+                        bucket_dir,
+                        flat_file_idx,
+                        ODD_NAME_TAGS[(flat_file_idx / 25) % ODD_NAME_TAGS.len()]
+                    )
+                } else {
+                    format!("{}/cache_{:08}.log", bucket_dir, flat_file_idx)
+                };
                 flat_file_idx += 1;
                 let write_dirty = small_dirty_allocated < max_small_dirty_files
                     && rng.gen_range(0..10_000) < small_dirty_rate_bp;
-                let logical_size = if write_dirty { BLOCK_SIZE } else { 0 };
+                let (logical_size, preallocate) = if write_dirty {
+                    (BLOCK_SIZE, false)
+                } else {
+                    let sz = realistic_small_size(&mut rng);
+                    (sz, sz > 0)
+                };
                 let dirty_blocks = if write_dirty {
                     small_dirty_allocated += 1;
                     planned_dirty_bytes += BLOCK_SIZE;
@@ -307,7 +360,7 @@ impl TopologyPlan {
                         logical_size,
                         dirty_blocks,
                         fill_byte,
-                        preallocate: false,
+                        preallocate,
                     },
                 });
             }
@@ -328,7 +381,12 @@ impl TopologyPlan {
             let rel_path = format!("{}/long_{:07}_{}.dat", sub_bucket, i, pad);
             let write_dirty = small_dirty_allocated < max_small_dirty_files
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
-            let logical_size = if write_dirty { BLOCK_SIZE } else { 0 };
+            let (logical_size, preallocate) = if write_dirty {
+                (BLOCK_SIZE, false)
+            } else {
+                let sz = realistic_small_size(&mut rng);
+                (sz, sz > 0)
+            };
             let dirty_blocks = if write_dirty {
                 small_dirty_allocated += 1;
                 planned_dirty_bytes += BLOCK_SIZE;
@@ -344,7 +402,7 @@ impl TopologyPlan {
                     logical_size,
                     dirty_blocks,
                     fill_byte,
-                    preallocate: false,
+                    preallocate,
                 },
             });
         }

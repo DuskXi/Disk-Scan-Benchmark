@@ -14,6 +14,10 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+/// One short-lived file is created next to every `CHURN_EVERY`-th regular file (about 2%) and deleted again.
+const CHURN_EVERY: usize = 48;
+const CHURN_PHASE: usize = 5;
+
 pub fn to_os_path(root: &Path, rel_path: &str) -> PathBuf {
     let mut p = root.to_path_buf();
     for seg in rel_path.split('/').filter(|s| !s.is_empty()) {
@@ -131,6 +135,10 @@ pub fn materialize_tree(
         .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
 
     let total_allocated = AtomicU64::new(0);
+    let churn_every: usize = std::env::var("FSM_CHURN_EVERY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(CHURN_EVERY);
     io_pool.install(|| -> Result<()> {
         work_batches
             .par_iter()
@@ -143,13 +151,46 @@ pub fn materialize_tree(
                 let mut local_alloc_sum: u64 = 0;
                 let mut local_hl_hits: Vec<(&str, u64)> = Vec::new();
 
-                for entry in entries {
+                let mut churn_paths: Vec<PathBuf> = Vec::new();
+                for (entry_idx, entry) in entries.iter().enumerate() {
                     let file_name = entry
                         .rel_path
                         .rsplit_once('/')
                         .map(|(_, f)| f)
                         .unwrap_or(entry.rel_path.as_str());
                     let full_path = parent_dir.join(file_name);
+                    // Churn: every few files a short-lived neighbour is created and removed after the batch. That
+                    // leaves freed MFT records / directory-index slots / inodes between live files, which later
+                    // creations from other threads reuse, so the on-disk layout is scattered like an aged volume.
+                    if churn_every > 0 && (entry_idx + CHURN_PHASE) % churn_every == 0 {
+                        let churn_name = format!(".churn_{}", entry_idx);
+                        let churn_path = parent_dir.join(&churn_name);
+                        #[cfg(unix)]
+                        let churn_ok = unix::create_sparse_anchored_file(
+                            dir_fd.as_ref(),
+                            &churn_name,
+                            &churn_path,
+                            0,
+                            0,
+                            1,
+                            false,
+                        )
+                        .is_ok();
+                        #[cfg(windows)]
+                        let churn_ok = windows::create_sparse_anchored_file(
+                            dir_handle.as_ref(),
+                            &churn_name,
+                            &churn_path,
+                            0,
+                            0,
+                            1,
+                            false,
+                        )
+                        .is_ok();
+                        if churn_ok {
+                            churn_paths.push(churn_path);
+                        }
+                    }
                     let alloc = match entry.kind {
                         EntryKind::RegularFile {
                             logical_size,
@@ -188,6 +229,10 @@ pub fn materialize_tree(
                     if alloc > 0 && hardlink_targets.contains(entry.rel_path.as_str()) {
                         local_hl_hits.push((entry.rel_path.as_str(), alloc));
                     }
+                }
+
+                for churn_path in churn_paths {
+                    let _ = fs::remove_file(churn_path);
                 }
 
                 if local_alloc_sum > 0 {
