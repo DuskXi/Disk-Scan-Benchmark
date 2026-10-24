@@ -32,18 +32,11 @@ function Get-VhdPath([string]$Letter, [int64]$VirtualGb = 0) {
     if ($VirtualGb -le 0 -and (Test-Path $State)) {
         return (Get-Content -Path $State -Raw).Trim()
     }
-    # On GitHub-hosted runners RUNNER_TEMP lives on the fast D: scratch SSD (only ~14 GB free), whereas TEMP is on the
-    # much slower but roomy system drive C:. A dynamic VHDX that outgrows D: makes the virtual disk vanish mid-run
-    # (ERROR_NO_SUCH_DEVICE, os error 433), which killed the 3M-file preset, so big volumes go to C:.
-    $Base = $env:TEMP
-    if ($env:BENCH_VHD_DRIVE -eq "system") {
-        # Workflow request for presets whose metadata alone would not fit on the small D: drive (ReFS included)
-        $Base = $env:TEMP
-    } elseif ($env:RUNNER_TEMP -and $VirtualGb -gt 0 -and $VirtualGb -le 700) {
-        $Base = $env:RUNNER_TEMP
-    } elseif ($env:RUNNER_TEMP -and $VirtualGb -le 0) {
-        $Base = $env:RUNNER_TEMP
-    }
+    # On GitHub-hosted runners RUNNER_TEMP lives on the D: scratch drive (~146 GB free) while the system drive C: has
+    # only ~30 GB free. The dynamic VHDX of the 3M-file preset grew past that and C: filled up completely, which made
+    # the virtual disk vanish (os error 433) - so D: is the right place. BENCH_VHD_DRIVE=system forces C: if needed.
+    $Base = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
+    if ($env:BENCH_VHD_DRIVE -eq "system") { $Base = $env:TEMP }
     $Path = Join-Path $Base "disk_scanner_bench_${Letter}.vhdx"
     Set-Content -Path $State -Value $Path -Encoding ASCII
     return $Path

@@ -51,6 +51,8 @@ jobs:
     timeout-minutes: 340
     env:
       LABEL: windows-x86_64-mix
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -104,12 +106,17 @@ jobs:
           # The real trees need room for the pnpm store (once) plus every hard-linked project, with headroom
           VDISK_GB=$(( BASE + ${{ inputs.pnpm_target_gb }} * 3 + 20 ))
           echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
-          echo "BENCH_VHD_DRIVE=system" >> "$GITHUB_ENV"
           echo "Virtual disk capacity: ${VDISK_GB} GiB"
 
       - name: "Create & Mount Dynamic NTFS VHDX (Windows)"
         shell: pwsh
         run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" ntfs
+
+      - name: Start Disk Space Monitor
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "results/$env:LABEL" | Out-Null
+          Start-Process -FilePath powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/ci/disk_monitor.ps1','-Out',"results/$env:LABEL/disk_monitor.csv"
 
       - name: Materialize Synthetic Filesystem (fs-mirage)
         shell: bash

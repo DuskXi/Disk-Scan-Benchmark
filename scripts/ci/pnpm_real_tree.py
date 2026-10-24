@@ -136,6 +136,9 @@ def run(cmd: List[str], cwd: Path, env: Dict[str, str], timeout: int = 1800) -> 
 
 
 def main() -> int:
+    # Windows consoles default to cp1252; pnpm/playwright progress output contains other characters
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dest", required=True, help="Directory that will hold the projects (inside the benchmark tree)")
     ap.add_argument("--store", required=True, help="pnpm store; must be on the same volume so files are hard-linked")
