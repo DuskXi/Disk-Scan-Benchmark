@@ -25,12 +25,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Get-VhdPath([string]$Letter) {
-    # One backing VHDX per drive letter so NTFS and ReFS volumes can coexist
-    # On GitHub-hosted runners RUNNER_TEMP lives on the fast D: scratch SSD, whereas TEMP is on the much slower
-    # system drive C:; a dynamic VHDX on C: made every metadata write of the benchmark volume 2-3x slower.
-    $Base = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
-    return (Join-Path $Base "disk_scanner_bench_${Letter}.vhdx")
+function Get-VhdPath([string]$Letter, [int64]$VirtualGb = 0) {
+    # One backing VHDX per drive letter so NTFS and ReFS volumes can coexist. The chosen location is remembered in a
+    # small state file so purge-cache / teardown find the same image.
+    $State = Join-Path $env:TEMP "disk_scanner_bench_${Letter}.vhdpath"
+    if ($VirtualGb -le 0 -and (Test-Path $State)) {
+        return (Get-Content -Path $State -Raw).Trim()
+    }
+    # On GitHub-hosted runners RUNNER_TEMP lives on the fast D: scratch SSD (only ~14 GB free), whereas TEMP is on the
+    # much slower but roomy system drive C:. A dynamic VHDX that outgrows D: makes the virtual disk vanish mid-run
+    # (ERROR_NO_SUCH_DEVICE, os error 433), which killed the 3M-file preset, so big volumes go to C:.
+    $Base = $env:TEMP
+    if ($env:RUNNER_TEMP -and $VirtualGb -gt 0 -and $VirtualGb -le 700) {
+        $Base = $env:RUNNER_TEMP
+    } elseif ($env:RUNNER_TEMP -and $VirtualGb -le 0) {
+        $Base = $env:RUNNER_TEMP
+    }
+    $Path = Join-Path $Base "disk_scanner_bench_${Letter}.vhdx"
+    Set-Content -Path $State -Value $Path -Encoding ASCII
+    return $Path
 }
 
 function Get-DriveLetterFromPath([string]$PathStr) {
@@ -89,7 +102,7 @@ switch ($Action) {
     "create" {
         $SizeGb = [int64]$Arg1
         $DriveLetter = Get-DriveLetterFromPath $Arg2
-        $VhdPath = Get-VhdPath $DriveLetter
+        $VhdPath = Get-VhdPath $DriveLetter $SizeGb
         $FsName = $FsType.ToUpper()
         Write-Host "[windows_vhd] Creating ${SizeGb}GB Dynamic $FsName VHDX at $VhdPath (Drive ${DriveLetter}:)..."
         Disable-DefenderForBench $DriveLetter $VhdPath
