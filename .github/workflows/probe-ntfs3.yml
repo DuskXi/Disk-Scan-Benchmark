@@ -19,6 +19,12 @@ on:
           - lite
           - low
 
+      extra_args:
+        description: "Extra fs-mirage arguments (e.g. --no-prealloc)"
+        required: false
+        default: "--no-prealloc"
+        type: string
+
 permissions:
   contents: read
 
@@ -65,7 +71,7 @@ jobs:
           sudo chmod 777 /mnt/bench
           mount | grep /mnt/bench
           mkdir -p results
-          /usr/bin/time -v env FSM_PROFILE=1 ./target/release/fs-mirage --root /mnt/bench/bench --preset "${{ inputs.preset }}" --seed 42 --max-physical-mb 1500 --manifest-out results/ground_truth.json 2>&1 | tee results/fs-mirage.log | grep -E "fs-mirage|prof|Elapsed|Maximum resident|Error|rror"
+          /usr/bin/time -v env FSM_PROFILE=1 ./target/release/fs-mirage --root /mnt/bench/bench --preset "${{ inputs.preset }}" --seed 42 --max-physical-mb 1500 --manifest-out results/ground_truth.json ${{ inputs.extra_args }} 2>&1 | tee results/fs-mirage.log | grep -E "fs-mirage|prof|Elapsed|Maximum resident|Error|rror"
           df -h /mnt/bench
           ls -la /tmp/bench.ntfs
           du -h --apparent-size /tmp/bench.ntfs | tail -1
