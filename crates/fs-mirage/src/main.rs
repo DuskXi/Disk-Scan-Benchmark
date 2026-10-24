@@ -7,7 +7,7 @@ use clap::{Parser, ValueEnum};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
-use topology::{ScalePreset, TopologyConfig, TopologyPlan};
+use topology::{EntryKind, ScalePreset, TopologyConfig, TopologyPlan};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum CliPreset {
@@ -98,6 +98,54 @@ struct Args {
     /// Output path for the Ground Truth manifest JSON
     #[arg(long, default_value = "ground_truth.json")]
     manifest_out: PathBuf,
+
+    /// Also create this many "ballast" files on the same volume, outside --root, before the benchmark tree. They are
+    /// never scanned and not in the manifest. A real tree is scanned inside a volume that holds millions of other
+    /// files, and that makes directory enumeration several times more expensive for some scanners (gdu, SpaceKnife)
+    /// than on a volume that holds nothing but the benchmark tree.
+    #[arg(long, default_value_t = 0)]
+    ballast_files: usize,
+
+    /// Where the ballast tree goes (default: a "ballast" folder next to --root, e.g. X:\ballast for X:\bench).
+    #[arg(long)]
+    ballast_root: Option<PathBuf>,
+
+    /// Make every ballast file empty: same names and folder shape, no allocation, much faster to create.
+    #[arg(long)]
+    ballast_empty: bool,
+}
+
+/// Ballast plan: the same generator as the benchmark tree (other seed), optionally with every file emptied.
+fn ballast_plan(
+    args: &Args,
+    cfg: &TopologyConfig,
+    prof: Option<&profile::Profile>,
+) -> TopologyPlan {
+    let bcfg = TopologyConfig {
+        total_files: args.ballast_files,
+        seed: cfg.seed ^ 0x00BA_11A5_7BA1_1A57,
+        ..cfg.clone()
+    };
+    let mut plan = match prof {
+        Some(p) => profile::generate_from_profile(&bcfg, p),
+        None => TopologyPlan::generate(&bcfg),
+    };
+    if args.ballast_empty {
+        for entry in &mut plan.regular_files {
+            if let EntryKind::RegularFile {
+                logical_size,
+                dirty_blocks,
+                preallocate,
+                ..
+            } = &mut entry.kind
+            {
+                *logical_size = 0;
+                *dirty_blocks = 0;
+                *preallocate = false;
+            }
+        }
+    }
+    plan
 }
 
 fn main() -> Result<()> {
@@ -139,14 +187,16 @@ fn main() -> Result<()> {
         max_physical_mb: args.max_physical_mb,
     };
 
-    let plan = match &args.profile {
+    let prof: Option<profile::Profile> = match &args.profile {
         Some(path) => {
             let text = fs::read_to_string(path)
                 .with_context(|| format!("reading profile {}", path.display()))?;
-            let prof: profile::Profile =
-                serde_json::from_str(&text).context("parsing profile JSON")?;
-            profile::generate_from_profile(&cfg, &prof)
+            Some(serde_json::from_str(&text).context("parsing profile JSON")?)
         }
+        None => None,
+    };
+    let plan = match &prof {
+        Some(p) => profile::generate_from_profile(&cfg, p),
         None => TopologyPlan::generate(&cfg),
     };
     let topo_elapsed = t0.elapsed();
@@ -173,6 +223,34 @@ fn main() -> Result<()> {
             m.apparent_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
         );
         return Ok(());
+    }
+
+    if args.ballast_files > 0 {
+        let ballast_root = match &args.ballast_root {
+            Some(p) => p.clone(),
+            None => args
+                .root
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.join("ballast"))
+                .context("--root has no parent folder for the ballast; pass --ballast-root")?,
+        };
+        let tb = Instant::now();
+        let bplan = ballast_plan(&args, &cfg, prof.as_ref());
+        let (bdirs, bfiles) = (bplan.manifest.total_dirs, bplan.manifest.total_files);
+        materializer::materialize_tree(&ballast_root, bplan, !args.no_prealloc, !args.no_realism)?;
+        println!(
+            "[fs-mirage] Ballast ({}) materialized in {:.2?}: {} files, {} dirs under {}",
+            if args.ballast_empty {
+                "empty files"
+            } else {
+                "sized like the tree"
+            },
+            tb.elapsed(),
+            bfiles,
+            bdirs,
+            ballast_root.display()
+        );
     }
 
     let t1 = Instant::now();
