@@ -1,0 +1,75 @@
+name: Probe Linux ntfs3 Generation Speed
+
+# One-off experiment: can the in-kernel Linux NTFS driver (ntfs3) generate the benchmark tree much faster than the
+# Windows NTFS driver? If yes, the volume could be generated on Linux and shipped to the Windows job as a VHDX.
+
+run-name: >-
+  ntfs3 probe ${{ inputs.preset }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "fs-mirage preset to generate on the ntfs3 mount"
+        required: true
+        default: "very-lite"
+        type: choice
+        options:
+          - very-lite
+          - lite
+          - low
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build fs-mirage
+        run: cargo build --release -p fs-mirage
+
+      - name: Kernel and ntfs3 availability
+        run: |
+          uname -r
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ntfs-3g > /dev/null
+          sudo modprobe ntfs3 && echo "ntfs3 module loaded" || echo "ntfs3 NOT available"
+          grep -i ntfs /proc/filesystems || true
+          which mkntfs
+
+      - name: Create image, mount with ntfs3 and generate
+        run: |
+          set -x
+          CAP=$(python3 ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb 60)
+          truncate -s "${CAP}G" /tmp/bench.ntfs
+          mkntfs -F -Q -L BenchVol /tmp/bench.ntfs
+          sudo mkdir -p /mnt/bench
+          sudo mount -t ntfs3 -o noatime,windows_names,prealloc /tmp/bench.ntfs /mnt/bench
+          sudo chmod 777 /mnt/bench
+          mount | grep /mnt/bench
+          mkdir -p results
+          /usr/bin/time -v env FSM_PROFILE=1 ./target/release/fs-mirage --root /mnt/bench/bench --preset "${{ inputs.preset }}" --seed 42 --max-physical-mb 1500 --manifest-out results/ground_truth.json 2>&1 | tee results/fs-mirage.log | grep -E "fs-mirage|prof|Elapsed|Maximum resident|Error|rror"
+          df -h /mnt/bench
+          ls -la /tmp/bench.ntfs
+          du -h --apparent-size /tmp/bench.ntfs | tail -1
+          du -h /tmp/bench.ntfs | tail -1
+
+      - name: Unmount and check the volume
+        if: always()
+        run: |
+          sync
+          sudo umount /mnt/bench || true
+          sudo ntfsfix -n /tmp/bench.ntfs || true
+          du -h /tmp/bench.ntfs | tail -1
