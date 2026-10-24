@@ -243,6 +243,43 @@ pub fn create_sparse_anchored_file(
     fill_byte: u8,
     preallocate: bool,
 ) -> Result<u64> {
+    use super::prof;
+    let t = prof::start();
+    let r = create_inner(
+        dir,
+        file_name,
+        path,
+        logical_size,
+        dirty_blocks,
+        fill_byte,
+        preallocate,
+    );
+    if t.is_some() {
+        let cat = if preallocate && logical_size > 0 {
+            3
+        } else if dirty_blocks == 0 && logical_size == 0 {
+            0
+        } else if dirty_blocks == 0 && logical_size <= 680 {
+            1
+        } else if dirty_blocks == 1 && logical_size <= BLOCK_SIZE {
+            4
+        } else {
+            2
+        };
+        prof::stop(cat, t);
+    }
+    r
+}
+
+fn create_inner(
+    dir: Option<&DirHandle>,
+    file_name: &str,
+    path: &Path,
+    logical_size: u64,
+    dirty_blocks: u8,
+    fill_byte: u8,
+    preallocate: bool,
+) -> Result<u64> {
     // Relative open through the parent directory handle; falls back to the full-path open if it is refused.
     let rel_handle = dir.and_then(|d| nt_create_relative(d, file_name));
 

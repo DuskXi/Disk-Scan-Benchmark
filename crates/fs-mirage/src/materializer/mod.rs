@@ -14,6 +14,64 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
+/// Optional cumulative per-operation timing (set `FSM_PROFILE=1`); thread-time sums, not wall time.
+pub mod prof {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::OnceLock;
+    use std::time::Instant;
+
+    pub const NAMES: [&str; 10] = [
+        "create 0B",
+        "create <=680B (set_len)",
+        "create sparse (>680B)",
+        "create prealloc",
+        "create dirty-write",
+        "decorate (ADS/attrs)",
+        "churn create",
+        "churn delete",
+        "open dir handle",
+        "hardlink",
+    ];
+    static COUNT: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
+    static NS: [AtomicU64; 10] = [const { AtomicU64::new(0) }; 10];
+
+    pub fn enabled() -> bool {
+        static E: OnceLock<bool> = OnceLock::new();
+        *E.get_or_init(|| std::env::var("FSM_PROFILE").is_ok())
+    }
+    pub fn start() -> Option<Instant> {
+        if enabled() {
+            Some(Instant::now())
+        } else {
+            None
+        }
+    }
+    pub fn stop(cat: usize, t: Option<Instant>) {
+        if let Some(t) = t {
+            COUNT[cat].fetch_add(1, Ordering::Relaxed);
+            NS[cat].fetch_add(t.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        }
+    }
+    pub fn report() {
+        if !enabled() {
+            return;
+        }
+        for (i, name) in NAMES.iter().enumerate() {
+            let n = COUNT[i].load(Ordering::Relaxed);
+            let ns = NS[i].load(Ordering::Relaxed);
+            if n > 0 {
+                eprintln!(
+                    "[prof] {:<26} n={:>9} total={:>8.1}s avg={:>7.1}us",
+                    name,
+                    n,
+                    ns as f64 / 1e9,
+                    ns as f64 / n as f64 / 1e3
+                );
+            }
+        }
+    }
+}
+
 /// One short-lived file is created next to every `CHURN_EVERY`-th regular file (about 12%) and deleted again.
 /// The temporary files really allocate clusters, so deleting them fragments free space as well.
 const CHURN_EVERY: usize = 8;
@@ -173,6 +231,10 @@ pub fn materialize_tree(
     let io_threads = (cores * 8).clamp(16, 64);
     #[cfg(not(windows))]
     let io_threads = (cores * 3).clamp(8, 24);
+    let io_threads: usize = std::env::var("FSM_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(io_threads);
     let io_pool = rayon::ThreadPoolBuilder::new()
         .num_threads(io_threads)
         .build()
@@ -191,7 +253,9 @@ pub fn materialize_tree(
                 #[cfg(unix)]
                 let dir_fd = unix::open_dir_fd(&parent_dir);
                 #[cfg(windows)]
+                let t_dir = prof::start();
                 let dir_handle = windows::open_dir_handle(&parent_dir);
+                prof::stop(8, t_dir);
                 let mut local_alloc_sum: u64 = 0;
                 let mut local_hl_hits: Vec<(&str, u64)> = Vec::new();
 
@@ -272,7 +336,9 @@ pub fn materialize_tree(
                     };
                     #[cfg(windows)]
                     if realism {
+                        let t_dec = prof::start();
                         windows::decorate(&full_path, fnv(&entry.rel_path));
+                        prof::stop(5, t_dec);
                     }
                     local_alloc_sum += alloc;
                     if alloc > 0 && hardlink_targets.contains(entry.rel_path.as_str()) {
@@ -281,7 +347,9 @@ pub fn materialize_tree(
                 }
 
                 for churn_path in churn_paths {
+                    let t_del = prof::start();
                     let _ = fs::remove_file(churn_path);
+                    prof::stop(7, t_del);
                 }
 
                 if local_alloc_sum > 0 {
@@ -319,6 +387,7 @@ pub fn materialize_tree(
                 let dst_path = to_os_path(root, &entry.rel_path);
                 // Create first and only clean up on AlreadyExists: an up-front exists() costs an extra
                 // metadata syscall per link, which is expensive on NTFS.
+                let t_hl = prof::start();
                 let linked = match fs::hard_link(&src_path, &dst_path) {
                     Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                         let _ = fs::remove_file(&dst_path);
@@ -326,6 +395,7 @@ pub fn materialize_tree(
                     }
                     other => other,
                 };
+                prof::stop(9, t_hl);
                 linked.with_context(|| {
                     format!(
                         "Failed to create hard link {} -> {}",
@@ -401,6 +471,7 @@ pub fn materialize_tree(
         );
     }
 
+    prof::report();
     let allocated_bytes = total_allocated.load(Ordering::Relaxed);
     let extra_hl_alloc = hardlink_extra_alloc.load(Ordering::Relaxed);
 
