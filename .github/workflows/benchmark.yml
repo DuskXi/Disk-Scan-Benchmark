@@ -365,6 +365,12 @@ jobs:
         shell: pwsh
         run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" ntfs
 
+      - name: Start Disk Space Monitor
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "results/$env:LABEL" | Out-Null
+          Start-Process -FilePath powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/ci/disk_monitor.ps1','-Out',"results/$env:LABEL/disk_monitor.csv"
+
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
         run: |
@@ -402,6 +408,14 @@ jobs:
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
             --bin-dir "./bin"
+
+      - name: Disk Space Monitor Report
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "time, C free GB, D free GB, X free GB, VHDX GB (tail of the monitor log)"
+          Get-Content "results/$env:LABEL/disk_monitor.csv" -Tail 40 -ErrorAction SilentlyContinue
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}, @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}} -AutoSize
 
       - name: Teardown NTFS Virtual Disk
         if: always()
