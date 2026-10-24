@@ -92,6 +92,50 @@ function Disable-DefenderForBench([string]$Letter, [string]$Vhd) {
     }
 }
 
+function New-BenchVhdx([string]$Path, [uint64]$SizeBytes, [uint32]$BlockBytes) {
+    # A dynamic VHDX allocates a whole payload block (default 32 MB) the first time any byte inside it is written.
+    # NTFS metadata for millions of files is scattered over the volume, so with 32 MB blocks 100k files already grew the
+    # image by 7 GB (measured: 1 GB with 1 MB blocks) and the 3M-file preset filled the runner's disk (os error 433).
+    # New-VHD and diskpart can not be told about this reliably, so the image is created through virtdisk.dll directly.
+    if (-not ("BenchVhd" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class BenchVhd {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct VIRTUAL_STORAGE_TYPE { public uint DeviceId; public Guid VendorId; }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct CREATE_VIRTUAL_DISK_PARAMETERS_V1 {
+        public uint Version;
+        public Guid UniqueId;
+        public ulong MaximumSize;
+        public uint BlockSizeInBytes;
+        public uint SectorSizeInBytes;
+        public string ParentPath;
+        public string SourcePath;
+    }
+    [DllImport("virtdisk.dll", CharSet = CharSet.Unicode)]
+    static extern uint CreateVirtualDisk(ref VIRTUAL_STORAGE_TYPE type, string path, uint access, IntPtr sd, uint flags,
+        uint providerFlags, ref CREATE_VIRTUAL_DISK_PARAMETERS_V1 parameters, IntPtr overlapped, out IntPtr handle);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+    public static uint Create(string path, ulong size, uint block) {
+        VIRTUAL_STORAGE_TYPE t = new VIRTUAL_STORAGE_TYPE();
+        t.DeviceId = 3; // VIRTUAL_STORAGE_TYPE_DEVICE_VHDX
+        t.VendorId = new Guid("EC984AEC-A0F9-47e9-901F-71415A66345B");
+        CREATE_VIRTUAL_DISK_PARAMETERS_V1 p = new CREATE_VIRTUAL_DISK_PARAMETERS_V1();
+        p.Version = 1; p.MaximumSize = size; p.BlockSizeInBytes = block; p.SectorSizeInBytes = 512;
+        IntPtr h;
+        uint rc = CreateVirtualDisk(ref t, path, 0x00100000, IntPtr.Zero, 0, 0, ref p, IntPtr.Zero, out h);
+        if (rc == 0) CloseHandle(h);
+        return rc;
+    }
+}
+"@
+    }
+    $rc = [BenchVhd]::Create($Path, $SizeBytes, $BlockBytes)
+    if ($rc -ne 0) { throw "CreateVirtualDisk failed with Win32 error $rc" }
+}
+
 $HasHyperVCmdlets = [bool](Get-Command New-VHD -ErrorAction SilentlyContinue)
 
 switch ($Action) {
@@ -114,17 +158,15 @@ switch ($Action) {
             Remove-Item -Path $VhdPath -Force -ErrorAction SilentlyContinue
         }
 
+        New-BenchVhdx -Path $VhdPath -SizeBytes ([uint64]$SizeGb * 1GB) -BlockBytes 1MB
+        Write-Host "[windows_vhd] VHDX created with 1 MB payload blocks (Hyper-V cmdlets available: $HasHyperVCmdlets)"
         if ($HasHyperVCmdlets) {
-            $sizeBytes = $SizeGb * 1GB
-            $vhd = New-VHD -Path $VhdPath -SizeBytes $sizeBytes -Dynamic
-            $disk = $vhd | Mount-VHD -Passthru | Get-Disk
+            $disk = Mount-VHD -Path $VhdPath -Passthru | Get-Disk
             Initialize-Disk -Number $disk.Number -PartitionStyle GPT -ErrorAction SilentlyContinue
             $part = New-Partition -DiskNumber $disk.Number -UseMaximumSize -DriveLetter $DriveLetter
             Format-Volume -DriveLetter $DriveLetter -FileSystem $FsName -NewFileSystemLabel "BenchVol" -Confirm:$false | Out-Null
         } else {
-            $sizeMb = $SizeGb * 1024
             $dp = @"
-create vdisk file="$VhdPath" maximum=$sizeMb type=expandable
 select vdisk file="$VhdPath"
 attach vdisk
 convert gpt
