@@ -474,10 +474,12 @@ jobs:
       # Preallocated like on NTFS: with --no-prealloc the media and the >=256 KiB files were sparse on ReFS only, and
       # scanners that size sparse files exactly (SpaceKnife, WinDirStat) paid for it on ReFS alone, which skews the
       # NTFS-vs-ReFS cross-check. A plain SetEndOfFile on ReFS reserves clusters without writing zeros (verified on a
-      # local ReFS 3.14 volume); the VHDX size printed below shows whether this runner's ReFS behaves the same.
+      # local ReFS 3.14 volume and on the runner: very-lite allocated 102 GB with a 1.5 GB VHDX). ReFS generation grows
+      # much faster than linearly on the runner (low ~2.5 min, mid ~35 min, high ~1.6 h before this change), so the
+      # timeout only guards against a real hang.
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
-        timeout-minutes: 60
+        timeout-minutes: 300
         run: |
           mkdir -p "results/$LABEL"
           EXTRA_ARGS=()
