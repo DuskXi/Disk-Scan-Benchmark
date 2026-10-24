@@ -174,7 +174,7 @@
     {
       "id": "spaceknife",
       "name": "spaceknife-backend",
-      "version": "dev-27fbec7 (run-40021330167)",
+      "version": "dev-3d7df2b (run-39630969530)",
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["linux", "windows"],
@@ -183,8 +183,8 @@
       "command_template": ["{bin}", "scan", "{path}", "--no-snapshot", "--top", "5", "--depth", "1"],
       "output_parser": "spaceknife_cli",
       "install": {
-        "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:40021330167:SpaceKnife-portable-linux-x64",
-        "windows_x86_64": "gh-artifact:DuskXi/SpaceKnife:40021330167:SpaceKnife-portable-win-x64"
+        "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:39630969530:SpaceKnife-portable-linux-x64",
+        "windows_x86_64": "gh-artifact:DuskXi/SpaceKnife:39630969530:SpaceKnife-portable-win-x64"
       }
     }
   ]
