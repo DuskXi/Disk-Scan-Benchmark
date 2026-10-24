@@ -15,8 +15,9 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, CREATE_ALWAYS,
-    FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, OPEN_EXISTING, SYNCHRONIZE,
+    FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, OPEN_EXISTING,
+    SYNCHRONIZE,
 };
 use windows_sys::Win32::System::Ioctl::FSCTL_SET_SPARSE;
 use windows_sys::Win32::System::IO::{DeviceIoControl, IO_STATUS_BLOCK};
@@ -57,6 +58,46 @@ pub fn open_dir_handle(dir: &Path) -> Option<DirHandle> {
         None
     } else {
         Some(DirHandle(h))
+    }
+}
+
+/// Allocated bytes of a directory (its `$INDEX_ALLOCATION` runs, roughly 150-500 bytes per entry on NTFS).
+/// Scanners such as SpaceKnife include this in "size on disk"; the Unix materializer adds `st_blocks` of directories
+/// for the same reason.
+pub fn dir_allocation_bytes(dir: &Path) -> u64 {
+    let mut wide: Vec<u16> = Vec::with_capacity(dir.as_os_str().len() + 1);
+    wide.extend(dir.as_os_str().encode_wide());
+    wide.push(0);
+    let h = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            0 as HANDLE,
+        )
+    };
+    if h == INVALID_HANDLE_VALUE {
+        return 0;
+    }
+    let mut info: FILE_STANDARD_INFO = unsafe { zeroed() };
+    let ok = unsafe {
+        GetFileInformationByHandleEx(
+            h,
+            FileStandardInfo,
+            &mut info as *mut _ as *mut _,
+            size_of::<FILE_STANDARD_INFO>() as u32,
+        )
+    };
+    unsafe {
+        CloseHandle(h);
+    }
+    if ok != 0 && info.AllocationSize > 0 {
+        info.AllocationSize as u64
+    } else {
+        0
     }
 }
 

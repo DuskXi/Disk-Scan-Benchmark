@@ -181,11 +181,11 @@ def find_subtree_row(rows: List[List[str]], scan_path: str) -> Optional[List[str
     return None
 
 
-def reference_bytes(gt_data: Dict[str, Any], scanner: Dict[str, Any], metric: str) -> int:
+def reference_bytes(gt_data: Dict[str, Any], scanner: Dict[str, Any], metric: str, os_key: str) -> int:
     """Ground-truth size a scanner is compared against, honoring how the scanner accounts for allocation."""
     if metric == "apparent":
         return int(gt_data.get("apparent_size_bytes", 0))
-    if scanner.get("excludes_dir_blocks"):
+    if os_key in scanner.get("excludes_dir_blocks", []):
         files_only = int(gt_data.get("allocated_files_only_bytes", 0))
         if files_only > 0:
             return files_only
@@ -1023,7 +1023,7 @@ def main() -> int:
                 if (os_key == "windows" and scanner_id in ("gdu", "dust", "windirstat", "wiztree"))
                 else scanner.get("size_metric", "allocated")
             )
-            fallback_b = reference_bytes(gt_data, scanner, effective_metric)
+            fallback_b = reference_bytes(gt_data, scanner, effective_metric, os_key)
             scanned_f = int(gt_data.get("total_files", 0))
             sampled_zones: Dict[str, Dict[str, Any]] = {}
 
@@ -1092,7 +1092,7 @@ def main() -> int:
             if (os_key == "windows" and scanner_id in ("gdu", "dust", "windirstat", "wiztree"))
             else scanner.get("size_metric", "allocated")
         )
-        ref_bytes = reference_bytes(gt_data, scanner, size_metric)
+        ref_bytes = reference_bytes(gt_data, scanner, size_metric, os_key)
         accuracy_diff_pct = round(((scanned_bytes - ref_bytes) / ref_bytes) * 100.0, 2) if ref_bytes > 0 else 0.0
         expected_files = int(gt_data.get("total_files", 0))
 

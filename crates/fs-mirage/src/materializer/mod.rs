@@ -285,6 +285,20 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
         total_allocated.fetch_add(dir_blocks_bytes + root_blocks_bytes, Ordering::Relaxed);
     }
 
+    // 5b. On Windows, directories own NTFS index allocation that scanners reading "size on disk" include
+    #[cfg(windows)]
+    {
+        let dir_alloc_bytes: u64 = plan
+            .directories
+            .par_iter()
+            .map(|rel_dir| windows::dir_allocation_bytes(&to_os_path(root, rel_dir)))
+            .sum();
+        total_allocated.fetch_add(
+            dir_alloc_bytes + windows::dir_allocation_bytes(root),
+            Ordering::Relaxed,
+        );
+    }
+
     let allocated_bytes = total_allocated.load(Ordering::Relaxed);
     let extra_hl_alloc = hardlink_extra_alloc.load(Ordering::Relaxed);
 
