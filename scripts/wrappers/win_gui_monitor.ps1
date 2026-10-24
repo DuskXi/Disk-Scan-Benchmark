@@ -16,6 +16,9 @@ param(
 
     [switch]$WithGuiRender,
 
+    # Keep the caller's (admin) token so the scanner may read the raw NTFS $MFT (MFT benchmark mode)
+    [switch]$Elevated,
+
     [int]$TimeoutSec = 90,
 
     [string]$JsonOut = ""
@@ -154,7 +157,7 @@ $StartupGraceMs = 1200
 $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 # Launch with a normal-user (non-admin) token via Win32 Safer API so scanners (e.g. TreeSizeFree, WinDirStat)
 # cannot access raw NTFS $MFT (\\.\X:) even when the runner executes as Administrator.
-$StartedPid = [Win32Monitor]::StartNonAdmin($ExePath, $ScanArgs)
+$StartedPid = if ($Elevated) { -100 } else { [Win32Monitor]::StartNonAdmin($ExePath, $ScanArgs) }
 if ($StartedPid -gt 0) {
     $Proc = [System.Diagnostics.Process]::GetProcessById($StartedPid)
 } else {

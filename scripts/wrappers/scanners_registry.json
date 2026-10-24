@@ -28,6 +28,7 @@
       "{export_file}": "Temporary export file path for CSV/JSON output"
     }
   },
+  "mft_field_comment": "Optional 'mft' object (command_template using {volume} = volume root) marks scanners that can scan the raw NTFS $MFT; only those run in the MFT-only benchmark (benchmark-mft.yml).",
   "todo_platforms": [
     "windows-arm64 (TODO: Enable Windows ARM64 runner matrix once GitHub Actions public windows-11-arm VHDX mounting and SpaceSniffer ARM64 support are available)"
   ],
@@ -117,6 +118,7 @@
       "architectures": ["x86_64"],
       "size_metric": "apparent",
       "command_template": ["{bin}", "{path}", "/export={export_file}", "/exportfiles=0", "/admin=0"],
+      "mft": {"command_template": ["{bin}", "{volume}", "/export={export_file}", "/exportfiles=0", "/admin=1"]},
       "output_parser": "wiztree_csv",
       "install": {
         "windows_x86_64": "https://www.diskanalyzer.com/files/wiztree_4_33_portable.zip"
@@ -147,6 +149,7 @@
       "architectures": ["x86_64"],
       "size_metric": "apparent",
       "command_template": ["{bin}", "/SaveTo", "{export_file}", "{path}"],
+      "mft": {"command_template": ["{bin}", "/SaveTo", "{export_file}", "{volume}"]},
       "output_parser": "windirstat_csv",
       "install": {
         "windows_x86_64": "https://github.com/windirstat/windirstat/releases/download/release%2Fv2.9.3/WinDirStat.zip"
@@ -162,6 +165,7 @@
       "architectures": ["x86_64"],
       "size_metric": "apparent",
       "command_template": ["{bin}", "/NOADMIN", "{path}"],
+      "mft": {"command_template": ["{bin}", "{volume}"]},
       "output_parser": "gui_monitor",
       "install": {
         "windows_x86_64": "https://downloads.jam-software.de/treesize_free/TreeSizeFree-Portable.zip"

@@ -1,0 +1,167 @@
+name: NTFS MFT Scanner Benchmark
+
+# Standalone, manually triggered workflow: measures only the scanners that can scan the raw NTFS $MFT
+# (those with an "mft" entry in scripts/wrappers/scanners_registry.json) on a Windows NTFS volume.
+# It is deliberately separate from benchmark.yml, whose scanners are all forced onto standard OS API traversal.
+
+run-name: >-
+  MFT Bench ${{ inputs.preset }} | ${{
+  inputs.preset == 'very-lite' && '100k files / 100GB' ||
+  inputs.preset == 'lite' && '400k files / 350GB' ||
+  inputs.preset == 'low' && '1M files / 500GB' ||
+  inputs.preset == 'mid' && '3M files / 1TB' ||
+  inputs.preset == 'high' && '5M files / 2TB' ||
+  inputs.preset == 'very-high' && '9M files / 3TB' ||
+  format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Scale preset tier (very-lite: 100k/100GB, lite: 400k/350GB, low: 1M/500GB, mid: 3M/1TB, high: 5M/2TB, very-high: 9M/3TB, custom)"
+        required: true
+        default: "very-lite"
+        type: choice
+        options:
+          - very-lite
+          - lite
+          - low
+          - mid
+          - high
+          - very-high
+          - custom
+      files:
+        description: "Custom total file items (used only when preset == 'custom')"
+        required: false
+        default: ""
+        type: string
+      logical_gb:
+        description: "Custom target logical volume in GiB (used only when preset == 'custom')"
+        required: false
+        default: ""
+        type: string
+      disk_size_gb:
+        description: "Virtual disk image capacity in GiB (default: 60)"
+        required: true
+        default: "60"
+        type: string
+      max_physical_mb:
+        description: "Maximum physical dirty-extent allocation in MiB (default: 1500)"
+        required: true
+        default: "1500"
+        type: string
+      seed:
+        description: "Deterministic PRNG seed (ChaCha8Rng)"
+        required: true
+        default: "42"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  mft-benchmark:
+    name: "MFT Bench (windows-x86_64 NTFS | ${{ inputs.preset }})"
+    runs-on: windows-latest
+    env:
+      LABEL: windows-x86_64-mft
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build Core Engines (fs-mirage & hw-probe)
+        shell: bash
+        run: cargo build --release --workspace
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: "Create & Mount Dynamic NTFS VHDX (Windows)"
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ inputs.disk_size_gb }}" "X:/bench" ntfs
+
+      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
+        shell: bash
+        run: |
+          mkdir -p "results/$LABEL"
+          EXTRA_ARGS=()
+          if [ "${{ inputs.preset }}" = "custom" ]; then
+            if [ -n "${{ inputs.files }}" ]; then
+              EXTRA_ARGS+=(--files "${{ inputs.files }}")
+            fi
+            if [ -n "${{ inputs.logical_gb }}" ]; then
+              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
+            fi
+          fi
+          ./target/release/fs-mirage \
+            --root "X:/bench" \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "results/$LABEL/ground_truth.json" \
+            "${EXTRA_ARGS[@]}"
+
+      - name: Measure Hardware Ceiling Baseline (hw-probe)
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "X:/bench"
+          ./target/release/hw-probe \
+            --root "X:/bench" \
+            --out "results/$LABEL/baseline.json"
+
+      - name: Run MFT-Capable Scanners (raw $MFT mode)
+        shell: bash
+        run: |
+          python ./scripts/wrappers/run_cli_scanners.py \
+            --mft-mode \
+            --path "X:/bench" \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --out "results/$LABEL/raw_results.json" \
+            --bin-dir "./bin"
+
+      - name: Generate Normalized Report & Append to Step Summary
+        shell: bash
+        run: |
+          python ./scripts/report_gen.py \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --baseline "results/$LABEL/baseline.json" \
+            --raw-results "results/$LABEL/raw_results.json" \
+            --out "results/$LABEL/benchmark_report.md" \
+            --json-out "results/$LABEL/normalized_results.json" \
+            --title-suffix "(windows-x86_64 NTFS \$MFT mode | ${{ inputs.preset }})"
+          cat "results/$LABEL/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Teardown Virtual Disk
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+      - name: Upload Benchmark Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-windows-x86_64-mft-${{ inputs.preset }}
+          path: results/
+          retention-days: 30

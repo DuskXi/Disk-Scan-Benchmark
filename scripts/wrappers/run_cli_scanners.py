@@ -172,7 +172,18 @@ def parse_spaceknife_output(text: str, effective_metric: str, os_key: str) -> Tu
     return chosen_bytes, scanned_files
 
 
-def parse_wiztree_csv(csv_path: Path, scan_path: str = "") -> Tuple[int, int, int, Dict[str, Dict[str, Any]]]:
+def find_subtree_row(rows: List[List[str]], scan_path: str) -> Optional[List[str]]:
+    """Returns the CSV row whose path equals scan_path (case-insensitive, trailing separators ignored)."""
+    target = str(Path(scan_path).resolve()).rstrip("\\/").lower()
+    for row in rows:
+        if row and row[0].strip().rstrip("\\/").lower() == target:
+            return row
+    return None
+
+
+def parse_wiztree_csv(
+    csv_path: Path, scan_path: str = "", subtree_totals: bool = False
+) -> Tuple[int, int, int, Dict[str, Dict[str, Any]]]:
     """
     Parses WizTree CSV export to return (apparent_bytes, allocated_bytes, scanned_files, sampled_zones).
     WizTree CSV header:
@@ -204,6 +215,9 @@ def parse_wiztree_csv(csv_path: Path, scan_path: str = "") -> Tuple[int, int, in
     allocated = 0
     files = 0
     root_row = rows[root_idx]
+    if subtree_totals and scan_path:
+        # Volume-root scan (MFT mode): report totals of the benchmark subtree, not of the whole volume
+        root_row = find_subtree_row(rows[root_idx:], scan_path) or root_row
     try:
         apparent = int(root_row[1].strip())
         allocated = int(root_row[2].strip())
@@ -238,7 +252,9 @@ def parse_wiztree_csv(csv_path: Path, scan_path: str = "") -> Tuple[int, int, in
     return apparent, allocated, files, sampled_zones
 
 
-def parse_windirstat_csv(csv_path: Path, scan_path: str = "") -> Tuple[int, int, int, Dict[str, Dict[str, Any]]]:
+def parse_windirstat_csv(
+    csv_path: Path, scan_path: str = "", subtree_totals: bool = False
+) -> Tuple[int, int, int, Dict[str, Dict[str, Any]]]:
     """
     Parses WinDirStat CSV export (/SaveTo <OutputFile>) to return:
     (apparent_bytes, allocated_bytes, scanned_files, sampled_zones).
@@ -256,6 +272,8 @@ def parse_windirstat_csv(csv_path: Path, scan_path: str = "") -> Tuple[int, int,
         return 0, 0, 0, {}
 
     root_row = rows[1]
+    if subtree_totals and scan_path:
+        root_row = find_subtree_row(rows[1:], scan_path) or root_row
     logical_bytes = 0
     physical_bytes = 0
     total_files = 0
@@ -724,19 +742,36 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
     return None
 
 
-def configure_windows_gui_scanner(scanner_id: str, os_key: str) -> None:
+def write_wiztree_ini(bin_path: str, mft: bool) -> None:
+    """Rewrites WizTree3.ini next to the executable; a cached portable dir may come from the other mode."""
+    flag = "TRUE" if mft else "FALSE"
+    ini_path = Path(bin_path).parent / "WizTree3.ini"
+    ini_path.write_text(
+        "[frmWizTreeMain]\r\n"
+        "actWindowsContextMenu_Checked=FALSE\r\n"
+        f"actRunAsAdmin_Checked={flag}\r\n"
+        f"cbScanMFTifPossible_Checked={flag}\r\n"
+        "DefaultLanguageCode=en\r\n",
+        encoding="ascii",
+    )
+
+
+def configure_windows_gui_scanner(scanner_id: str, os_key: str, bin_path: str = "", mft: bool = False) -> None:
     """
-    Applies per-user settings that force Windows GUI scanners onto standard Win32 directory traversal
+    Applies per-user settings that force Windows scanners onto standard Win32 directory traversal
     (no MFT / Backup-privilege fast paths) and disable extra work unrelated to size scanning.
+    With mft=True the same settings enable the scanner's raw $MFT fast path instead.
     Must run before every benchmark (not only at install time) because cached binaries skip the installer.
     """
     if os_key != "windows":
         return
+    if scanner_id == "wiztree" and bin_path:
+        write_wiztree_ini(bin_path, mft)
     if scanner_id == "windirstat":
         # WinDirStat 2.x stores options under HKCU\Software\WinDirStat\WinDirStat\<Section>
         reg_values = [
-            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "UseFastScanEngine", 0),  # MFT engine when elevated
-            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "UseBackupRestore", 0),  # SeBackupPrivilege
+            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "UseFastScanEngine", int(mft)),  # MFT engine when elevated
+            (r"HKCU\Software\WinDirStat\WinDirStat\Options", "UseBackupRestore", int(mft)),  # SeBackupPrivilege
             (r"HKCU\Software\WinDirStat\WinDirStat\Options", "AutoElevate", 0),
             (r"HKCU\Software\WinDirStat\WinDirStat\Options", "ShowElevationPrompt", 0),
             (r"HKCU\Software\WinDirStat\WinDirStat\Options", "PacmanAnimation", 0),
@@ -825,6 +860,11 @@ def main() -> int:
         "--warm-runs", type=int, default=3, help="Number of consecutive Warm Cache runs to average (default: 3)"
     )
     parser.add_argument("--scanners", default=None, help="Optional comma-separated filter of scanner IDs to run")
+    parser.add_argument(
+        "--mft-mode",
+        action="store_true",
+        help="Windows/NTFS only: run just the scanners that support raw $MFT scanning, scanning the volume root",
+    )
     parser.add_argument("--with-gui-render", action="store_true", help="Do not minimize Windows GUI scanner windows")
     args = parser.parse_args()
 
@@ -858,6 +898,10 @@ def main() -> int:
             gt_data = json.load(f)
 
     scan_path = str(Path(args.path).resolve())
+    volume_root = Path(scan_path).anchor  # MFT scanners must be pointed at the whole volume, e.g. X:\
+    if args.mft_mode and os_key != "windows":
+        print("[runner] --mft-mode is only supported on Windows/NTFS", file=sys.stderr)
+        return 2
 
     allowed_ids = [s.strip() for s in args.scanners.split(",") if s.strip()] if args.scanners else None
 
@@ -872,6 +916,9 @@ def main() -> int:
         if arch_key not in scanner.get("architectures", []):
             continue
         if allowed_ids and scanner["id"] not in allowed_ids:
+            continue
+        if args.mft_mode and not scanner.get("mft"):
+            print(f"[runner] Skipping {scanner['name']} (no raw $MFT scanning support)")
             continue
 
         scanner_id = scanner["id"]
@@ -906,10 +953,15 @@ def main() -> int:
         print(f"\n=== Benchmarking {scanner['name']} v{scanner['version']} ({scanner['runner_type']}) ===")
         export_file = Path(tempfile.gettempdir()) / f"bench_export_{scanner_id}.csv"
 
+        cmd_template = scanner["mft"]["command_template"] if args.mft_mode else scanner["command_template"]
+
         def build_cmd() -> List[str]:
             return [
-                tok.replace("{bin}", bin_path).replace("{path}", scan_path).replace("{export_file}", str(export_file))
-                for tok in scanner["command_template"]
+                tok.replace("{bin}", bin_path)
+                .replace("{path}", scan_path)
+                .replace("{volume}", volume_root)
+                .replace("{export_file}", str(export_file))
+                for tok in cmd_template
             ]
 
         def execute_once() -> Tuple[float, float, int, int, Dict[str, Dict[str, Any]]]:
@@ -934,14 +986,18 @@ def main() -> int:
                 ]
                 if args.with_gui_render:
                     ps_cmd.append("-WithGuiRender")
+                if args.mft_mode:
+                    ps_cmd.append("-Elevated")
 
                 out = subprocess.check_output(ps_cmd, text=True, encoding="utf-8", errors="replace")
                 lines = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("{")]
                 payload = json.loads(lines[-1]) if lines else {}
                 elapsed = float(payload.get("elapsed_ms", 0.0))
                 rss = float(payload.get("peak_rss_mb", 0.0))
+                # MFT scans read raw volume data instead of enumerating directories, so count read ops there
+                ops_key = "read_ops_total" if args.mft_mode else "other_ops_total"
                 gui_io_samples.append(
-                    (int(payload.get("other_ops_total", 0) or 0), bool(payload.get("launched_non_admin", False)))
+                    (int(payload.get(ops_key, 0) or 0), bool(payload.get("launched_non_admin", False)))
                 )
                 # GUI tools do not export machine-readable totals; report ground truth apparent size for tree coverage
                 scanned_b = int(gt_data.get("apparent_size_bytes", 0))
@@ -965,14 +1021,16 @@ def main() -> int:
             sampled_zones: Dict[str, Dict[str, Any]] = {}
 
             if parser_kind == "windirstat_csv":
-                app_b, alloc_b, csv_files, sampled_zones = parse_windirstat_csv(export_file, scan_path)
+                app_b, alloc_b, csv_files, sampled_zones = parse_windirstat_csv(export_file, scan_path, args.mft_mode)
                 scanned_b = app_b if effective_metric == "apparent" else alloc_b
                 if scanned_b == 0:
                     scanned_b = fallback_b
                 if csv_files > 0:
                     scanned_f = csv_files
             elif parser_kind == "wiztree_csv":
-                apparent_b, allocated_b, csv_files, sampled_zones = parse_wiztree_csv(export_file, scan_path)
+                apparent_b, allocated_b, csv_files, sampled_zones = parse_wiztree_csv(
+                    export_file, scan_path, args.mft_mode
+                )
                 scanned_b = apparent_b if effective_metric == "apparent" else allocated_b
                 if scanned_b == 0:
                     scanned_b = fallback_b
@@ -996,7 +1054,7 @@ def main() -> int:
 
         # 0. Pre-warm binary executable (eliminates Windows Defender / DLL cold-start noise without touching scan_path)
         gui_io_samples: List[Tuple[int, bool]] = []
-        configure_windows_gui_scanner(scanner_id, os_key)
+        configure_windows_gui_scanner(scanner_id, os_key, bin_path, args.mft_mode)
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
         # 1. Cold Cache Run
@@ -1049,17 +1107,24 @@ def main() -> int:
 
         # 2. GUI Traversal Sanity Check
         if valid and scanner["runner_type"] == "win_gui" and gui_io_samples:
-            min_other_ops = min(s[0] for s in gui_io_samples)
-            expected_min_ops = int(gt_data.get("total_dirs", 0))
-            if expected_min_ops > 0 and min_other_ops < expected_min_ops:
+            min_ops = min(s[0] for s in gui_io_samples)
+            if args.mft_mode:
+                # Raw $MFT scan: no per-directory enumeration, but the volume must actually have been read
+                ops_label, expected_min_ops = "ReadOps", 1
+            else:
+                ops_label, expected_min_ops = "OtherOps", int(gt_data.get("total_dirs", 0))
+            if expected_min_ops > 0 and min_ops < expected_min_ops:
                 valid = False
-                invalid_reason = f"❌ INVALID: Insufficient traversal detected (OtherOps={min_other_ops:,} < total_dirs={expected_min_ops:,}; scanner blocked by dialog or did not walk directory tree)"
-            if not all(s[1] for s in gui_io_samples):
+                invalid_reason = (
+                    f"❌ INVALID: Insufficient traversal detected ({ops_label}={min_ops:,} < {expected_min_ops:,}; "
+                    "scanner blocked by dialog or did not scan the volume)"
+                )
+            if not args.mft_mode and not all(s[1] for s in gui_io_samples):
                 invalid_reason = (
                     invalid_reason + "; " if invalid_reason else ""
                 ) + "non-admin launch fell back to elevated token"
                 valid = False
-            print(f"  [Sanity] min OtherOps={min_other_ops:,} | valid={valid} {invalid_reason}")
+            print(f"  [Sanity] min {ops_label}={min_ops:,} | valid={valid} {invalid_reason}")
 
         # 3. Accuracy & Measurement Bounds Check
         if valid:
@@ -1087,6 +1152,7 @@ def main() -> int:
                 "scanned_bytes": scanned_bytes,
                 "reference_bytes": ref_bytes,
                 "accuracy_diff_pct": accuracy_diff_pct,
+                "mode": "mft" if args.mft_mode else "api",
                 "valid": valid,
                 "invalid_reason": invalid_reason,
                 "structure_samples": accumulated_zones,
