@@ -25,6 +25,11 @@ on:
         required: true
         default: "10"
         type: string
+      repos:
+        description: "Comma-separated MIT-licensed GitHub repos to shallow-clone as extra real trees ('' to skip)"
+        required: false
+        default: "microsoft/winget-pkgs,NixOS/nixpkgs"
+        type: string
       max_physical_mb:
         description: "Maximum physical dirty-extent allocation in MiB (default: 1500)"
         required: true
@@ -121,17 +126,36 @@ jobs:
         shell: bash
         run: |
           python ./scripts/ci/pnpm_real_tree.py \
-            --dest "X:/bench/real_pnpm" \
+            --dest "X:/bench/real/pnpm" \
             --store "X:/pnpm-store" \
             --target-gb "${{ inputs.pnpm_target_gb }}" \
             --stats-out "results/$LABEL/real_tree_stats.json"
+
+      - name: Shallow-clone Extra Real Repositories (MIT)
+        if: inputs.repos != ''
+        shell: bash
+        run: |
+          mkdir -p "X:/bench/real/repos"
+          IFS=',' read -ra REPOS <<< "${{ inputs.repos }}"
+          for repo in "${REPOS[@]}"; do
+            repo="$(echo "$repo" | xargs)"
+            [ -z "$repo" ] && continue
+            lic=$(gh api "repos/$repo" --jq '.license.spdx_id' || echo unknown)
+            echo "Cloning $repo (license: $lic)"
+            if [ "$lic" != "MIT" ]; then echo "::warning::$repo is not reported as MIT ($lic), skipping"; continue; fi
+            git -c core.longpaths=true -c core.autocrlf=false clone --depth 1 --no-tags --single-branch \
+              "https://github.com/$repo.git" "X:/bench/real/repos/$(basename "$repo")" || echo "::warning::clone of $repo failed"
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Add the Real Tree to the Ground Truth (independent walker reference)
         shell: bash
         run: |
           python ./scripts/ci/augment_ground_truth.py \
             --ground-truth "results/$LABEL/ground_truth.json" \
-            --real-dir "X:/bench/real_pnpm"
+            --real-dir "X:/bench/real" \
+            --zone-name real
 
       - name: Measure Hardware Ceiling Baseline (hw-probe)
         shell: bash
