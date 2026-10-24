@@ -460,12 +460,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
 
+      - name: Resolve Virtual Disk Capacity
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
+          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          echo "Virtual disk capacity: ${VDISK_GB} GiB"
+
       - name: "Create & Mount Dynamic ReFS VHDX (Windows)"
         shell: pwsh
-        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ inputs.disk_size_gb }}" "X:/bench" refs
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" refs
 
+      # Preallocated like on NTFS: with --no-prealloc the media and the >=256 KiB files were sparse on ReFS only, and
+      # scanners that size sparse files exactly (SpaceKnife, WinDirStat) paid for it on ReFS alone, which skews the
+      # NTFS-vs-ReFS cross-check. A plain SetEndOfFile on ReFS reserves clusters without writing zeros (verified on a
+      # local ReFS 3.14 volume); the VHDX size printed below shows whether this runner's ReFS behaves the same.
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
+        timeout-minutes: 60
         run: |
           mkdir -p "results/$LABEL"
           EXTRA_ARGS=()
@@ -482,9 +494,9 @@ jobs:
             --preset "${{ inputs.preset }}" \
             --seed "${{ inputs.seed }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
-            --no-prealloc \
             --manifest-out "results/$LABEL/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
+          powershell -NoProfile -Command '$p = (Get-Content (Join-Path $env:TEMP "disk_scanner_bench_X.vhdpath") -Raw).Trim(); $v = Get-Volume -DriveLetter X; "ReFS after generation: VHDX {0:N1} GB physical | X: used {1:N1} of {2:N0} GB | D: free {3:N1} GB" -f ((Get-Item $p).Length / 1GB), (($v.Size - $v.SizeRemaining) / 1GB), ($v.Size / 1GB), ((Get-PSDrive D).Free / 1GB)' || true
 
       - name: Measure Hardware Ceiling Baseline on ReFS (hw-probe)
         shell: bash
