@@ -54,6 +54,35 @@ function Invoke-DiskpartScript([string]$ScriptContent) {
     }
 }
 
+function Disable-DefenderForBench([string]$Letter, [string]$Vhd) {
+    # Turn Defender real-time scanning off and exclude the benchmark volume BEFORE the VHDX is mounted, so neither the
+    # mount nor the millions of file creations are scanned. Failures used to be swallowed silently; verify and report.
+    $errors = @()
+    try {
+        Set-MpPreference -DisableRealtimeMonitoring $true -DisableIOAVProtection $true -DisableBehaviorMonitoring $true `
+            -DisableScriptScanning $true -DisableBlockAtFirstSeen $true -DisableArchiveScanning $true `
+            -MAPSReporting 0 -SubmitSamplesConsent 2 -ErrorAction Stop
+    } catch { $errors += "Set-MpPreference: $($_.Exception.Message)" }
+    foreach ($path in @("${Letter}:\", $Vhd, $PWD.Path, $env:TEMP, $env:RUNNER_TEMP)) {
+        if (-not $path) { continue }
+        try { Add-MpPreference -ExclusionPath $path -ErrorAction Stop } catch { $errors += "Add-MpPreference($path): $($_.Exception.Message)" }
+    }
+    try { Add-MpPreference -ExclusionProcess "fs-mirage.exe", "hw-probe.exe", "python.exe" -ErrorAction Stop } catch { $errors += "Exclusion process: $($_.Exception.Message)" }
+
+    $rtDisabled = "unknown"; $tamper = "unknown"; $rtEnabled = "unknown"
+    try { $rtDisabled = (Get-MpPreference -ErrorAction Stop).DisableRealtimeMonitoring } catch {}
+    try {
+        $st = Get-MpComputerStatus -ErrorAction Stop
+        $rtEnabled = $st.RealTimeProtectionEnabled
+        $tamper = $st.IsTamperProtected
+    } catch {}
+    Write-Host "[windows_vhd] Defender status: DisableRealtimeMonitoring=$rtDisabled RealTimeProtectionEnabled=$rtEnabled IsTamperProtected=$tamper"
+    foreach ($e in $errors) { Write-Warning "[windows_vhd] Defender: $e" }
+    if ($rtEnabled -eq $true) {
+        Write-Warning "[windows_vhd] Defender real-time protection is STILL ENABLED; file creation / scan timings will include its overhead."
+    }
+}
+
 $HasHyperVCmdlets = [bool](Get-Command New-VHD -ErrorAction SilentlyContinue)
 
 switch ($Action) {
@@ -63,6 +92,7 @@ switch ($Action) {
         $VhdPath = Get-VhdPath $DriveLetter
         $FsName = $FsType.ToUpper()
         Write-Host "[windows_vhd] Creating ${SizeGb}GB Dynamic $FsName VHDX at $VhdPath (Drive ${DriveLetter}:)..."
+        Disable-DefenderForBench $DriveLetter $VhdPath
 
         if (Test-Path $VhdPath) {
             try {
@@ -98,15 +128,10 @@ assign letter=$DriveLetter
         New-Item -ItemType Directory -Path "${DriveLetter}:\bench" -Force | Out-Null
 
         try {
-            Set-MpPreference -DisableRealtimeMonitoring $true -DisableIOAVProtection $true -DisableBehaviorMonitoring $true -DisableScriptScanning $true -ErrorAction SilentlyContinue
-            Add-MpPreference -ExclusionPath "${DriveLetter}:\" -ErrorAction SilentlyContinue
-            Add-MpPreference -ExclusionPath $VhdPath -ErrorAction SilentlyContinue
-            Add-MpPreference -ExclusionPath $PWD.Path -ErrorAction SilentlyContinue
-            Add-MpPreference -ExclusionPath $env:TEMP -ErrorAction SilentlyContinue
             & fsutil 8dot3name set "${DriveLetter}:" 1 | Out-Null
             & fsutil behavior set disablelastaccess 1 | Out-Null
         } catch {}
-        Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (Defender disabled & excluded, 8.3 disabled)"
+        Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (8.3 names and last-access updates disabled)"
     }
 
     "purge-cache" {
