@@ -1,7 +1,7 @@
 use crate::topology::{EntryKind, FileEntry, GroundTruthManifest, TopologyPlan};
 use anyhow::{Context, Result};
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -104,6 +104,86 @@ fn fnv(text: &str) -> u64 {
     h
 }
 
+/// Uniform [0, 1) from a text and a salt (FNV-1a + splitmix64 finalizer), deterministic across runs.
+fn unit(text: &str, salt: u64) -> f64 {
+    let mut z = fnv(text) ^ salt.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^= z >> 31;
+    (z >> 11) as f64 / (1u64 << 53) as f64
+}
+
+fn create_dir_one(root: &Path, rel_dir: &str) -> Result<()> {
+    let full_dir = to_os_path(root, rel_dir);
+    match fs::create_dir(&full_dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Err(_) => fs::create_dir_all(&full_dir)
+            .with_context(|| format!("Failed to create directory: {}", full_dir.display())),
+    }
+}
+
+/// Pins the file entries' lifetime of the batch closure to the plan (they end up in the hard-link map).
+fn batch_fn<'p, F>(f: F) -> F
+where
+    F: Fn(&str, &[&'p FileEntry]) -> Result<Vec<PathBuf>> + Sync,
+{
+    f
+}
+
+/// Tasks per window of the aged timeline: run in order window by window, in parallel inside a window.
+const AGING_WINDOW: usize = 8192;
+
+/// One unit of work on the aged timeline.
+enum Task<'a> {
+    Dir(&'a str),
+    Files(&'a str, Vec<&'a FileEntry>),
+}
+
+/// Orders directory and file creation like a volume that grew over years. Every directory gets a creation time after
+/// its parent's, and its files arrive in small bursts spread over the rest of the timeline. Created in that order,
+/// directory MFT records / inodes end up scattered between file records and every directory index grows in pieces.
+/// Created directory by directory instead, all directories sit together at the start of the MFT and each directory's
+/// files form one contiguous run, which made cold scans of a fresh volume several times cheaper than of a real one.
+fn aging_tasks<'a>(
+    directories: &'a [String],
+    dir_groups: HashMap<&'a str, Vec<&'a FileEntry>>,
+    max_batch: usize,
+) -> Vec<Task<'a>> {
+    let mut dirs: Vec<&str> = directories.iter().map(|s| s.as_str()).collect();
+    dirs.sort_by_key(|d| d.bytes().filter(|&b| b == b'/').count());
+    let mut born: HashMap<&str, f64> = HashMap::with_capacity(dirs.len());
+    let mut timed: Vec<(f64, Task<'a>)> = Vec::with_capacity(dirs.len() * 3);
+    for d in dirs {
+        let parent_t = d
+            .rsplit_once('/')
+            .and_then(|(p, _)| born.get(p).copied())
+            .unwrap_or(0.0);
+        let t = parent_t + (1.0 - parent_t) * 0.5 * unit(d, 1);
+        born.insert(d, t);
+        timed.push((t, Task::Dir(d)));
+    }
+    for (parent, entries) in dir_groups {
+        let t0 = born.get(parent).copied().unwrap_or(0.0);
+        let mut rest: &[&FileEntry] = &entries;
+        let mut k = 0u64;
+        while !rest.is_empty() {
+            // bursts of 4..64 files at random later times
+            let size = ((4.0 + 60.0 * unit(parent, 100 + k)) as usize)
+                .min(max_batch)
+                .min(rest.len());
+            let (burst, tail) = rest.split_at(size);
+            let t = t0 + (1.0 - t0) * unit(parent, 1_000_000 + k);
+            timed.push((t, Task::Files(parent, burst.to_vec())));
+            rest = tail;
+            k += 1;
+        }
+    }
+    // stable: a directory created at exactly the time of one of its bursts still comes first
+    timed.sort_by(|a, b| a.0.total_cmp(&b.0));
+    timed.into_iter().map(|(_, task)| task).collect()
+}
+
 pub fn to_os_path(root: &Path, rel_path: &str) -> PathBuf {
     let mut p = root.to_path_buf();
     for seg in rel_path.split('/').filter(|s| !s.is_empty()) {
@@ -121,10 +201,15 @@ pub fn materialize_tree(
     fs::create_dir_all(root)
         .with_context(|| format!("Failed to create root directory: {}", root.display()))?;
 
+    // FSM_AGING=1 creates the tree on an aged timeline (see `aging_tasks`). Off by default: it makes cold scans issue
+    // as many reads per item as a real volume, but it also made SpaceKnife's hot scan 2-3x slower than on the real
+    // drives, so the scanner ranking moved further away from them (W-style 3.2M files, NTFS and ReFS, 2026-10).
+    let aging = realism && std::env::var("FSM_AGING").is_ok_and(|v| v == "1");
+
     let t_dirs = Instant::now();
     // 1. Group directories by depth so each depth level can be created in parallel with a single mkdir syscall
     let mut dirs_by_depth: Vec<Vec<&str>> = Vec::new();
-    for dir in &plan.directories {
+    for dir in plan.directories.iter().filter(|_| !aging) {
         let depth = dir.bytes().filter(|&b| b == b'/').count();
         if dirs_by_depth.len() <= depth {
             dirs_by_depth.resize_with(depth + 1, Vec::new);
@@ -135,28 +220,22 @@ pub fn materialize_tree(
     for level_dirs in dirs_by_depth {
         level_dirs
             .par_iter()
-            .try_for_each(|rel_dir| -> Result<()> {
-                let full_dir = to_os_path(root, rel_dir);
-                match fs::create_dir(&full_dir) {
-                    Ok(()) => Ok(()),
-                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
-                    Err(_) => fs::create_dir_all(&full_dir).with_context(|| {
-                        format!("Failed to create directory: {}", full_dir.display())
-                    }),
-                }
-            })?;
+            .try_for_each(|rel_dir| create_dir_one(root, rel_dir))?;
     }
 
-    eprintln!(
-        "[fs-mirage]   directories created in {:.2?}",
-        t_dirs.elapsed()
-    );
+    if !aging {
+        eprintln!(
+            "[fs-mirage]   directories created in {:.2?}",
+            t_dirs.elapsed()
+        );
+    }
     let t_files = Instant::now();
 
     // NTFS-only realism: a small share of directories is compressed (new files inherit it), the way CompactOS /
     // WinSxS style trees look; scanners then take their compressed-size code paths for those files.
+    // (On the aged timeline this happens when the directory is created.)
     #[cfg(windows)]
-    if realism {
+    if realism && !aging {
         plan.directories
             .par_iter()
             .filter(|d| fnv(d) % 40 == 0)
@@ -201,26 +280,38 @@ pub fn materialize_tree(
     const MAX_FILES_PER_BATCH: usize = 256;
     #[cfg(not(windows))]
     const MAX_FILES_PER_BATCH: usize = usize::MAX;
-    let mut work_batches: Vec<(&str, Vec<&FileEntry>)> = Vec::with_capacity(dir_groups.len());
-    for (parent, mut entries) in dir_groups {
+    for (parent, entries) in dir_groups.iter_mut() {
         // Insert names in a pseudo-random order instead of ascending: ascending inserts build perfectly packed
         // directory indexes, random order half-fills and splits index pages like a long-lived directory. Free to do.
-        shuffle_deterministic(&mut entries, parent);
-        for chunk in entries.chunks(MAX_FILES_PER_BATCH) {
-            work_batches.push((parent, chunk.to_vec()));
-        }
+        shuffle_deterministic(entries, parent);
     }
-    work_batches.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
-
-    eprintln!(
-        "[fs-mirage]   {} directory batches, largest: {:?}",
-        work_batches.len(),
-        work_batches
-            .iter()
-            .take(8)
-            .map(|b| b.1.len())
-            .collect::<Vec<_>>()
-    );
+    let mut work_batches: Vec<(&str, Vec<&FileEntry>)> = Vec::new();
+    let mut timeline: Vec<Task> = Vec::new();
+    if aging {
+        timeline = aging_tasks(&plan.directories, dir_groups, MAX_FILES_PER_BATCH);
+        eprintln!(
+            "[fs-mirage]   aged timeline: {} tasks ({} directories, {} file bursts)",
+            timeline.len(),
+            plan.directories.len(),
+            timeline.len() - plan.directories.len()
+        );
+    } else {
+        for (parent, entries) in dir_groups {
+            for chunk in entries.chunks(MAX_FILES_PER_BATCH) {
+                work_batches.push((parent, chunk.to_vec()));
+            }
+        }
+        work_batches.sort_by_key(|b| std::cmp::Reverse(b.1.len()));
+        eprintln!(
+            "[fs-mirage]   {} directory batches, largest: {:?}",
+            work_batches.len(),
+            work_batches
+                .iter()
+                .take(8)
+                .map(|b| b.1.len())
+                .collect::<Vec<_>>()
+        );
+    }
 
     let cores = std::thread::available_parallelism()
         .map(|n| n.get())
@@ -245,128 +336,191 @@ pub fn materialize_tree(
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(CHURN_EVERY);
-    io_pool.install(|| -> Result<()> {
-        work_batches
-            .par_iter()
-            .try_for_each(|(parent_rel, entries)| -> Result<()> {
-                let parent_dir = to_os_path(root, parent_rel);
+    // Creates one batch of files in one directory; returns the short-lived churn files to delete later.
+    let run_batch = batch_fn(|parent_rel, entries| -> Result<Vec<PathBuf>> {
+        let parent_dir = to_os_path(root, parent_rel);
+        // On the aged timeline a file burst can run in the same window as its directory's creation.
+        if aging && !parent_dir.is_dir() {
+            create_dir_one(root, parent_rel)?;
+        }
+        #[cfg(unix)]
+        let dir_fd = unix::open_dir_fd(&parent_dir);
+        #[cfg(windows)]
+        let t_dir = prof::start();
+        #[cfg(windows)]
+        let dir_handle = windows::open_dir_handle(&parent_dir);
+        #[cfg(windows)]
+        prof::stop(8, t_dir);
+        let mut local_alloc_sum: u64 = 0;
+        let mut local_hl_hits: Vec<(&str, u64)> = Vec::new();
+
+        // Several batches of one directory exist (big directories, the aged timeline), so churn names carry
+        // a per-batch tag.
+        let batch_tag = entries.first().map_or(0, |e| fnv(&e.rel_path) as u32);
+        let mut churn_paths: Vec<PathBuf> = Vec::new();
+        for (entry_idx, entry) in entries.iter().enumerate() {
+            let file_name = entry
+                .rel_path
+                .rsplit_once('/')
+                .map(|(_, f)| f)
+                .unwrap_or(entry.rel_path.as_str());
+            let full_path = parent_dir.join(file_name);
+            // Churn: every few files a short-lived neighbour is created and removed later. That leaves freed
+            // MFT records / directory-index slots / inodes between live files, which later creations from
+            // other threads reuse, so the on-disk layout is scattered like an aged volume.
+            if churn_every > 0 && (entry_idx + CHURN_PHASE) % churn_every == 0 {
+                let churn_name = format!(".churn_{:08x}_{}", batch_tag, entry_idx);
+                let churn_size = 4096 * (1 + (fnv(&churn_name) % 16));
+                let churn_path = parent_dir.join(&churn_name);
                 #[cfg(unix)]
-                let dir_fd = unix::open_dir_fd(&parent_dir);
+                let churn_ok = unix::create_sparse_anchored_file(
+                    dir_fd.as_ref(),
+                    &churn_name,
+                    &churn_path,
+                    churn_size,
+                    0,
+                    1,
+                    prealloc,
+                )
+                .is_ok();
                 #[cfg(windows)]
-                let t_dir = prof::start();
-                #[cfg(windows)]
-                let dir_handle = windows::open_dir_handle(&parent_dir);
-                #[cfg(windows)]
-                prof::stop(8, t_dir);
-                let mut local_alloc_sum: u64 = 0;
-                let mut local_hl_hits: Vec<(&str, u64)> = Vec::new();
-
-                let mut churn_paths: Vec<PathBuf> = Vec::new();
-                for (entry_idx, entry) in entries.iter().enumerate() {
-                    let file_name = entry
-                        .rel_path
-                        .rsplit_once('/')
-                        .map(|(_, f)| f)
-                        .unwrap_or(entry.rel_path.as_str());
-                    let full_path = parent_dir.join(file_name);
-                    // Churn: every few files a short-lived neighbour is created and removed after the batch. That
-                    // leaves freed MFT records / directory-index slots / inodes between live files, which later
-                    // creations from other threads reuse, so the on-disk layout is scattered like an aged volume.
-                    if churn_every > 0 && (entry_idx + CHURN_PHASE) % churn_every == 0 {
-                        let churn_name = format!(".churn_{}", entry_idx);
-                        let churn_size = 4096 * (1 + (fnv(&churn_name) % 16));
-                        let churn_path = parent_dir.join(&churn_name);
-                        #[cfg(unix)]
-                        let churn_ok = unix::create_sparse_anchored_file(
-                            dir_fd.as_ref(),
-                            &churn_name,
-                            &churn_path,
-                            churn_size,
-                            0,
-                            1,
-                            prealloc,
-                        )
-                        .is_ok();
-                        #[cfg(windows)]
-                        let churn_ok = windows::create_sparse_anchored_file(
-                            dir_handle.as_ref(),
-                            &churn_name,
-                            &churn_path,
-                            churn_size,
-                            0,
-                            1,
-                            prealloc,
-                        )
-                        .is_ok();
-                        if churn_ok {
-                            churn_paths.push(churn_path);
-                        }
-                    }
-                    let alloc = match entry.kind {
-                        EntryKind::RegularFile {
-                            logical_size,
-                            dirty_blocks,
-                            fill_byte,
-                            preallocate,
-                        } => {
-                            let preallocate = preallocate && prealloc;
-                            #[cfg(unix)]
-                            let res = unix::create_sparse_anchored_file(
-                                dir_fd.as_ref(),
-                                file_name,
-                                &full_path,
-                                logical_size,
-                                dirty_blocks,
-                                fill_byte,
-                                preallocate,
-                            );
-                            #[cfg(windows)]
-                            let res = windows::create_sparse_anchored_file(
-                                dir_handle.as_ref(),
-                                file_name,
-                                &full_path,
-                                logical_size,
-                                dirty_blocks,
-                                fill_byte,
-                                preallocate,
-                            );
-                            res.with_context(|| {
-                                format!("Failed to materialize file {}", full_path.display())
-                            })?
-                        }
-                        _ => 0,
-                    };
+                let churn_ok = windows::create_sparse_anchored_file(
+                    dir_handle.as_ref(),
+                    &churn_name,
+                    &churn_path,
+                    churn_size,
+                    0,
+                    1,
+                    prealloc,
+                )
+                .is_ok();
+                if churn_ok {
+                    churn_paths.push(churn_path);
+                }
+            }
+            let alloc = match entry.kind {
+                EntryKind::RegularFile {
+                    logical_size,
+                    dirty_blocks,
+                    fill_byte,
+                    preallocate,
+                } => {
+                    let preallocate = preallocate && prealloc;
+                    #[cfg(unix)]
+                    let res = unix::create_sparse_anchored_file(
+                        dir_fd.as_ref(),
+                        file_name,
+                        &full_path,
+                        logical_size,
+                        dirty_blocks,
+                        fill_byte,
+                        preallocate,
+                    );
                     #[cfg(windows)]
-                    if realism {
-                        let t_dec = prof::start();
-                        windows::decorate(&full_path, fnv(&entry.rel_path));
-                        prof::stop(5, t_dec);
-                    }
-                    local_alloc_sum += alloc;
-                    if alloc > 0 && hardlink_targets.contains(entry.rel_path.as_str()) {
-                        local_hl_hits.push((entry.rel_path.as_str(), alloc));
-                    }
+                    let res = windows::create_sparse_anchored_file(
+                        dir_handle.as_ref(),
+                        file_name,
+                        &full_path,
+                        logical_size,
+                        dirty_blocks,
+                        fill_byte,
+                        preallocate,
+                    );
+                    res.with_context(|| {
+                        format!("Failed to materialize file {}", full_path.display())
+                    })?
                 }
+                _ => 0,
+            };
+            #[cfg(windows)]
+            if realism {
+                let t_dec = prof::start();
+                windows::decorate(&full_path, fnv(&entry.rel_path));
+                prof::stop(5, t_dec);
+            }
+            local_alloc_sum += alloc;
+            if alloc > 0 && hardlink_targets.contains(entry.rel_path.as_str()) {
+                local_hl_hits.push((entry.rel_path.as_str(), alloc));
+            }
+        }
 
-                for churn_path in churn_paths {
-                    let t_del = prof::start();
-                    let _ = fs::remove_file(churn_path);
-                    prof::stop(7, t_del);
+        if local_alloc_sum > 0 {
+            total_allocated.fetch_add(local_alloc_sum, Ordering::Relaxed);
+        }
+        if !local_hl_hits.is_empty() {
+            if let Ok(mut guard) = hl_alloc_map.lock() {
+                for (k, v) in local_hl_hits {
+                    guard.insert(k, v);
                 }
+            }
+        }
+        Ok(churn_paths)
+    });
+    let delete_churn = |paths: &[PathBuf]| {
+        paths.par_iter().for_each(|p| {
+            let t_del = prof::start();
+            let _ = fs::remove_file(p);
+            prof::stop(7, t_del);
+        })
+    };
 
-                if local_alloc_sum > 0 {
-                    total_allocated.fetch_add(local_alloc_sum, Ordering::Relaxed);
+    if !aging {
+        io_pool.install(|| -> Result<()> {
+            work_batches
+                .par_iter()
+                .try_for_each(|(parent_rel, entries)| -> Result<()> {
+                    let churn = run_batch(parent_rel, entries)?;
+                    delete_churn(&churn);
+                    Ok(())
+                })
+        })?;
+    } else {
+        // Run the timeline in order, one window at a time (in parallel inside a window). Churn files survive two
+        // more windows, so the records / clusters they free are reused by unrelated, later files.
+        let mut pending: VecDeque<Vec<PathBuf>> = VecDeque::new();
+        let window_len: usize = std::env::var("FSM_AGING_WINDOW")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(AGING_WINDOW);
+        for window in timeline.chunks(window_len.max(1)) {
+            if pending.len() >= 2 {
+                if let Some(old) = pending.pop_front() {
+                    io_pool.install(|| delete_churn(&old));
                 }
-                if !local_hl_hits.is_empty() {
-                    if let Ok(mut guard) = hl_alloc_map.lock() {
-                        for (k, v) in local_hl_hits {
-                            guard.insert(k, v);
+            }
+            let churn: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+            io_pool.install(|| -> Result<()> {
+                window.par_iter().try_for_each(|task| -> Result<()> {
+                    match task {
+                        Task::Dir(rel_dir) => {
+                            create_dir_one(root, rel_dir)?;
+                            #[cfg(windows)]
+                            if fnv(rel_dir) % 40 == 0 {
+                                windows::compress_dir(&to_os_path(root, rel_dir));
+                            }
+                        }
+                        Task::Files(parent_rel, entries) => {
+                            let c = run_batch(parent_rel, entries)?;
+                            if !c.is_empty() {
+                                if let Ok(mut guard) = churn.lock() {
+                                    guard.extend(c);
+                                }
+                            }
                         }
                     }
-                }
-                Ok(())
-            })
-    })?;
+                    Ok(())
+                })
+            })?;
+            pending.push_back(churn.into_inner().unwrap_or_default());
+        }
+        for old in pending {
+            io_pool.install(|| delete_churn(&old));
+        }
+        eprintln!(
+            "[fs-mirage]   directories + files (aged timeline) created in {:.2?}",
+            t_dirs.elapsed()
+        );
+    }
 
     eprintln!(
         "[fs-mirage]   regular files written in {:.2?}",
