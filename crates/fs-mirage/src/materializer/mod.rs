@@ -254,7 +254,9 @@ pub fn materialize_tree(
                 let dir_fd = unix::open_dir_fd(&parent_dir);
                 #[cfg(windows)]
                 let t_dir = prof::start();
+                #[cfg(windows)]
                 let dir_handle = windows::open_dir_handle(&parent_dir);
+                #[cfg(windows)]
                 prof::stop(8, t_dir);
                 let mut local_alloc_sum: u64 = 0;
                 let mut local_hl_hits: Vec<(&str, u64)> = Vec::new();
