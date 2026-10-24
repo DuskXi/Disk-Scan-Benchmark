@@ -43,6 +43,7 @@
       "architectures": ["x86_64", "aarch64"],
       "size_metric": "allocated",
       "command_template": ["{bin}", "-n", "-p", "{path}"],
+      "excludes_dir_blocks": true,
       "output_parser": "human_last_line",
       "install": {
         "linux_x86_64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_linux_amd64.tgz",

@@ -128,6 +128,10 @@ pub struct GroundTruthManifest {
     pub allocated_size_bytes: u64,
     /// Actual OS-reported allocated physical bytes on disk (counting hardlinks multiple times)
     pub allocated_size_with_hardlinks_bytes: u64,
+    /// Allocation of regular files only, i.e. `allocated_size_bytes` without the blocks that directories
+    /// themselves occupy on ext4/XFS. Some scanners (gdu) do not count directory blocks.
+    #[serde(default)]
+    pub allocated_files_only_bytes: u64,
     /// Ground truth breakdown per top-level zone (zone_deep, zone_flat_cache, zone_sparse_media, zone_edge)
     #[serde(default)]
     pub zones: std::collections::BTreeMap<String, ZoneGroundTruth>,
@@ -520,6 +524,7 @@ impl TopologyPlan {
             planned_dirty_bytes,
             allocated_size_bytes: 0,
             allocated_size_with_hardlinks_bytes: 0,
+            allocated_files_only_bytes: 0,
             zones,
         };
 

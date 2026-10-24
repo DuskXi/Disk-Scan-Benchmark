@@ -262,6 +262,8 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
 
     eprintln!("[fs-mirage]   symlinks created in {:.2?}", t_syms.elapsed());
 
+    let files_only_bytes = total_allocated.load(Ordering::Relaxed);
+
     // 5. On Unix (ext4 / XFS), directories themselves allocate 4KB+ physical blocks (st_blocks)
     // that CLI disk usage tools (gdu, dua, dust, ncdu) include in the volume total.
     #[cfg(unix)]
@@ -287,6 +289,7 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
     let extra_hl_alloc = hardlink_extra_alloc.load(Ordering::Relaxed);
 
     plan.manifest.allocated_size_bytes = allocated_bytes;
+    plan.manifest.allocated_files_only_bytes = files_only_bytes;
     plan.manifest.allocated_size_with_hardlinks_bytes = allocated_bytes + extra_hl_alloc;
 
     Ok(plan.manifest)

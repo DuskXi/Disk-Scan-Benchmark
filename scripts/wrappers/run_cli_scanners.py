@@ -181,6 +181,17 @@ def find_subtree_row(rows: List[List[str]], scan_path: str) -> Optional[List[str
     return None
 
 
+def reference_bytes(gt_data: Dict[str, Any], scanner: Dict[str, Any], metric: str) -> int:
+    """Ground-truth size a scanner is compared against, honoring how the scanner accounts for allocation."""
+    if metric == "apparent":
+        return int(gt_data.get("apparent_size_bytes", 0))
+    if scanner.get("excludes_dir_blocks"):
+        files_only = int(gt_data.get("allocated_files_only_bytes", 0))
+        if files_only > 0:
+            return files_only
+    return int(gt_data.get("allocated_size_bytes", 0))
+
+
 def parse_wiztree_csv(
     csv_path: Path, scan_path: str = "", subtree_totals: bool = False
 ) -> Tuple[int, int, int, Dict[str, Dict[str, Any]]]:
@@ -1012,11 +1023,7 @@ def main() -> int:
                 if (os_key == "windows" and scanner_id in ("gdu", "dust", "windirstat", "wiztree"))
                 else scanner.get("size_metric", "allocated")
             )
-            fallback_b = (
-                int(gt_data.get("apparent_size_bytes", 0))
-                if effective_metric == "apparent"
-                else int(gt_data.get("allocated_size_bytes", 0))
-            )
+            fallback_b = reference_bytes(gt_data, scanner, effective_metric)
             scanned_f = int(gt_data.get("total_files", 0))
             sampled_zones: Dict[str, Dict[str, Any]] = {}
 
@@ -1085,11 +1092,7 @@ def main() -> int:
             if (os_key == "windows" and scanner_id in ("gdu", "dust", "windirstat", "wiztree"))
             else scanner.get("size_metric", "allocated")
         )
-        ref_bytes = (
-            int(gt_data.get("apparent_size_bytes", 0))
-            if size_metric == "apparent"
-            else int(gt_data.get("allocated_size_bytes", 0))
-        )
+        ref_bytes = reference_bytes(gt_data, scanner, size_metric)
         accuracy_diff_pct = round(((scanned_bytes - ref_bytes) / ref_bytes) * 100.0, 2) if ref_bytes > 0 else 0.0
         expected_files = int(gt_data.get("total_files", 0))
 
@@ -1131,11 +1134,11 @@ def main() -> int:
             if scanned_bytes == 0 and ref_bytes > 0:
                 valid = False
                 invalid_reason = "❌ INVALID: Scanned byte size is 0 (scanner failed to measure filesystem)"
-            elif abs(accuracy_diff_pct) > 100.0:
+            elif expected_files > 0 and scanned_files < 0.9 * expected_files:
+                # Size deviations alone only lower the accuracy column: scanners legitimately define "size on disk"
+                # differently (directory blocks, NTFS resident files, MFT records). Missing files mean it did not scan.
                 valid = False
-                invalid_reason = (
-                    f"❌ OUT_OF_BOUNDS: Reported size deviates abnormally ({accuracy_diff_pct:+.2f}%) from ground truth"
-                )
+                invalid_reason = f"❌ INVALID: Incomplete traversal (scanned files {scanned_files:,} < 90% of tree total {expected_files:,})"
 
         results.append(
             {
