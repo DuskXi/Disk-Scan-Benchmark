@@ -22,7 +22,11 @@ pub fn to_os_path(root: &Path, rel_path: &str) -> PathBuf {
     p
 }
 
-pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTruthManifest> {
+pub fn materialize_tree(
+    root: &Path,
+    mut plan: TopologyPlan,
+    prealloc: bool,
+) -> Result<GroundTruthManifest> {
     fs::create_dir_all(root)
         .with_context(|| format!("Failed to create root directory: {}", root.display()))?;
 
@@ -151,7 +155,9 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
                             logical_size,
                             dirty_blocks,
                             fill_byte,
+                            preallocate,
                         } => {
+                            let preallocate = preallocate && prealloc;
                             #[cfg(unix)]
                             let res = unix::create_sparse_anchored_file(
                                 dir_fd.as_ref(),
@@ -160,6 +166,7 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
                                 logical_size,
                                 dirty_blocks,
                                 fill_byte,
+                                preallocate,
                             );
                             #[cfg(windows)]
                             let res = windows::create_sparse_anchored_file(
@@ -169,6 +176,7 @@ pub fn materialize_tree(root: &Path, mut plan: TopologyPlan) -> Result<GroundTru
                                 logical_size,
                                 dirty_blocks,
                                 fill_byte,
+                                preallocate,
                             );
                             res.with_context(|| {
                                 format!("Failed to materialize file {}", full_path.display())

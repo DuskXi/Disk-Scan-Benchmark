@@ -98,9 +98,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
 
+      - name: Resolve Virtual Disk Capacity
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
+          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          echo "Virtual disk capacity: ${VDISK_GB} GiB"
+
       - name: "Create & Mount Dynamic NTFS VHDX (Windows)"
         shell: pwsh
-        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ inputs.disk_size_gb }}" "X:/bench" ntfs
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" ntfs
 
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash

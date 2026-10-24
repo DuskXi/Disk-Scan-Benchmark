@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub const BLOCK_SIZE: u64 = 4096;
 const GB: u64 = 1024 * 1024 * 1024;
 const MB: u64 = 1024 * 1024;
+/// Extra apparent-only volume of the sparse hole files relative to the preallocated media volume (500 -> 700).
+const HOLE_EXTRA_RATIO: f64 = 0.4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileZone {
@@ -25,6 +27,10 @@ pub enum EntryKind {
         dirty_blocks: u8,
         /// Deterministic seed byte for filling the 4KB dirty block(s)
         fill_byte: u8,
+        /// Fully allocated (non-sparse) file. Where the platform cannot preallocate, the materializer falls back
+        /// to a sparse file with `dirty_blocks` anchors, so those fields stay meaningful.
+        #[serde(default)]
+        preallocate: bool,
     },
     /// Hard link pointing to another relative path in the generated tree
     HardLink {
@@ -263,6 +269,7 @@ impl TopologyPlan {
                     logical_size,
                     dirty_blocks,
                     fill_byte,
+                    preallocate: false,
                 },
             });
         }
@@ -300,6 +307,7 @@ impl TopologyPlan {
                         logical_size,
                         dirty_blocks,
                         fill_byte,
+                        preallocate: false,
                     },
                 });
             }
@@ -336,6 +344,7 @@ impl TopologyPlan {
                     logical_size,
                     dirty_blocks,
                     fill_byte,
+                    preallocate: false,
                 },
             });
         }
@@ -379,6 +388,8 @@ impl TopologyPlan {
             }
         }
 
+        let non_media_regular = regular_files.len();
+        let media_sum_bytes: u64 = raw_media_sizes.iter().sum();
         for (i, logical_size) in raw_media_sizes.into_iter().enumerate() {
             let sub = format!("{}/vol_{:02}", media_dir, i % 16);
             add_dir_with_ancestors(&sub, &mut dir_set);
@@ -398,6 +409,34 @@ impl TopologyPlan {
                     logical_size,
                     dirty_blocks,
                     fill_byte,
+                    preallocate: true,
+                },
+            });
+        }
+
+        // 4b. A handful of huge purely-sparse "hole" files. They add `HOLE_EXTRA_RATIO` x the preallocated media
+        // volume to the apparent size without allocating anything, so a scanner that reads logical size where it should
+        // read size on disk (e.g. 500 GiB allocated -> 700 GiB reported) is exposed immediately.
+        let hole_dir = "zone_sparse_media/holes";
+        add_dir_with_ancestors(hole_dir, &mut dir_set);
+        let count_holes = count_media.clamp(1, 6);
+        let hole_total_bytes = ((media_sum_bytes as f64) * HOLE_EXTRA_RATIO) as u64;
+        let hole_weights: Vec<f64> = (0..count_holes).map(|_| rng.gen_range(1.0..2.0)).collect();
+        let weight_sum: f64 = hole_weights.iter().sum();
+        for (i, w) in hole_weights.iter().enumerate() {
+            let logical_size =
+                (((hole_total_bytes as f64) * w / weight_sum) as u64 & !(BLOCK_SIZE - 1)).max(MB);
+            let dirty_blocks = 4u8;
+            planned_dirty_bytes += (dirty_blocks as u64) * BLOCK_SIZE;
+            let fill_byte = rng.gen_range(1..=254);
+            regular_files.push(FileEntry {
+                rel_path: format!("{}/sparse_hole_{:02}.img", hole_dir, i),
+                zone: FileZone::SparseMedia,
+                kind: EntryKind::RegularFile {
+                    logical_size,
+                    dirty_blocks,
+                    fill_byte,
+                    preallocate: false,
                 },
             });
         }
@@ -405,7 +444,7 @@ impl TopologyPlan {
         // 5. Generate Edge HardLinks (pointing to existing regular small/medium files)
         let hardlink_dir = "zone_edge/hardlinks";
         add_dir_with_ancestors(hardlink_dir, &mut dir_set);
-        let candidate_regular_count = regular_files.len().saturating_sub(count_media).max(1);
+        let candidate_regular_count = non_media_regular.max(1);
         let mut hardlinks = Vec::with_capacity(count_hardlinks);
         let mut hardlink_extra_logical: u64 = 0;
 

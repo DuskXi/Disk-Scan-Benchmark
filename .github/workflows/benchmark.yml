@@ -144,6 +144,13 @@ jobs:
         run: |
           python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
 
+      - name: Resolve Virtual Disk Capacity
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
+          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          echo "Virtual disk capacity: ${VDISK_GB} GiB"
+
       - name: Create & Mount Virtual Disk Container (Linux / macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -159,16 +166,16 @@ jobs:
             *)         INODES=4000000 ;;
           esac
           if [ "${{ matrix.platform }}" = "linux" ]; then
-            ./scripts/disk-mgr/linux_loop.sh create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}" --inodes "$INODES"
+            ./scripts/disk-mgr/linux_loop.sh create "$VDISK_GB" "${{ matrix.mount_path }}" --inodes "$INODES"
           else
-            ./scripts/disk-mgr/macos_dmg.sh create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}"
+            ./scripts/disk-mgr/macos_dmg.sh create "$VDISK_GB" "${{ matrix.mount_path }}"
           fi
 
       - name: Create & Mount Dynamic NTFS VHDX at X:\ (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          ./scripts/disk-mgr/windows_vhd.ps1 create "${{ inputs.disk_size_gb }}" "${{ matrix.mount_path }}"
+          ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "${{ matrix.mount_path }}"
 
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
@@ -274,6 +281,7 @@ jobs:
             --preset "${{ inputs.preset }}" \
             --seed "${{ inputs.seed }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --no-prealloc \
             --manifest-out "results/${RAM_LABEL}/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
 
@@ -368,6 +376,7 @@ jobs:
             --preset "${{ inputs.preset }}" \
             --seed "${{ inputs.seed }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --no-prealloc \
             --manifest-out "results/$LABEL/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
 

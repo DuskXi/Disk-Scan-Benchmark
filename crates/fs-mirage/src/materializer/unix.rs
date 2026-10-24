@@ -17,6 +17,7 @@ pub fn create_sparse_anchored_file(
     logical_size: u64,
     dirty_blocks: u8,
     fill_byte: u8,
+    preallocate: bool,
 ) -> Result<u64> {
     // Ultra-fast path for 0-byte clean files using openat(dir_fd, file_name) with stack buffer:
     // bypasses 8..25 levels of VFS namei() path resolution and skips ftruncate().
@@ -49,6 +50,24 @@ pub fn create_sparse_anchored_file(
         .create(true)
         .truncate(true)
         .open(path)?;
+
+    // Preallocated media: fallocate() reserves every block as an unwritten extent (st_blocks reports the full size)
+    // without writing data. Other Unixes (macOS/APFS) cannot do this and fall through to the sparse path below.
+    #[cfg(target_os = "linux")]
+    if preallocate && logical_size > 0 {
+        let rc = unsafe { libc::fallocate(file.as_raw_fd(), 0, 0, logical_size as libc::off_t) };
+        if rc == 0 {
+            return Ok(file.metadata()?.blocks().saturating_mul(512));
+        }
+        eprintln!(
+            "[fs-mirage] fallocate({} bytes) failed for {}: {}; falling back to a sparse file",
+            logical_size,
+            path.display(),
+            std::io::Error::last_os_error()
+        );
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = preallocate;
 
     if dirty_blocks == 0 || logical_size == 0 {
         if logical_size > 0 {

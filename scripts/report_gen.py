@@ -131,7 +131,7 @@ def generate_report(
         zone_descriptions = {
             "zone_deep": "Deep dependency hierarchy (depth 8-25)",
             "zone_flat_cache": "High-density flat cache/logs",
-            "zone_sparse_media": "Sparse media containers (>90% volume)",
+            "zone_sparse_media": "Preallocated media + a few huge sparse hole files (>99% volume)",
             "zone_edge": "Hardlinks, symlink loops & long paths",
         }
         for z_name, z_data in gt_zones.items():

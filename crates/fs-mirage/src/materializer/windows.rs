@@ -157,6 +157,7 @@ pub fn create_sparse_anchored_file(
     logical_size: u64,
     dirty_blocks: u8,
     fill_byte: u8,
+    preallocate: bool,
 ) -> Result<u64> {
     // Relative open through the parent directory handle; falls back to the full-path open if it is refused.
     let rel_handle = dir.and_then(|d| nt_create_relative(d, file_name));
@@ -200,6 +201,14 @@ pub fn create_sparse_anchored_file(
             .truncate(true)
             .open(path)?,
     };
+
+    // Preallocated media: a plain (non-sparse) SetEndOfFile makes NTFS allocate every cluster immediately while the
+    // valid data length stays 0, so a multi-hundred-GiB file costs a few metadata writes instead of real I/O.
+    if preallocate && logical_size > 0 {
+        file.set_len(logical_size)?;
+        let alloc = query_allocation(file.as_raw_handle() as HANDLE);
+        return Ok(alloc.unwrap_or(logical_size));
+    }
 
     // Fast path 1: Tiny files <= 680B with dirty_blocks == 0 fit directly inside the 1KB NTFS $MFT record
     // as Resident $DATA (AllocationSize == 0 naturally without requiring FSCTL_SET_SPARSE).
@@ -276,20 +285,23 @@ pub fn create_sparse_anchored_file(
     }
 
     // Step 4: Query true NTFS physical allocated bytes via GetFileInformationByHandleEx(FileStandardInfo)
+    Ok(query_allocation(raw_handle).unwrap_or((dirty_blocks as u64) * BLOCK_SIZE))
+}
+
+fn query_allocation(handle: HANDLE) -> Option<u64> {
     let mut std_info: FILE_STANDARD_INFO = unsafe { zeroed() };
     let info_ok = unsafe {
         GetFileInformationByHandleEx(
-            raw_handle,
+            handle,
             FileStandardInfo,
             &mut std_info as *mut _ as *mut _,
             size_of::<FILE_STANDARD_INFO>() as u32,
         )
     };
-
     if info_ok != 0 && std_info.AllocationSize >= 0 {
-        Ok(std_info.AllocationSize as u64)
+        Some(std_info.AllocationSize as u64)
     } else {
-        Ok((dirty_blocks as u64) * BLOCK_SIZE)
+        None
     }
 }
 
