@@ -52,6 +52,11 @@ on:
         required: true
         default: "42"
         type: string
+      windows_only:
+        description: "Run only the Windows NTFS + ReFS jobs and their summary (skip Linux/macOS)"
+        required: false
+        default: false
+        type: boolean
       enable_ramdisk:
         description: "Enable /dev/shm RAMDisk PCIe 5.0 simulation pass on Linux"
         required: false
@@ -63,6 +68,7 @@ permissions:
 
 jobs:
   benchmark:
+    if: ${{ !inputs.windows_only }}
     name: "Bench (${{ matrix.target_label }} | ${{ inputs.preset }})"
     runs-on: ${{ matrix.os }}
     strategy:
