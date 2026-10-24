@@ -1,4 +1,4 @@
-use crate::topology::{compute_dirty_anchor_offsets, BLOCK_SIZE};
+use crate::topology::{compute_dirty_anchor_offsets, BLOCK_SIZE, PREALLOC_MIN_BYTES};
 use anyhow::Result;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -352,9 +352,22 @@ fn create_inner(
 
     let raw_handle = file.as_raw_handle() as HANDLE;
 
-    // Step 1: Mark file handle as sparse via FSCTL_SET_SPARSE when creating sparse holes
-    // (either pure sparse files > 680B with dirty_blocks == 0, or large files >= 64KB with multi-extent runlists).
-    if dirty_blocks == 0 || logical_size >= 65536 {
+    // Clean non-resident files: a plain (non-sparse) SetEndOfFile, like a real file. NTFS and ReFS allocate the clusters
+    // without writing zeros (valid data length stays 0). They used to be marked sparse, but real volumes have almost no
+    // sparse files and scanners that size sparse files exactly open each one, which made them look several times slower
+    // than on real data. A plain SetEndOfFile is also cheaper to create than FSCTL_SET_SPARSE + SetEndOfFile.
+    // Files of PREALLOC_MIN_BYTES and more only get here when preallocation is off (--no-prealloc); they stay sparse
+    // below, otherwise the mid-size files of a real-drive profile would fill the volume after all.
+    if dirty_blocks == 0 && logical_size < PREALLOC_MIN_BYTES {
+        file.set_len(logical_size)?;
+        return Ok(
+            query_allocation(raw_handle).unwrap_or(logical_size.div_ceil(BLOCK_SIZE) * BLOCK_SIZE)
+        );
+    }
+
+    // Step 1: Mark file handle as sparse via FSCTL_SET_SPARSE for the files that are not preallocated: the huge hole
+    // files, and with --no-prealloc the media / mid-size files.
+    if logical_size >= 65536 {
         let mut bytes_returned: u32 = 0;
         let ok = unsafe {
             DeviceIoControl(
@@ -374,10 +387,6 @@ fn create_inner(
 
     // Step 2: Set full logical size
     file.set_len(logical_size)?;
-
-    if dirty_blocks == 0 {
-        return Ok(0);
-    }
 
     // Step 3: Write 4KB dirty anchor blocks at 4096-aligned offsets using seek_write
     if logical_size > 0 {

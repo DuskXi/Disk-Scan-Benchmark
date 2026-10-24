@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 pub const BLOCK_SIZE: u64 = 4096;
 const GB: u64 = 1024 * 1024 * 1024;
 const MB: u64 = 1024 * 1024;
-/// Only files at least this large are really preallocated. On NTFS every preallocation takes volume-bitmap locks, which
-/// made generating 1M files ~6x slower in CI; smaller files keep their realistic logical size as sparse tails.
+/// Files at least this large are marked for preallocation (also on Linux, where it means fallocate). On Windows every
+/// clean non-resident file is allocated with a plain SetEndOfFile anyway (no data written), so this only matters for Unix,
+/// where smaller files keep their realistic logical size as a hole.
 pub(crate) const PREALLOC_MIN_BYTES: u64 = 256 * 1024;
 /// Extra apparent-only volume of the sparse hole files relative to the preallocated media volume (500 -> 700).
 const HOLE_EXTRA_RATIO: f64 = 0.4;
@@ -101,7 +102,7 @@ pub enum EntryKind {
     /// Regular or sparse file
     RegularFile {
         logical_size: u64,
-        /// Number of 4KB dirty blocks to write (0 = sparse metadata-only, 1..=8 = dirty extent anchors)
+        /// Number of 4KB dirty blocks to write (0 = no data: allocated on Windows, a hole on Unix; 1..=8 = dirty extent anchors)
         dirty_blocks: u8,
         /// Deterministic seed byte for filling the 4KB dirty block(s)
         fill_byte: u8,

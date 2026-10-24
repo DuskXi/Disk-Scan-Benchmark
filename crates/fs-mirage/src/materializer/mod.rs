@@ -23,7 +23,7 @@ pub mod prof {
     pub const NAMES: [&str; 10] = [
         "create 0B",
         "create <=680B (set_len)",
-        "create sparse (>680B)",
+        "create >680B (plain or anchored)",
         "create prealloc",
         "create dirty-write",
         "decorate (ADS/attrs)",
