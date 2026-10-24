@@ -14,8 +14,9 @@ mod unix;
 #[cfg(windows)]
 mod windows;
 
-/// One short-lived file is created next to every `CHURN_EVERY`-th regular file (about 2%) and deleted again.
-const CHURN_EVERY: usize = 48;
+/// One short-lived file is created next to every `CHURN_EVERY`-th regular file (about 12%) and deleted again.
+/// The temporary files really allocate clusters, so deleting them fragments free space as well.
+const CHURN_EVERY: usize = 8;
 const CHURN_PHASE: usize = 5;
 
 /// Deterministic Fisher-Yates shuffle seeded from the directory name (xorshift64*), so runs stay reproducible.
@@ -35,6 +36,16 @@ fn shuffle_deterministic<T>(items: &mut [T], seed_text: &str) {
     }
 }
 
+/// FNV-1a hash used to pick deterministic subsets (compressed directories, files with alternate streams, ...).
+fn fnv(text: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
 pub fn to_os_path(root: &Path, rel_path: &str) -> PathBuf {
     let mut p = root.to_path_buf();
     for seg in rel_path.split('/').filter(|s| !s.is_empty()) {
@@ -47,6 +58,7 @@ pub fn materialize_tree(
     root: &Path,
     mut plan: TopologyPlan,
     prealloc: bool,
+    realism: bool,
 ) -> Result<GroundTruthManifest> {
     fs::create_dir_all(root)
         .with_context(|| format!("Failed to create root directory: {}", root.display()))?;
@@ -82,6 +94,18 @@ pub fn materialize_tree(
         t_dirs.elapsed()
     );
     let t_files = Instant::now();
+
+    // NTFS-only realism: a small share of directories is compressed (new files inherit it), the way CompactOS /
+    // WinSxS style trees look; scanners then take their compressed-size code paths for those files.
+    #[cfg(windows)]
+    if realism {
+        plan.directories
+            .par_iter()
+            .filter(|d| fnv(d) % 40 == 0)
+            .for_each(|rel_dir| windows::compress_dir(&to_os_path(root, rel_dir)));
+    }
+    #[cfg(not(windows))]
+    let _ = realism;
 
     // Track only the subset of regular file paths referenced by hardlinks to avoid cloning millions of Strings
     let hardlink_targets: HashSet<&str> = plan
@@ -184,16 +208,17 @@ pub fn materialize_tree(
                     // creations from other threads reuse, so the on-disk layout is scattered like an aged volume.
                     if churn_every > 0 && (entry_idx + CHURN_PHASE) % churn_every == 0 {
                         let churn_name = format!(".churn_{}", entry_idx);
+                        let churn_size = 4096 * (1 + (fnv(&churn_name) % 16));
                         let churn_path = parent_dir.join(&churn_name);
                         #[cfg(unix)]
                         let churn_ok = unix::create_sparse_anchored_file(
                             dir_fd.as_ref(),
                             &churn_name,
                             &churn_path,
-                            0,
+                            churn_size,
                             0,
                             1,
-                            false,
+                            prealloc,
                         )
                         .is_ok();
                         #[cfg(windows)]
@@ -201,10 +226,10 @@ pub fn materialize_tree(
                             dir_handle.as_ref(),
                             &churn_name,
                             &churn_path,
-                            0,
+                            churn_size,
                             0,
                             1,
-                            false,
+                            prealloc,
                         )
                         .is_ok();
                         if churn_ok {
@@ -245,6 +270,10 @@ pub fn materialize_tree(
                         }
                         _ => 0,
                     };
+                    #[cfg(windows)]
+                    if realism {
+                        windows::decorate(&full_path, fnv(&entry.rel_path));
+                    }
                     local_alloc_sum += alloc;
                     if alloc > 0 && hardlink_targets.contains(entry.rel_path.as_str()) {
                         local_hl_hits.push((entry.rel_path.as_str(), alloc));

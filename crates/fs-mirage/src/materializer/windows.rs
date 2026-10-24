@@ -1,5 +1,5 @@
 use crate::topology::{compute_dirty_anchor_offsets, BLOCK_SIZE};
-use anyhow::{bail, Result};
+use anyhow::Result;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::mem::{size_of, zeroed};
@@ -14,12 +14,12 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, CREATE_ALWAYS,
-    FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, OPEN_EXISTING,
-    SYNCHRONIZE,
+    CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, SetFileAttributesW, WriteFile,
+    CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY,
+    FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO,
+    OPEN_EXISTING, SYNCHRONIZE,
 };
-use windows_sys::Win32::System::Ioctl::FSCTL_SET_SPARSE;
+use windows_sys::Win32::System::Ioctl::{FSCTL_SET_COMPRESSION, FSCTL_SET_SPARSE};
 use windows_sys::Win32::System::IO::{DeviceIoControl, IO_STATUS_BLOCK};
 
 /// Directory handle used as the RootDirectory of relative NtCreateFile opens, the Windows counterpart of the
@@ -150,6 +150,90 @@ fn nt_create_relative(dir: &DirHandle, name: &str) -> Option<HANDLE> {
     }
 }
 
+/// Marks a directory as compressed so files created below it inherit the attribute.
+pub fn compress_dir(dir: &Path) {
+    let mut wide: Vec<u16> = Vec::with_capacity(dir.as_os_str().len() + 1);
+    wide.extend(dir.as_os_str().encode_wide());
+    wide.push(0);
+    let h = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            0x8000_0000 | GENERIC_WRITE, // GENERIC_READ | GENERIC_WRITE
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            0 as HANDLE,
+        )
+    };
+    if h == INVALID_HANDLE_VALUE {
+        return;
+    }
+    let format: u16 = 1; // COMPRESSION_FORMAT_DEFAULT
+    let mut returned: u32 = 0;
+    unsafe {
+        DeviceIoControl(
+            h,
+            FSCTL_SET_COMPRESSION,
+            &format as *const u16 as *const _,
+            2,
+            null_mut(),
+            0,
+            &mut returned,
+            null_mut(),
+        );
+        CloseHandle(h);
+    }
+}
+
+/// Adds the NTFS metadata a lived-in volume has: ~4% of files carry a `Zone.Identifier` alternate data stream
+/// (downloaded files), ~2% are hidden+system and ~3% are read-only. `h` is a deterministic hash of the file.
+pub fn decorate(path: &Path, h: u64) {
+    let bucket = h % 100;
+    if bucket >= 9 {
+        return;
+    }
+    let mut wide: Vec<u16> = Vec::with_capacity(path.as_os_str().len() + 24);
+    wide.extend(path.as_os_str().encode_wide());
+    if bucket < 4 {
+        let mut ads = wide.clone();
+        ads.extend(":Zone.Identifier".encode_utf16());
+        ads.push(0);
+        let handle = unsafe {
+            CreateFileW(
+                ads.as_ptr(),
+                GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                null(),
+                CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL,
+                0 as HANDLE,
+            )
+        };
+        if handle != INVALID_HANDLE_VALUE {
+            let data = b"[ZoneTransfer]\r\nZoneId=3\r\n";
+            let mut written: u32 = 0;
+            unsafe {
+                WriteFile(
+                    handle,
+                    data.as_ptr(),
+                    data.len() as u32,
+                    &mut written,
+                    null_mut(),
+                );
+                CloseHandle(handle);
+            }
+        }
+    } else {
+        wide.push(0);
+        // 0x2 hidden | 0x4 system for buckets 4..6, 0x1 read-only for buckets 6..9
+        let attrs: u32 = if bucket < 6 { 0x6 } else { 0x1 };
+        unsafe {
+            SetFileAttributesW(wide.as_ptr(), attrs);
+        }
+    }
+}
+
 pub fn create_sparse_anchored_file(
     dir: Option<&DirHandle>,
     file_name: &str,
@@ -247,14 +331,8 @@ pub fn create_sparse_anchored_file(
                 null_mut(),
             )
         };
-        if ok == 0 {
-            let err = std::io::Error::last_os_error();
-            bail!(
-                "DeviceIoControl(FSCTL_SET_SPARSE) failed on {}: {}",
-                path.display(),
-                err
-            );
-        }
+        // Compressed directories reject FSCTL_SET_SPARSE; the file then simply stays a normal (compressed) file.
+        let _ = ok;
     }
 
     // Step 2: Set full logical size

@@ -23,6 +23,48 @@ const ODD_NAME_TAGS: [&str; 8] = [
     "UPPER_lower_Mix",
 ];
 
+const NAME_WORDS: [&str; 24] = [
+    "report", "config", "index", "module", "cache", "backup", "draft", "final", "image", "thumb",
+    "session", "build", "release", "debug", "install", "update", "readme", "license", "notes",
+    "archive", "export", "import", "service", "driver",
+];
+
+/// File-name stem with a realistic length mix: short generated names, word_word names, versioned names around 40
+/// characters, names with spaces / parentheses, and a tail of very long names (the unique `idx` keeps them distinct).
+fn realistic_stem(rng: &mut ChaCha8Rng, idx: usize) -> String {
+    let word = |rng: &mut ChaCha8Rng| NAME_WORDS[rng.gen_range(0..NAME_WORDS.len())];
+    match rng.gen_range(0..100u32) {
+        0..=34 => format!("f_{:07}", idx),
+        35..=64 => format!("{}_{}_{:07}", word(rng), word(rng), idx),
+        65..=86 => format!(
+            "{}-{}-{}-v{}.{}.{}-{:07}",
+            word(rng),
+            word(rng),
+            word(rng),
+            rng.gen_range(0..9),
+            rng.gen_range(0..30),
+            rng.gen_range(0..200),
+            idx
+        ),
+        87..=95 => format!(
+            "{} ({}) - {} {:07}",
+            word(rng),
+            rng.gen_range(1..9),
+            word(rng),
+            idx
+        ),
+        _ => {
+            let mut s = String::new();
+            let target = rng.gen_range(90..=130);
+            while s.len() < target {
+                s.push_str(word(rng));
+                s.push('_');
+            }
+            format!("{}{:07}", s, idx)
+        }
+    }
+}
+
 /// Draws a realistic file size: ~8% empty, mostly small (resident / single cluster), a long tail of larger files.
 /// The bytes are only *reserved* (preallocation / metadata), never written, so generation stays fast.
 fn realistic_small_size(rng: &mut ChaCha8Rng) -> u64 {
@@ -277,7 +319,11 @@ impl TopologyPlan {
 
         let extensions = ["rs", "ts", "js", "json", "rlib", "d", "o", "toml", "h", "c"];
         for i in 0..count_deep {
-            let dir = &deep_leaf_dirs[rng.gen_range(0..deep_leaf_dirs.len())];
+            // Heavy-tailed fan-out: a few leaf directories collect thousands of files, most stay nearly empty.
+            let skew: f64 = rng.gen();
+            let dir = &deep_leaf_dirs[(((skew * skew * skew) * deep_leaf_dirs.len() as f64)
+                as usize)
+                .min(deep_leaf_dirs.len() - 1)];
             let ext = extensions[rng.gen_range(0..extensions.len())];
             let rel_path = if i % 20 == 7 {
                 format!(
@@ -288,7 +334,7 @@ impl TopologyPlan {
                     ext
                 )
             } else {
-                format!("{}/f_{:07}.{}", dir, i, ext)
+                format!("{}/{}.{}", dir, realistic_stem(&mut rng, i), ext)
             };
             let write_dirty = small_dirty_allocated < max_small_dirty_files
                 && rng.gen_range(0..10_000) < small_dirty_rate_bp;
@@ -340,7 +386,11 @@ impl TopologyPlan {
                         ODD_NAME_TAGS[(flat_file_idx / 25) % ODD_NAME_TAGS.len()]
                     )
                 } else {
-                    format!("{}/cache_{:08}.log", bucket_dir, flat_file_idx)
+                    format!(
+                        "{}/{}.log",
+                        bucket_dir,
+                        realistic_stem(&mut rng, flat_file_idx)
+                    )
                 };
                 flat_file_idx += 1;
                 let write_dirty = small_dirty_allocated < max_small_dirty_files

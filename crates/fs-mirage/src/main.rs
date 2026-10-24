@@ -82,6 +82,10 @@ struct Args {
     #[arg(long)]
     no_prealloc: bool,
 
+    /// Skip the lived-in volume extras (compressed dirs, alternate streams, attributes) on Windows.
+    #[arg(long)]
+    no_realism: bool,
+
     /// Output path for the Ground Truth manifest JSON
     #[arg(long, default_value = "ground_truth.json")]
     manifest_out: PathBuf,
@@ -139,7 +143,8 @@ fn main() -> Result<()> {
     );
 
     let t1 = Instant::now();
-    let manifest = materializer::materialize_tree(&args.root, plan, !args.no_prealloc)?;
+    let manifest =
+        materializer::materialize_tree(&args.root, plan, !args.no_prealloc, !args.no_realism)?;
     let mat_elapsed = t1.elapsed();
 
     println!(
