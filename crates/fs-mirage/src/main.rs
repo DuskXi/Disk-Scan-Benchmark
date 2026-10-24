@@ -1,4 +1,5 @@
 mod materializer;
+mod profile;
 mod topology;
 
 use anyhow::{Context, Result};
@@ -90,6 +91,10 @@ struct Args {
     #[arg(long)]
     plan_only: bool,
 
+    /// Generate a tree with the shape and name style of a real tree, from a profile written by scripts/profile/fs_profile.py.
+    #[arg(long)]
+    profile: Option<PathBuf>,
+
     /// Output path for the Ground Truth manifest JSON
     #[arg(long, default_value = "ground_truth.json")]
     manifest_out: PathBuf,
@@ -134,7 +139,16 @@ fn main() -> Result<()> {
         max_physical_mb: args.max_physical_mb,
     };
 
-    let plan = TopologyPlan::generate(&cfg);
+    let plan = match &args.profile {
+        Some(path) => {
+            let text = fs::read_to_string(path)
+                .with_context(|| format!("reading profile {}", path.display()))?;
+            let prof: profile::Profile =
+                serde_json::from_str(&text).context("parsing profile JSON")?;
+            profile::generate_from_profile(&cfg, &prof)
+        }
+        None => TopologyPlan::generate(&cfg),
+    };
     let topo_elapsed = t0.elapsed();
     println!(
         "[fs-mirage] Topology planned in {:.2?}: {} dirs, {} regular files, {} hardlinks, {} symlinks, apparent_size={:.2} GiB",

@@ -7,7 +7,7 @@ const GB: u64 = 1024 * 1024 * 1024;
 const MB: u64 = 1024 * 1024;
 /// Only files at least this large are really preallocated. On NTFS every preallocation takes volume-bitmap locks, which
 /// made generating 1M files ~6x slower in CI; smaller files keep their realistic logical size as sparse tails.
-const PREALLOC_MIN_BYTES: u64 = 256 * 1024;
+pub(crate) const PREALLOC_MIN_BYTES: u64 = 256 * 1024;
 /// Extra apparent-only volume of the sparse hole files relative to the preallocated media volume (500 -> 700).
 const HOLE_EXTRA_RATIO: f64 = 0.4;
 
