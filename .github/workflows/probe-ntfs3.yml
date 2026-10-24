@@ -45,7 +45,12 @@ jobs:
           uname -r
           sudo apt-get update -qq
           sudo apt-get install -y -qq ntfs-3g > /dev/null
-          sudo modprobe ntfs3 && echo "ntfs3 module loaded" || echo "ntfs3 NOT available"
+          sudo modprobe ntfs3 2>/dev/null && echo "ntfs3 module loaded" || {
+            echo "ntfs3 missing, trying linux-modules-extra for $(uname -r)"
+            sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" > /dev/null || true
+            sudo depmod -a
+            sudo modprobe ntfs3 && echo "ntfs3 module loaded (modules-extra)" || echo "ntfs3 NOT available"
+          }
           grep -i ntfs /proc/filesystems || true
           which mkntfs
 
