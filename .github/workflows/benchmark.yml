@@ -93,13 +93,6 @@ jobs:
             target_label: macos-arm64
             mount_path: /tmp/BenchVol
 
-          # Windows x86_64 (mount_path uses subfolder X:/bench so drive-root MFT auto-bypass is disabled)
-          - os: windows-latest
-            platform: windows
-            arch: x86_64
-            target_label: windows-x86_64
-            mount_path: "X:/bench"
-
           # TODO (Windows ARM64):
           # Once GitHub Actions public windows-11-arm runners support elevated VHDX loop mounting
           # and native ARM64 builds for WizTree / SpaceSniffer / WinDirStat are published, uncomment:
@@ -171,12 +164,6 @@ jobs:
             ./scripts/disk-mgr/macos_dmg.sh create "$VDISK_GB" "${{ matrix.mount_path }}"
           fi
 
-      - name: Create & Mount Dynamic NTFS VHDX at X:\ (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "${{ matrix.mount_path }}"
-
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
         run: |
@@ -223,7 +210,6 @@ jobs:
             --bin-dir "./bin"
 
       - name: Generate Normalized Report & Append to Step Summary
-        if: runner.os != 'Windows'  # Windows report is produced by windows-summary after the ReFS cross-check
         shell: bash
         run: |
           python ./scripts/report_gen.py \
@@ -313,6 +299,106 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-${{ matrix.target_label }}-${{ inputs.preset }}
+          path: results/
+          retention-days: 30
+
+  benchmark-ntfs:
+    name: "Bench (windows-x86_64 | ${{ inputs.preset }})"
+    runs-on: windows-latest
+    env:
+      LABEL: windows-x86_64
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build Core Engines (fs-mirage & hw-probe)
+        shell: bash
+        run: cargo build --release --workspace
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: Resolve Virtual Disk Capacity
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
+          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          echo "Virtual disk capacity: ${VDISK_GB} GiB"
+
+      - name: "Create & Mount Dynamic NTFS VHDX (Windows)"
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" ntfs
+
+      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
+        shell: bash
+        run: |
+          mkdir -p "results/$LABEL"
+          EXTRA_ARGS=()
+          if [ "${{ inputs.preset }}" = "custom" ]; then
+            if [ -n "${{ inputs.files }}" ]; then
+              EXTRA_ARGS+=(--files "${{ inputs.files }}")
+            fi
+            if [ -n "${{ inputs.logical_gb }}" ]; then
+              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
+            fi
+          fi
+          ./target/release/fs-mirage \
+            --root "X:/bench" \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "results/$LABEL/ground_truth.json" \
+            "${EXTRA_ARGS[@]}"
+
+      - name: Measure Hardware Ceiling Baseline on NTFS (hw-probe)
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "X:/bench"
+          ./target/release/hw-probe \
+            --root "X:/bench" \
+            --out "results/$LABEL/baseline.json"
+
+      - name: Run All Windows Scanners on NTFS
+        shell: bash
+        run: |
+          python ./scripts/wrappers/run_cli_scanners.py \
+            --path "X:/bench" \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --out "results/$LABEL/raw_results.json" \
+            --bin-dir "./bin"
+
+      - name: Teardown NTFS Virtual Disk
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+      - name: Upload NTFS Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-windows-x86_64-${{ inputs.preset }}
           path: results/
           retention-days: 30
 
@@ -412,7 +498,7 @@ jobs:
 
   windows-summary:
     name: "Windows NTFS+ReFS Summary (${{ inputs.preset }})"
-    needs: [benchmark, benchmark-refs]
+    needs: [benchmark-ntfs, benchmark-refs]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
