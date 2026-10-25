@@ -157,17 +157,19 @@ def render_details(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> str:
         m = sub["machine"]
         issue = stem.replace("issue-", "")
         link = f"[#{issue}](https://github.com/{repo}/issues/{issue})" if stem.startswith("issue-") else stem
+        cores = f"{m.get('physical_cores') or '?'} 核 / {m['logical_cores']} 线程"
         lines += [
-            f"## {link} · {m['cpu']} · {m['logical_cores']} 线程 · {m['ram_gb']} GB · {m['os']} {m['os_version']}",
+            f"## {link} · {m['cpu']} · {cores} · {m['ram_gb']} GB · {m['os_version']}",
             "",
             f"提交日期 {sub['date']}，套件版本 `{sub['suite']}`。",
             "",
         ]
         for i, v in enumerate(sub["volumes"], start=1):
             note = "" if v["cold_purged"] else "（未能清缓存：冷扫实为热扫）"
+            iops = f"{v['rand_read_iops']:,} IOPS" if v.get("rand_read_iops") else "IOPS 未测"
             lines += [
-                f"**盘 {i}**：{v['fs']} · {v['media']} · {v['bus']} · {v['disk_model']} · "
-                f"{v['used_gb']}/{v['size_gb']} GB · 约 {v['items_k']}k 项{note}",
+                f"**盘 {i}**：{v['fs']} · {v.get('kind', v['media'])} · {v.get('link', v['bus'])} · {v['disk_model']} · "
+                f"{iops} · {v['used_gb']}/{v['size_gb']} GB · 约 {v['items_k']}k 项{note}",
                 "",
                 "| 扫描器 | 版本 | 冷扫 (s) | 热扫 (s) | 峰值内存 (MB) | 报告大小 (GB) |",
                 "| :--- | :--- | ---: | ---: | ---: | ---: |",

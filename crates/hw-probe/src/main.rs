@@ -43,6 +43,11 @@ struct Args {
     #[arg(long, default_value_t = 1_000_000)]
     cpu_nodes: usize,
 
+    /// Only measure the random 4 KiB read ceiling (S_IOPS) and write it to --out; skips the traversal, sequential and
+    /// CPU probes. Used by the local suite on real drives, where a full traversal would scan the whole target.
+    #[arg(long)]
+    only_rand: bool,
+
     /// Optional: raw scanner results JSON to merge and normalize against this baseline
     #[arg(long)]
     merge_results: Option<PathBuf>,
@@ -108,6 +113,17 @@ fn main() -> Result<()> {
         std::env::consts::ARCH,
         logical_cores
     );
+
+    if args.only_rand {
+        let rand_detail =
+            io_rand::run_rand_probe(&args.root, args.rand_mb, args.rand_threads, args.rand_secs)?;
+        println!(
+            "[hw-probe] S_iops: {:.0} random 4 KiB reads/s ({} threads)",
+            rand_detail.b_rand_read_iops, rand_detail.threads
+        );
+        fs::write(&args.out, serde_json::to_string_pretty(&rand_detail)?)?;
+        return Ok(());
+    }
 
     // 1. B_meta: Native concurrent metadata traversal ceiling
     let meta_detail = io_meta::run_meta_probe(&args.root)

@@ -76,6 +76,13 @@ fn measure(path: &Path, file_mb: usize, threads: usize, seconds: f64) -> Result<
             .create(true)
             .truncate(true)
             .open(path)?;
+        // macOS: written pages would stay in the unified buffer cache and serve the "unbuffered" reads from memory
+        // (F_NOCACHE on the reader does not evict them), so the writer bypasses the cache too
+        #[cfg(target_os = "macos")]
+        unsafe {
+            use std::os::unix::io::AsRawFd;
+            libc::fcntl(f.as_raw_fd(), libc::F_NOCACHE, 1);
+        }
         for _ in 0..file_mb {
             f.write_all(chunk.as_slice())?;
         }

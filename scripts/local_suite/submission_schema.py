@@ -9,7 +9,7 @@ fields, and the validator rejects anything outside the schema, so a mistake on e
 import re
 from typing import Any, Dict, List, Set, Tuple
 
-SCHEMA = "dsb-local-1"
+SCHEMA = "dsb-local-2"
 OS_VALUES = {"windows", "linux", "macos"}
 ARCH_VALUES = {"x86_64", "aarch64"}
 FS_VALUES = {
@@ -30,14 +30,47 @@ FS_VALUES = {
 }
 MEDIA_VALUES = {"ssd", "hdd", "unknown"}
 BUS_VALUES = {"nvme", "sata", "sas", "usb", "scsi", "virtual", "other", "unknown"}
+KIND_VALUES = {
+    "nvme_ssd",
+    "sata_ssd",
+    "sata_hdd",
+    "sas_ssd",
+    "sas_hdd",
+    "usb_ssd",
+    "usb_hdd",
+    "sata",
+    "sas",
+    "usb",
+    "virtual",
+    "other",
+    "unknown",
+}
+# PCIe generation and lanes, or the SATA / SAS line rate; just the bus name when the speed cannot be read
+LINK_RE = re.compile(
+    r"^(PCIe( [1-6]\.0( x(1|2|4|8|16))?)?|SATA( (1\.5|3|6) Gb/s)?|SAS( (3|6|12|22\.5|24) Gb/s)?|USB|unknown)$"
+)
 # Hardware names: letters, digits, spaces and a little punctuation; no path separators, colons or @
 TEXT_RE = re.compile(r"^[A-Za-z0-9 ()._+,#-]{1,64}$")
 VERSION_RE = re.compile(r"^[A-Za-z0-9 ()._+,-]{1,64}$")
+OS_VERSION_RE = re.compile(r"^[A-Za-z0-9 ()._+,-]{1,96}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 TOP_KEYS = {"schema", "suite", "date", "machine", "volumes"}
-MACHINE_KEYS = {"os", "os_version", "arch", "cpu", "logical_cores", "ram_gb"}
-VOLUME_KEYS = {"fs", "media", "bus", "disk_model", "size_gb", "used_gb", "items_k", "cold_purged", "results"}
+MACHINE_KEYS = {"os", "os_version", "arch", "cpu", "physical_cores", "logical_cores", "ram_gb"}
+VOLUME_KEYS = {
+    "fs",
+    "kind",
+    "media",
+    "bus",
+    "link",
+    "disk_model",
+    "rand_read_iops",
+    "size_gb",
+    "used_gb",
+    "items_k",
+    "cold_purged",
+    "results",
+}
 RESULT_KEYS = {
     "scanner",
     "version",
@@ -85,11 +118,13 @@ def validate(sub: Any, scanner_ids: Set[str]) -> Tuple[List[str], List[str]]:
             errors.append(f"machine.os must be one of {sorted(OS_VALUES)}")
         if m.get("arch") not in ARCH_VALUES:
             errors.append(f"machine.arch must be one of {sorted(ARCH_VALUES)}")
-        for key, rx in (("os_version", VERSION_RE), ("cpu", TEXT_RE)):
+        for key, rx in (("os_version", OS_VERSION_RE), ("cpu", TEXT_RE)):
             if not isinstance(m.get(key), str) or not rx.match(m.get(key, "")):
                 errors.append(f"machine.{key}: missing or contains characters that are not allowed")
         if not _num(m.get("logical_cores"), 1, 1024):
             errors.append("machine.logical_cores out of range")
+        if m.get("physical_cores") is not None and not _num(m.get("physical_cores"), 1, 1024):
+            errors.append("machine.physical_cores out of range")
         if not _num(m.get("ram_gb"), 1, 65536):
             errors.append("machine.ram_gb out of range")
 
@@ -109,6 +144,14 @@ def validate(sub: Any, scanner_ids: Set[str]) -> Tuple[List[str], List[str]]:
             errors.append(f"{where}.media must be one of {sorted(MEDIA_VALUES)}")
         if v.get("bus") not in BUS_VALUES:
             errors.append(f"{where}.bus must be one of {sorted(BUS_VALUES)}")
+        if v.get("kind") not in KIND_VALUES:
+            errors.append(f"{where}.kind must be one of {sorted(KIND_VALUES)}")
+        if not isinstance(v.get("link"), str) or not LINK_RE.match(v.get("link", "")):
+            errors.append(
+                f"{where}.link must look like 'PCIe 4.0 x4', 'SATA 6 Gb/s', 'SAS 12 Gb/s', 'USB' or 'unknown'"
+            )
+        if v.get("rand_read_iops") is not None and not _num(v.get("rand_read_iops"), 1, 10**8):
+            errors.append(f"{where}.rand_read_iops out of range")
         if not isinstance(v.get("disk_model"), str) or not TEXT_RE.match(v.get("disk_model", "")):
             errors.append(f"{where}.disk_model: missing or contains characters that are not allowed")
         for key, hi in (("size_gb", 10**6), ("used_gb", 10**6), ("items_k", 10**7)):

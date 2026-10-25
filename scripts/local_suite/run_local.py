@@ -9,12 +9,8 @@ anonymized submission you can review and, if you want, send to the project as a 
   sudo python3 scripts/local_suite/run_local.py --target /home --target /data  # Linux / macOS
   python scripts/local_suite/run_local.py --target D:\\ --submit                 # review, then open the issue
 
-Cold scans need the OS file cache purged before every scan, which needs admin / root. Without it the suite still
-runs, but marks the volume cold_purged=false and its "cold" times are really warm times.
-
-The submission holds only numbers, scanner ids, the OS / filesystem / bus type, and the CPU and disk model names.
-No path, drive letter, volume label, host name, user name or serial number is ever read into it; see
-docs/LOCAL_SUITE.md.
+Before anything runs, the suite prints exactly what it collects and how to prepare the machine, and waits for your
+confirmation. See docs/LOCAL_SUITE.md.
 """
 
 import argparse
@@ -22,8 +18,6 @@ import ctypes
 import datetime as dt
 import json
 import os
-import platform
-import plistlib
 import re
 import shutil
 import statistics
@@ -31,25 +25,56 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "wrappers"))
 sys.path.insert(0, str(HERE))
 
+from hwinfo import clean_text, disk_info, os_detail, physical_cores  # noqa: E402
 from run_cli_scanners import detect_os_arch  # noqa: E402
-from submission_schema import FS_VALUES, SCHEMA, TEXT_RE, validate  # noqa: E402
+from submission_schema import FS_VALUES, SCHEMA, validate  # noqa: E402
 
 RUNNER = REPO / "scripts" / "wrappers" / "run_cli_scanners.py"
 REGISTRY = REPO / "scripts" / "wrappers" / "scanners_registry.json"
 MARKER = "<!-- dsb-local-submission -->"
+IOPS_TEST_MB = 1024
 
+DECLARATION = """
+================================================================
+  本地基准套件：收集的数据
+================================================================
+会收集（只有这些，提交前会再给你看一遍）：
+  · 系统：Windows 版本到 25H2 级别加内部版本号 / Linux 发行版和完整内核版本号 / macOS 版本号
+  · CPU：型号、物理核数、逻辑核数；内存总量（GB）
+  · 每块被测的盘：文件系统、硬盘类型（NVMe SSD / SATA SSD / SATA HDD / SAS ...）、
+    连接方式和速度（PCIe 代数与通道数、SATA / SAS 速率）、硬盘型号、容量与已用空间（取整）、
+    大致项数、随机 4 KiB 读 IOPS
+  · 每个扫描器的成绩：冷扫 / 热扫耗时、峰值内存、CPU 时间、读盘次数、报告的总大小和文件数
 
-def clean_text(value: str, fallback: str = "unknown") -> str:
-    """Keeps only characters a submission may contain, so a model name can never smuggle a path or address."""
-    text = re.sub(r"\s+", " ", re.sub(r"[^A-Za-z0-9 ()._+,#-]", " ", value or "")).strip()[:64]
-    return text if text and TEXT_RE.match(text) else fallback
+绝不收集：任何路径或文件名、盘符、卷标、计算机名、用户名、IP、序列号或其他硬件唯一标识、文件内容。
+
+会写入你的盘：每块盘写入并随即删除一个 1 GB 的临时测试文件（测 IOPS 用，--no-iops 可跳过）。
+扫描本身只读取目录信息，不修改任何文件。
+"""
+
+CHECKLIST = """
+================================================================
+  运行前请准备
+================================================================
+  1. 关掉一直在读写硬盘的软件：
+     · 文件索引（Everything、Windows 搜索索引、Spotlight 正在建索引时）
+     · 网盘与同步（OneDrive、Dropbox、坚果云、Syncthing……）
+     · 下载与做种（BT / PT 客户端、游戏平台的更新下载）
+     · 备份与快照（文件历史、Time Machine、Veeam……）
+     · 杀毒软件的全盘扫描（实时防护可以保留，但不要正在全盘扫描）
+     · 虚拟机、数据库、编译任务等
+  2. 笔记本请插上电源，并使用高性能电源模式。
+  3. 冷扫需要清空系统文件缓存：Windows 请用管理员终端运行，Linux / macOS 请用 sudo。
+  4. 跑分期间不要使用这台电脑做别的事；大盘可能需要几十分钟。
+  5. 每块盘要有 2 GB 以上的空闲空间（IOPS 测试用）。
+"""
 
 
 def round_gb(n_bytes: float) -> float:
@@ -58,16 +83,14 @@ def round_gb(n_bytes: float) -> float:
 
 
 def suite_version() -> str:
+    out = ""
     try:
         out = subprocess.run(
             ["git", "-C", str(REPO), "describe", "--always", "--dirty"], capture_output=True, text=True, check=False
         ).stdout.strip()
-        return clean_text(out, "unknown")
     except OSError:
-        return "unknown"
-
-
-# --- machine information (no names: only CPU model, core count, memory size, OS version) ---
+        pass
+    return clean_text(out, "unknown")
 
 
 def cpu_model(os_key: str) -> str:
@@ -86,7 +109,7 @@ def cpu_model(os_key: str) -> str:
             return clean_text(out)
     except (OSError, IndexError):
         pass
-    return clean_text(platform.processor())
+    return "unknown"
 
 
 def ram_gb(os_key: str) -> int:
@@ -111,8 +134,8 @@ def ram_gb(os_key: str) -> int:
             ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))  # type: ignore[attr-defined]
             return max(1, round(st.ullTotalPhys / 2**30))
         if os_key == "linux":
-            kb = int(re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text()).group(1))  # type: ignore
-            return max(1, round(kb / 2**20))
+            m = re.search(r"MemTotal:\s+(\d+)", Path("/proc/meminfo").read_text())
+            return max(1, round(int(m.group(1)) / 2**20)) if m else 1
         if os_key == "macos":
             out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True).stdout
             return max(1, round(int(out) / 2**30))
@@ -121,89 +144,50 @@ def ram_gb(os_key: str) -> int:
     return 1
 
 
-def os_version(os_key: str) -> str:
-    if os_key == "windows":
-        return clean_text(platform.version())
-    if os_key == "macos":
-        return clean_text(platform.mac_ver()[0])
-    return clean_text(platform.release())
+# --- random-read IOPS of a drive (hw-probe --only-rand) ---
 
 
-# --- volume information (filesystem, size, bus, disk model; never the path, letter or label) ---
+def hw_probe_binary(os_key: str) -> Optional[Path]:
+    exe = REPO / "target" / "release" / ("hw-probe.exe" if os_key == "windows" else "hw-probe")
+    if not exe.exists() and shutil.which("cargo"):
+        print("[local] 编译 hw-probe（测 IOPS 用）……")
+        subprocess.run(["cargo", "build", "--release", "-p", "hw-probe"], cwd=str(REPO), check=False)
+    return exe if exe.exists() else None
 
 
-def volume_info(os_key: str, target: str) -> Dict[str, Any]:
-    info: Dict[str, Any] = {"fs": "other", "media": "unknown", "bus": "unknown", "disk_model": "unknown"}
-    usage = shutil.disk_usage(target)
-    info["size_gb"], info["used_gb"] = round_gb(usage.total), round_gb(usage.used)
-    try:
-        if os_key == "windows":
-            # The path goes to PowerShell through an environment variable, never into the command text
-            ps = (
-                "$v = Get-Volume -FilePath $env:DSB_TARGET; "
-                "$d = $v | Get-Partition | Get-Disk; "
-                "$p = Get-PhysicalDisk | Where-Object { $_.DeviceId -eq [string]$d.Number }; "
-                "@{ fs = $v.FileSystemType; bus = [string]$d.BusType; model = $d.Model; "
-                "media = [string]$p.MediaType } | ConvertTo-Json -Compress"
-            )
-            out = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", ps],
-                capture_output=True,
-                text=True,
-                env={**os.environ, "DSB_TARGET": target},
-                check=False,
-            ).stdout
-            d = json.loads(out or "{}")
-            info["fs"] = str(d.get("fs", "")).lower()
-            info["bus"] = str(d.get("bus", "")).lower()
-            info["disk_model"] = clean_text(str(d.get("model", "")))
-            info["media"] = str(d.get("media", "")).lower()
-        elif os_key == "linux":
-            fs = subprocess.run(["findmnt", "-no", "FSTYPE,SOURCE", "--target", target], capture_output=True, text=True)
-            fstype, source = (fs.stdout.split() + ["", ""])[:2]
-            info["fs"] = fstype.lower()
-            lsblk = subprocess.run(
-                ["lsblk", "-sJno", "NAME,TYPE,MODEL,ROTA,TRAN", source], capture_output=True, text=True
-            ).stdout
-            disks: List[Dict[str, Any]] = []
-
-            def walk(nodes: List[Dict[str, Any]]) -> None:
-                for n in nodes:
-                    if n.get("type") == "disk":
-                        disks.append(n)
-                    walk(n.get("children", []) or [])
-
-            walk(json.loads(lsblk or "{}").get("blockdevices", []))
-            if disks:
-                info["disk_model"] = clean_text(str(disks[0].get("model") or ""))
-                rota = disks[0].get("rota")
-                info["media"] = "hdd" if rota in (True, "1", 1) else "ssd"
-                info["bus"] = str(disks[0].get("tran") or "unknown").lower()
-        elif os_key == "macos":
-            plist = subprocess.run(["diskutil", "info", "-plist", target], capture_output=True).stdout
-            d = plistlib.loads(plist) if plist else {}
-            info["fs"] = str(d.get("FilesystemType", "")).lower()
-            info["media"] = "ssd" if d.get("SolidState") else "hdd" if "SolidState" in d else "unknown"
-            info["bus"] = str(d.get("BusProtocol", "")).lower()
-            info["disk_model"] = clean_text(str(d.get("MediaName", "")))
-    except (OSError, ValueError, json.JSONDecodeError):
-        pass
-    fs_alias = {"hfs": "hfs+", "vfat": "fat32", "fat": "fat32", "msdos": "fat32"}
-    info["fs"] = fs_alias.get(info["fs"], info["fs"])
-    if info["fs"] not in FS_VALUES:
-        info["fs"] = "other"
-    info["media"] = info["media"] if info["media"] in ("ssd", "hdd") else "unknown"
-    bus_alias = {"spaces": "virtual", "file backed virtual": "virtual", "pci express": "nvme", "ata": "sata"}
-    info["bus"] = bus_alias.get(info["bus"], info["bus"])
-    if info["bus"] not in ("nvme", "sata", "sas", "usb", "scsi", "virtual", "other", "unknown"):
-        info["bus"] = "other"
-    return info
+def measure_iops(probe: Optional[Path], target: str) -> Optional[int]:
+    if probe is None:
+        print("[local] 没有 hw-probe（需要安装 Rust 才能编译），跳过 IOPS 测试")
+        return None
+    if shutil.disk_usage(target).free < 2 * IOPS_TEST_MB * 2**20:
+        print("[local] 空闲空间不足 2 GB，跳过这块盘的 IOPS 测试")
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "rand.json"
+        subprocess.run(
+            [
+                str(probe),
+                "--root",
+                target,
+                "--only-rand",
+                "--rand-mb",
+                str(IOPS_TEST_MB),
+                "--rand-secs",
+                "5",
+                "--out",
+                str(out),
+            ],
+            check=False,
+        )
+        if not out.exists():
+            return None
+        return int(json.loads(out.read_text(encoding="utf-8")).get("b_rand_read_iops", 0)) or None
 
 
 # --- running the scanners ---
 
 
-def run_scanners(target: str, args: argparse.Namespace, os_key: str) -> List[Dict[str, Any]]:
+def run_scanners(target: str, args: argparse.Namespace) -> List[Dict[str, Any]]:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "raw.json"
         cmd = [
@@ -255,19 +239,33 @@ def to_results(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return results
 
 
+KIND_LABEL = {
+    "nvme_ssd": "NVMe SSD",
+    "sata_ssd": "SATA SSD",
+    "sata_hdd": "SATA HDD",
+    "sas_ssd": "SAS SSD",
+    "sas_hdd": "SAS HDD",
+    "usb_ssd": "USB SSD",
+    "usb_hdd": "USB HDD",
+    "virtual": "虚拟盘",
+}
+
+
 def render_preview(sub: Dict[str, Any], warnings: List[str]) -> str:
     m = sub["machine"]
+    cores = f"{m.get('physical_cores') or '?'} 核 / {m['logical_cores']} 线程"
     lines = [
-        f"### 本地真实盘成绩 · {m['cpu']} · {m['logical_cores']} 线程 · {m['ram_gb']} GB",
+        f"### 本地真实盘成绩 · {m['cpu']} · {cores} · {m['ram_gb']} GB",
         "",
-        f"系统：{m['os']} {m['os_version']} ({m['arch']}) · 套件版本 `{sub['suite']}` · {sub['date']}",
+        f"系统：{m['os_version']}（{m['arch']}）· 套件版本 `{sub['suite']}` · {sub['date']}",
         "",
     ]
     for i, v in enumerate(sub["volumes"], start=1):
         cold_note = "" if v["cold_purged"] else "（未能清缓存：冷扫实为热扫）"
+        iops = f"{v['rand_read_iops']:,} IOPS" if v.get("rand_read_iops") else "IOPS 未测"
         lines += [
-            f"**盘 {i}**：{v['fs']} · {v['media']} · {v['bus']} · {v['disk_model']} · "
-            f"{v['used_gb']}/{v['size_gb']} GB · 约 {v['items_k']}k 项{cold_note}",
+            f"**盘 {i}**：{v['fs']} · {KIND_LABEL.get(v['kind'], v['kind'])} · {v['link']} · {v['disk_model']} · "
+            f"{iops} · {v['used_gb']}/{v['size_gb']} GB · 约 {v['items_k']}k 项{cold_note}",
             "",
             "| 扫描器 | 冷扫 (s) | 热扫 (s) | 峰值内存 (MB) | 报告大小 (GB) |",
             "| :--- | ---: | ---: | ---: | ---: |",
@@ -304,6 +302,13 @@ def submit(sub: Dict[str, Any], preview: str, repo: str, out_dir: Path) -> None:
     )
 
 
+def confirm(prompt: str) -> bool:
+    try:
+        return input(prompt).strip().lower() == "yes"
+    except EOFError:
+        return False
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
@@ -315,30 +320,51 @@ def main() -> int:
     ap.add_argument("--warm-runs", type=int, default=3)
     ap.add_argument("--timeout", type=int, default=3600, help="Seconds allowed per scan")
     ap.add_argument("--no-cold", action="store_true", help="Skip the cache purge (warm-only results)")
+    ap.add_argument("--no-iops", action="store_true", help="Skip the random-read IOPS test (writes 1 GB per drive)")
     ap.add_argument("--submit", action="store_true", help="After review, open a GitHub issue with the submission")
-    ap.add_argument("--yes", action="store_true", help="Do not ask before submitting")
+    ap.add_argument("--yes", action="store_true", help="Do not ask for confirmation (declaration and submission)")
     ap.add_argument("--repo", default="DuskXi/Disk-Scan-Benchmark")
     args = ap.parse_args()
+
+    print(DECLARATION)
+    print(CHECKLIST)
+    if not args.yes and not confirm("已阅读上面的说明并做好准备？输入 yes 开始："):
+        print("已取消，没有运行任何测试。")
+        return 0
 
     os_key, arch_key = detect_os_arch()
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run([sys.executable, str(RUNNER), "--install-only", "--bin-dir", args.bin_dir], check=False)
+    probe = None if args.no_iops else hw_probe_binary(os_key)
 
     volumes: List[Dict[str, Any]] = []
     for target in args.target:
-        print(f"\n######## 扫描第 {len(volumes) + 1} 个目标 ########")
-        raw = run_scanners(target, args, os_key)
+        print(f"\n######## 第 {len(volumes) + 1} 个目标 ########")
+        raw = run_scanners(target, args)
         results = to_results(raw)
         if not results:
             print("[local] 这个目标没有得到任何有效成绩，跳过")
             continue
-        info = volume_info(os_key, target)
+        disk = disk_info(os_key, target)
+        usage = shutil.disk_usage(target)
         counts = [r["files_k"] for r in results if r["files_k"] > 0]
-        info["items_k"] = round(statistics.median(counts)) if counts else 0
-        info["cold_purged"] = bool(raw) and all(e.get("cold_purged") for e in raw if "cold_purged" in e)
-        info["results"] = results
-        volumes.append(info)
+        volumes.append(
+            {
+                "fs": disk["fs"] if disk["fs"] in FS_VALUES else "other",
+                "kind": disk["kind"],
+                "media": disk["media"],
+                "bus": disk["bus"] if disk["bus"] in ("nvme", "sata", "sas", "usb", "scsi", "virtual") else "other",
+                "link": disk["link"],
+                "disk_model": disk["disk_model"],
+                "rand_read_iops": None if args.no_iops else measure_iops(probe, target),
+                "size_gb": round_gb(usage.total),
+                "used_gb": round_gb(usage.used),
+                "items_k": round(statistics.median(counts)) if counts else 0,
+                "cold_purged": bool(raw) and all(e.get("cold_purged") for e in raw if "cold_purged" in e),
+                "results": results,
+            }
+        )
     if not volumes:
         print("[local] 没有任何有效成绩")
         return 1
@@ -349,9 +375,10 @@ def main() -> int:
         "date": dt.date.today().isoformat(),
         "machine": {
             "os": os_key,
-            "os_version": os_version(os_key),
+            "os_version": os_detail(os_key),
             "arch": arch_key,
             "cpu": cpu_model(os_key),
+            "physical_cores": physical_cores(os_key),
             "logical_cores": os.cpu_count() or 1,
             "ram_gb": ram_gb(os_key),
         },
@@ -368,11 +395,9 @@ def main() -> int:
         print("\n这份数据没有通过校验，不能提交：\n  " + "\n  ".join(errors))
         return 1
     if args.submit:
-        if not args.yes:
-            answer = input("\n确认把上面的数据公开提交到 GitHub Issue？输入 yes 继续：").strip().lower()
-            if answer != "yes":
-                print("已取消，没有提交任何内容。")
-                return 0
+        if not args.yes and not confirm("\n确认把上面的数据公开提交到 GitHub Issue？输入 yes 继续："):
+            print("已取消，没有提交任何内容。")
+            return 0
         submit(sub, preview, args.repo, out_dir)
     return 0
 
