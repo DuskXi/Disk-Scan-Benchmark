@@ -192,6 +192,25 @@
         "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:40136435405:SpaceKnife-portable-linux-x64",
         "windows_x86_64": "gh-artifact:DuskXi/SpaceKnife:40136435405:SpaceKnife-portable-win-x64"
       }
+    },
+    {
+      "id": "squirreldisk",
+      "name": "squirreldisk",
+      "version": "2.6.1",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos", "windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "scan", "{path}", "--json", "--fresh", "--depth", "1", "--top", "5"],
+      "output_parser": "squirreldisk_json",
+      "runtime_packages": {"linux": ["libasound2t64", "libasound2"]},
+      "install": {
+        "linux_x86_64": "https://github.com/adileo/squirreldisk/releases/download/v2.6.1/squirreldisk-x86_64-unknown-linux-gnu",
+        "macos_x86_64": "https://github.com/adileo/squirreldisk/releases/download/v2.6.1/squirreldisk-x86_64-apple-darwin",
+        "macos_aarch64": "https://github.com/adileo/squirreldisk/releases/download/v2.6.1/squirreldisk-aarch64-apple-darwin",
+        "windows_x86_64": "https://github.com/adileo/squirreldisk/releases/download/v2.6.1/squirreldisk-x86_64-pc-windows-msvc.exe"
+      }
     }
   ]
 }

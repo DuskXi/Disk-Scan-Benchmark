@@ -128,6 +128,26 @@ def parse_spaceknife_scan_ms(text: str) -> Optional[float]:
     return value if unit in ("ms", "毫秒") or unit.startswith("milli") else value * 1000.0
 
 
+def parse_squirreldisk_json(text: str) -> Tuple[int, int, Dict[str, Dict[str, Any]]]:
+    """
+    Parses `squirreldisk scan <path> --json`: the root node's `size` (bytes on disk; on Windows the logical size
+    rounded up to 4 KiB clusters, files <= 700 B counted as resident) and `files`, plus its children as zone samples.
+    """
+    start = text.find("{")
+    if start < 0:
+        return 0, 0, {}
+    try:
+        root = json.loads(text[start:])
+    except json.JSONDecodeError:
+        return 0, 0, {}
+    zones: Dict[str, Dict[str, Any]] = {}
+    for child in root.get("children") or []:
+        name = str(child.get("name", "")).rstrip("/\\")
+        if child.get("kind") in ("dir", "mount") and name:
+            zones[name] = {"allocated_bytes": int(child.get("size", 0)), "files": int(child.get("files", 0))}
+    return int(root.get("size", 0)), int(root.get("files", 0)), zones
+
+
 def spaceknife_mft_fallback(text: str) -> Optional[str]:
     """
     For `scan --mft`: None when SpaceKnife read the volume's $MFT ("Method MFT quick scan" / "方式 MFT 快速扫描"),
@@ -570,6 +590,17 @@ def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge
         )
 
 
+def install_runtime_packages(scanner: Dict[str, Any], os_key: str) -> None:
+    """
+    Shared libraries a prebuilt binary links against but a CI image may lack ("runtime_packages": {"linux": [...]}).
+    Each name is tried on its own: Ubuntu 24.04 renamed some (libasound2 -> libasound2t64).
+    """
+    if os_key != "linux":
+        return
+    for pkg in scanner.get("runtime_packages", {}).get(os_key, []):
+        subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", pkg], check=False)
+
+
 def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, bin_dir: Path) -> Optional[str]:
     """
     Resolves an existing binary or downloads the pinned version from scanners_registry.json into bin_dir.
@@ -698,6 +729,15 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
                 subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "ncdu"], check=False)
                 return shutil.which("ncdu")
             raise
+
+        if not archive_name.endswith((".tar.gz", ".tgz", ".zip")):
+            # A release asset that is the executable itself (e.g. squirreldisk-x86_64-unknown-linux-gnu)
+            raw_target = bin_dir / (scanner["name"] + exe_suffix if os_key == "windows" else scanner_id)
+            shutil.copy2(archive_path, raw_target)
+            if os_key != "windows":
+                raw_target.chmod(raw_target.stat().st_mode | stat.S_IEXEC)
+            install_runtime_packages(scanner, os_key)
+            return str(raw_target)
 
         extract_dir = (
             (bin_dir / f"{scanner_id}_portable") if scanner_id in ("treesize", "wiztree") else (tmp_dir / "extracted")
@@ -1129,6 +1169,12 @@ def main() -> int:
                     scanned_f = csv_files
             elif parser_kind == "ncdu_null":
                 scanned_b = fallback_b
+            elif parser_kind == "squirreldisk_json":
+                scanned_b, sq_files, sampled_zones = parse_squirreldisk_json(stdout_text)
+                if scanned_b == 0:
+                    scanned_b = fallback_b
+                if sq_files > 0:
+                    scanned_f = sq_files
             elif parser_kind == "spaceknife_cli":
                 scanned_b, sk_files = parse_spaceknife_output(stdout_text, effective_metric, os_key)
                 sk_scan_ms = parse_spaceknife_scan_ms(stdout_text)
