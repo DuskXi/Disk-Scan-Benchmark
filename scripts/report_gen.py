@@ -10,7 +10,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def format_bytes_gib(num_bytes: float) -> str:
@@ -21,6 +21,45 @@ def format_bytes_gib(num_bytes: float) -> str:
         return f"{gib:.2f} GiB"
     mib = num_bytes / (1024.0**2)
     return f"{mib:.2f} MiB"
+
+
+BALANCE_WEIGHT = 0.5  # w: weight of wall time against resource time in the balanced index
+
+
+def balanced_index(
+    wall_s: float, cpu_s: Optional[float], reads: Optional[float], cores: int, iops: float, items: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Balanced resource index of one scan:
+      T_cpu = C / P          CPU time of the scanner's process tree spread over all logical CPUs (s)
+      T_io  = Q / S_IOPS     device reads it caused, at the disk's random-read ceiling (s)
+      M     = T_cpu + T_io   machine-seconds of resources it used
+      eta   = max(T_cpu, T_io) / T_wall   how close it kept the busier resource to saturation
+      B     = T_wall^w * M^(1-w)          balanced time (s); Score = items / B (items/s, higher is better)
+    """
+    if cpu_s is None or wall_s <= 0 or cores <= 0:
+        return None
+    io_counted = iops > 0 and reads is not None
+    t_cpu = cpu_s / cores
+    t_io = float(reads or 0) / iops if io_counted else 0.0
+    m = t_cpu + t_io
+    if m <= 0:
+        return None
+    b = wall_s**BALANCE_WEIGHT * m ** (1.0 - BALANCE_WEIGHT)
+    return {
+        "t_cpu_s": round(t_cpu, 4),
+        "t_io_s": round(t_io, 4),
+        "resource_s": round(m, 4),
+        "eta": round(max(t_cpu, t_io) / wall_s, 3),
+        "balanced_s": round(b, 4),
+        "score": round(items / b, 1),
+        "io_counted": io_counted,
+    }
+
+
+def _mean(values: List[Any]) -> Optional[float]:
+    known = [float(v) for v in values if v is not None]
+    return sum(known) / len(known) if known else None
 
 
 def generate_report(
@@ -36,6 +75,7 @@ def generate_report(
     os_name = baseline.get("os", "unknown")
     arch_name = baseline.get("arch", "unknown")
     cores = baseline.get("logical_cores", 1)
+    rand_iops = float(baseline.get("b_rand_read_iops", 0.0) or 0.0)
 
     preset_name = gt.get("preset", "custom")
     total_files = int(gt.get("total_files", 0))
@@ -78,8 +118,25 @@ def generate_report(
         effective_pc_fps = max(1.0, (eta_io_pct / 100.0) * ref_pc_b_meta)
         projected_pc_1m_sec = 1_000_000.0 / effective_pc_fps
 
+        cpu_runs = entry.get("cpu_seconds_runs") or []
+        read_runs = entry.get("device_reads_runs") or []
+        items = total_files + total_dirs
+        balanced_cold = balanced_index(
+            cold_ms / 1000.0,
+            cpu_runs[0] if cpu_runs else None,
+            read_runs[0] if read_runs else None,
+            int(cores),
+            rand_iops,
+            items,
+        )
+        balanced_warm = balanced_index(
+            warm_ms / 1000.0, _mean(cpu_runs[1:]), _mean(read_runs[1:]), int(cores), rand_iops, items
+        )
+
         row = {
             **entry,
+            "balanced_cold": balanced_cold,
+            "balanced_warm": balanced_warm,
             "cold_files_per_sec": round(cold_speed_fps, 1),
             "warm_files_per_sec": round(scanned_files / max(warm_ms / 1000.0, 1e-6), 1),
             "eta_io_percent": round(eta_io_pct, 2),
@@ -106,6 +163,12 @@ def generate_report(
         f"| **$B_{{\\text{{meta}}}}$ (Metadata Ceiling)** | `{b_meta:,.0f} files/sec` | Native OS concurrent traversal ceiling (`getdents64` / `FindFirstFileExW`) |",
         f"| **$B_{{\\text{{seq}}}}$ (Sequential Read)** | `{b_seq:,.2f} MB/s` | Unbuffered sequential disk throughput ceiling |",
         f"| **$B_{{\\text{{cpu}}}}$ (Memory Tree Sort)** | `{b_cpu:,.2f} ms` | Pure-memory 1,000,000-node tree aggregation & descending sort baseline |",
+        (
+            f"| **$S_{{\\text{{IOPS}}}}$ (Random 4 KiB Read)** | `{rand_iops:,.0f} reads/s` | Unbuffered random reads, "
+            f"`{baseline.get('rand_detail', {}).get('threads', '-')}` in flight: the I/O ceiling of the balanced index |"
+            if rand_iops > 0
+            else "| **$S_{\\text{IOPS}}$ (Random 4 KiB Read)** | `-` | not measured by this hw-probe build |"
+        ),
         "",
         "## 2. Synthetic Filesystem Ground Truth (`fs-mirage`)",
         "",
@@ -167,6 +230,40 @@ def generate_report(
             f"| `{r['peak_rss_mb']:.1f}` "
             f"| `{r['accuracy_diff_pct']:+.2f}%` "
             f"| `{r['projected_nvme_1m_sec']:.2f}s` |"
+        )
+
+    lines.extend(
+        [
+            "",
+            f"### 3b. Balanced Resource Index (均衡性能指数, w = {BALANCE_WEIGHT})",
+            "",
+            "$T_{\\text{cpu}} = C/P$（进程树的 CPU 时间摊到全部逻辑核）；$T_{\\text{io}} = Q/S_{\\text{IOPS}}$（设备读次数按随机读上限折算）；"
+            "$M = T_{\\text{cpu}} + T_{\\text{io}}$（占用的机器秒）；$\\eta = \\max(T_{\\text{cpu}}, T_{\\text{io}})/T_{\\text{wall}}$（瓶颈资源利用率）；"
+            "$B = T_{\\text{wall}}^{w} \\cdot M^{1-w}$，Score $= N_{\\text{items}}/B$（项/秒，越高越好）。",
+            "",
+            "| Rank | Scanner | Cold Wall (s) | Cold CPU (core·s) | Cold Reads | Cold $M$ (s) | Cold $\\eta$ | **Cold Score** "
+            "| Warm Wall (s) | Warm CPU (core·s) | Warm $M$ (s) | Warm $\\eta$ | **Warm Score** |",
+            "| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
+
+    def _cell(v: Any, fmt: str) -> str:
+        return f"`{v:{fmt}}`" if v is not None else "`-`"
+
+    def _cold_score(r: Dict[str, Any]) -> float:
+        bc = r.get("balanced_cold")
+        return float(bc["score"]) if bc else -1.0
+
+    for idx, r in enumerate(sorted(ranked_rows, key=_cold_score, reverse=True), start=1):
+        bc, bw = r.get("balanced_cold") or {}, r.get("balanced_warm") or {}
+        cpu_runs = r.get("cpu_seconds_runs") or []
+        read_runs = r.get("device_reads_runs") or []
+        lines.append(
+            f"| {idx} | **{r['scanner']}** | {_cell(r['cold_time_ms'] / 1000.0, ',.2f')} "
+            f"| {_cell(cpu_runs[0] if cpu_runs else None, ',.2f')} | {_cell(read_runs[0] if read_runs else None, ',')} "
+            f"| {_cell(bc.get('resource_s'), ',.2f')} | {_cell(bc.get('eta'), '.2f')} | **{_cell(bc.get('score'), ',.0f')}** "
+            f"| {_cell(r['warm_time_ms'] / 1000.0, ',.2f')} | {_cell(_mean(cpu_runs[1:]), ',.2f')} "
+            f"| {_cell(bw.get('resource_s'), ',.2f')} | {_cell(bw.get('eta'), '.2f')} | **{_cell(bw.get('score'), ',.0f')}** |"
         )
 
     lines.extend(

@@ -483,12 +483,131 @@ def query_windows_peak_rss_mb(process_handle: int) -> float:
     return 0.0
 
 
-def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tuple[float, float, str]:
+def children_cpu_seconds() -> float:
+    """User + system CPU seconds of all waited-for child processes so far (Unix; 0 on Windows)."""
+    try:
+        import resource
+
+        r = resource.getrusage(resource.RUSAGE_CHILDREN)  # type: ignore[attr-defined]
+        return float(r.ru_utime + r.ru_stime)
+    except Exception:
+        return 0.0
+
+
+class WindowsJob:
     """
-    Executes a CLI command and returns (elapsed_ms, peak_rss_mb, stdout_text).
+    A job object the scanner process is put in right after it starts, so the CPU time of everything it spawns
+    afterwards (helpers, worker processes) is counted too.
+    """
+
+    class _Accounting(ctypes.Structure):
+        _fields_ = [
+            ("TotalUserTime", ctypes.c_int64),
+            ("TotalKernelTime", ctypes.c_int64),
+            ("ThisPeriodTotalUserTime", ctypes.c_int64),
+            ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+            ("TotalPageFaultCount", ctypes.c_uint32),
+            ("TotalProcesses", ctypes.c_uint32),
+            ("ActiveProcesses", ctypes.c_uint32),
+            ("TotalTerminatedProcesses", ctypes.c_uint32),
+        ]
+
+    def __init__(self, process_handle: int) -> None:
+        self.k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        self.k32.CreateJobObjectW.restype = ctypes.c_void_p
+        self.k32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self.k32.QueryInformationJobObject.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+        ]
+        self.k32.CloseHandle.argtypes = [ctypes.c_void_p]
+        self.job = self.k32.CreateJobObjectW(None, None)
+        self.ok = bool(self.job) and bool(self.k32.AssignProcessToJobObject(self.job, process_handle))
+
+    def cpu_seconds(self) -> Optional[float]:
+        if not self.ok:
+            return None
+        info = self._Accounting()
+        if not self.k32.QueryInformationJobObject(self.job, 1, ctypes.byref(info), ctypes.sizeof(info), None):
+            return None
+        return (info.TotalUserTime + info.TotalKernelTime) / 1e7
+
+    def close(self) -> None:
+        if self.job:
+            self.k32.CloseHandle(self.job)
+            self.job = None
+
+
+def device_read_count(path: str, os_key: str) -> Optional[int]:
+    """
+    Cumulative read requests completed by the device holding `path`, for the I/O term of the balanced index.
+    Windows: the volume's IOCTL_DISK_PERFORMANCE counters; Linux: /sys/dev/block/<major>:<minor>/stat (the loop
+    device of the benchmark image); macOS: the sum of "Operations (Read)" of all block storage drivers.
+    """
+    try:
+        if os_key == "windows":
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+            k32.CreateFileW.restype = ctypes.c_void_p
+            k32.CreateFileW.argtypes = [
+                ctypes.c_wchar_p,
+                ctypes.c_uint32,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+                ctypes.c_uint32,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+            ]
+            k32.DeviceIoControl.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+                ctypes.c_uint32,
+                ctypes.POINTER(ctypes.c_uint32),
+                ctypes.c_void_p,
+            ]
+            k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            drive = Path(path).resolve().drive  # "X:"
+            handle = k32.CreateFileW(f"\\\\.\\{drive}", 0, 3, None, 3, 0, None)
+            if not handle or handle == ctypes.c_void_p(-1).value:
+                return None
+            try:
+                buf = ctypes.create_string_buffer(128)
+                returned = ctypes.c_uint32(0)
+                # IOCTL_DISK_PERFORMANCE -> DISK_PERFORMANCE: five LARGE_INTEGERs, then DWORD ReadCount
+                if not k32.DeviceIoControl(handle, 0x70020, None, 0, buf, 128, ctypes.byref(returned), None):
+                    return None
+                return int.from_bytes(buf.raw[40:44], "little")
+            finally:
+                k32.CloseHandle(handle)
+        if os_key == "linux":
+            st_dev = os.stat(path).st_dev
+            major, minor = getattr(os, "major"), getattr(os, "minor")  # Unix only
+            stat_path = Path(f"/sys/dev/block/{major(st_dev)}:{minor(st_dev)}/stat")
+            return int(stat_path.read_text().split()[0])
+        if os_key == "macos":
+            out = subprocess.run(
+                ["ioreg", "-c", "IOBlockStorageDriver", "-r", "-w", "0"], capture_output=True, text=True
+            ).stdout
+            counts = [int(m) for m in re.findall(r'"Operations \(Read\)"=(\d+)', out)]
+            return sum(counts) if counts else None
+    except Exception:
+        return None
+    return None
+
+
+def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tuple[float, float, str, Optional[float]]:
+    """
+    Executes a CLI command and returns (elapsed_ms, peak_rss_mb, stdout_text, cpu_seconds).
+    cpu_seconds is the user + kernel CPU time of the process and everything it started (None if unknown).
     Drains stdout concurrently on a background thread so OS pipe buffers (e.g. 64KB on macOS)
     can never fill up and deadlock while polling process memory.
     """
+    cpu0 = children_cpu_seconds()
     t0 = time.perf_counter()
     child_env = os.environ.copy()
     child_env["SPACEKNIFE_LANGUAGE"] = "en"
@@ -501,6 +620,12 @@ def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tu
         errors="replace",
         env=child_env,
     )
+    job: Optional[WindowsJob] = None
+    if os_key == "windows":
+        try:
+            job = WindowsJob(int(proc._handle))  # type: ignore[attr-defined]
+        except Exception:
+            job = None
 
     peak_rss_mb = 0.0
     if os_key == "windows" or os_key == "macos":
@@ -569,7 +694,13 @@ def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tu
             except Exception:
                 pass
 
-    return round(elapsed_ms, 2), round(peak_rss_mb, 2), stdout_text
+    cpu_seconds: Optional[float]
+    if job is not None:
+        cpu_seconds = job.cpu_seconds()
+        job.close()
+    else:
+        cpu_seconds = children_cpu_seconds() - cpu0 if os_key != "windows" else None
+    return round(elapsed_ms, 2), round(peak_rss_mb, 2), stdout_text, cpu_seconds
 
 
 def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge: bool) -> None:
@@ -1112,7 +1243,15 @@ def main() -> int:
         def execute_once() -> Tuple[float, float, int, int, Dict[str, Dict[str, Any]]]:
             if export_file.exists():
                 export_file.unlink()
+            # device reads issued during this run (outside the timed window), for the balanced resource index
+            reads0 = device_read_count(scan_path, os_key)
+            try:
+                return execute_scan()
+            finally:
+                reads1 = device_read_count(scan_path, os_key)
+                run_reads.append(reads1 - reads0 if reads0 is not None and reads1 is not None else None)
 
+        def execute_scan() -> Tuple[float, float, int, int, Dict[str, Dict[str, Any]]]:
             if scanner["runner_type"] == "win_gui":
                 cmd_tokens = build_cmd()
                 gui_exe = cmd_tokens[0]
@@ -1142,6 +1281,7 @@ def main() -> int:
                 payload = json.loads(lines[-1]) if lines else {}
                 elapsed = float(payload.get("elapsed_ms", 0.0))
                 rss = float(payload.get("peak_rss_mb", 0.0))
+                run_cpu.append(float(payload["cpu_ms"]) / 1000.0 if payload.get("cpu_ms") is not None else None)
                 # MFT scans read raw volume data instead of enumerating directories, so count read ops there
                 ops_key = "read_ops_total" if args.mft_mode else "other_ops_total"
                 gui_io_samples.append(
@@ -1155,7 +1295,8 @@ def main() -> int:
             cmd_tokens = build_cmd()
             # Large presets (millions of files) need far more than the 15 minute default per scan run
             cli_timeout = max(900, int(gt_data.get("total_files", 0)) // 1000)
-            elapsed, rss, stdout_text = run_monitored_cli(cmd_tokens, os_key, cli_timeout)
+            elapsed, rss, stdout_text, cpu_s = run_monitored_cli(cmd_tokens, os_key, cli_timeout)
+            run_cpu.append(cpu_s)
             parser_kind = scanner.get("output_parser", "human_last_line")
             effective_metric = (
                 "apparent"
@@ -1222,6 +1363,8 @@ def main() -> int:
         gui_io_samples: List[Tuple[int, bool]] = []
         tool_scan_ms_samples: List[float] = []
         sk_mft_fallbacks: List[Optional[str]] = []
+        run_cpu: List[Optional[float]] = []  # per run, cold first: CPU seconds of the scanner's process tree
+        run_reads: List[Optional[int]] = []  # per run, cold first: read requests completed by the device
         configure_windows_gui_scanner(scanner_id, os_key, bin_path, args.mft_mode)
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
@@ -1329,6 +1472,8 @@ def main() -> int:
                 "reference_bytes": ref_bytes,
                 "accuracy_diff_pct": accuracy_diff_pct,
                 "mode": "mft" if args.mft_mode else "api",
+                "cpu_seconds_runs": [None if c is None else round(c, 3) for c in run_cpu],
+                "device_reads_runs": run_reads,
                 "valid": valid,
                 "invalid_reason": invalid_reason,
                 "structure_samples": accumulated_zones,

@@ -275,6 +275,8 @@ $ResultObj = [ordered]@{
     raw_elapsed_ms = [Math]::Round($TotalRawMs, 2)
     settle_deducted_ms = if ($QuietDurationMs -ge $SettleWindowMs) { $SettleWindowMs } else { 0 }
     peak_rss_mb = $PeakRssMb
+    # CPU time (user + kernel) the GUI process used up to its last sample, for the balanced resource index
+    cpu_ms = [Math]::Round($PrevCpuMs, 1)
     completed = $CompletedCleanly
 }
 

@@ -1,5 +1,6 @@
 mod cpu_tree;
 mod io_meta;
+mod io_rand;
 mod io_seq;
 
 use anyhow::{Context, Result};
@@ -26,6 +27,18 @@ struct Args {
     #[arg(long, default_value_t = 512)]
     seq_mb: usize,
 
+    /// Random 4 KiB read probe: test file size in MiB (default: 1024 MiB)
+    #[arg(long, default_value_t = 1024)]
+    rand_mb: usize,
+
+    /// Random read probe: reader threads, i.e. reads kept in flight (default: 32)
+    #[arg(long, default_value_t = 32)]
+    rand_threads: usize,
+
+    /// Random read probe: duration in seconds (default: 3)
+    #[arg(long, default_value_t = 3.0)]
+    rand_secs: f64,
+
     /// Number of virtual nodes for pure-memory CPU tree benchmark (default: 1,000,000)
     #[arg(long, default_value_t = 1_000_000)]
     cpu_nodes: usize,
@@ -47,8 +60,11 @@ pub struct HardwareBaseline {
     pub b_meta_files_per_sec: f64,
     pub b_seq_mb_per_sec: f64,
     pub b_cpu_ms: f64,
+    /// Random 4 KiB read requests per second with `rand_detail.threads` in flight (S_IOPS of the balanced index)
+    pub b_rand_read_iops: f64,
     pub meta_detail: io_meta::MetaProbeResult,
     pub seq_detail: io_seq::SeqProbeResult,
+    pub rand_detail: io_rand::RandProbeResult,
     pub cpu_detail: cpu_tree::CpuProbeResult,
 }
 
@@ -112,6 +128,20 @@ fn main() -> Result<()> {
         seq_detail.b_seq_mb_per_sec, seq_detail.test_size_mb, seq_detail.elapsed_ms
     );
 
+    // 2b. S_IOPS: Random 4 KiB read ceiling with many reads in flight
+    let rand_detail =
+        io_rand::run_rand_probe(&args.root, args.rand_mb, args.rand_threads, args.rand_secs)
+            .with_context(|| {
+                format!("Failed to run random read probe on {}", args.root.display())
+            })?;
+    println!(
+        "[hw-probe] S_iops: {:.0} random 4 KiB reads/s ({} threads, {} reads in {:.0} ms)",
+        rand_detail.b_rand_read_iops,
+        rand_detail.threads,
+        rand_detail.reads,
+        rand_detail.elapsed_ms
+    );
+
     // 3. B_cpu: Pure-memory tree construction & descending sort baseline
     let cpu_detail = cpu_tree::run_cpu_tree_probe(args.cpu_nodes);
     println!(
@@ -126,8 +156,10 @@ fn main() -> Result<()> {
         b_meta_files_per_sec: meta_detail.b_meta_files_per_sec,
         b_seq_mb_per_sec: seq_detail.b_seq_mb_per_sec,
         b_cpu_ms: cpu_detail.b_cpu_ms,
+        b_rand_read_iops: rand_detail.b_rand_read_iops,
         meta_detail,
         seq_detail,
+        rand_detail,
         cpu_detail,
     };
 
