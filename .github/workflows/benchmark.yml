@@ -8,7 +8,8 @@ run-name: >-
   inputs.preset == 'mid' && '3M files / 1TB' ||
   inputs.preset == 'high' && '5M files / 2TB' ||
   inputs.preset == 'very-high' && '9M files / 3TB' ||
-  format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }}
+  format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }}${{
+  inputs.defender_scan && ' · Defender on' || '' }}
 
 on:
   # Triggered exclusively via manual workflow_dispatch (no schedule / cron)
@@ -66,6 +67,11 @@ on:
         description: "Generate the Windows volumes on the aged timeline (FSM_AGING=1: years-of-use creation order)"
         required: false
         default: true
+        type: boolean
+      defender_scan:
+        description: "Windows: turn Defender real-time protection back on for the scans (bench volume not excluded)"
+        required: false
+        default: false
         type: boolean
 
 permissions:
@@ -399,6 +405,11 @@ jobs:
             --root "X:/bench" \
             --out "results/$LABEL/baseline.json"
 
+      - name: Defender On For Scans
+        if: ${{ inputs.defender_scan }}
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 defender-on "X:/bench"
+
       - name: Run All Windows Scanners on NTFS
         shell: bash
         run: |
@@ -523,6 +534,11 @@ jobs:
             --root "X:/bench" \
             --out "results/$LABEL/baseline.json"
 
+      - name: Defender On For Scans
+        if: ${{ inputs.defender_scan }}
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 defender-on "X:/bench"
+
       - name: Run All Windows Scanners on NTFS
         shell: bash
         run: |
@@ -556,7 +572,7 @@ jobs:
               --raw-results "results/$LABEL/raw_results.json" \
               --out "results/$LABEL/benchmark_report.md" \
               --json-out "results/$LABEL/normalized_results.json" \
-              --title-suffix "(windows-arm64 NTFS | ${{ inputs.preset }})"
+              --title-suffix "(windows-arm64 NTFS | ${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }})"
             cat "results/$LABEL/benchmark_report.md"
           fi
 
@@ -657,6 +673,11 @@ jobs:
             --root "X:/bench" \
             --out "results/$LABEL/baseline.json"
 
+      - name: Defender On For Scans
+        if: ${{ inputs.defender_scan }}
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 defender-on "X:/bench"
+
       - name: Run All Windows Scanners on ReFS
         shell: bash
         run: |
@@ -725,7 +746,7 @@ jobs:
             --raw-results "$N/raw_results.json" \
             --out "$N/benchmark_report.md" \
             --json-out "$N/normalized_results.json" \
-            --title-suffix "(windows-x86_64 | ${{ inputs.preset }})" \
+            --title-suffix "(windows-x86_64 | ${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }})" \
             --cross-fs-checked
 
           if [ -f "$R/raw_results.json" ]; then
@@ -735,7 +756,7 @@ jobs:
               --raw-results "$R/raw_results.json" \
               --out "$R/benchmark_report.md" \
               --json-out "$R/normalized_results.json" \
-              --title-suffix "(windows-x86_64 ReFS | ${{ inputs.preset }})" \
+              --title-suffix "(windows-x86_64 ReFS | ${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }})" \
               --cross-fs-checked
           fi
 
@@ -783,7 +804,7 @@ jobs:
           mkdir -p leaderboard
           python ./scripts/leaderboard.py \
             --artifacts artifacts \
-            --preset "${{ inputs.preset }}" \
+            --preset "${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }}" \
             --sha "${{ github.sha }}" \
             --out leaderboard/leaderboard.md \
             --json-out leaderboard/leaderboard.json \

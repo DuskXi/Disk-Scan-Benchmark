@@ -1063,51 +1063,57 @@ def configure_windows_gui_scanner(scanner_id: str, os_key: str, bin_path: str = 
 
 def prewarm_scanner_binary(scanner: Dict[str, Any], bin_path: str, os_key: str) -> None:
     """
-    Performs a lightweight dry-launch of the scanner binary BEFORE invoke_purge_cache and the Cold Cache run.
-    Eliminates first-launch OS interference (Windows Defender / SmartScreen binary verification, PyInstaller
-    runtime extraction/page-in, DLL loading) without touching the benchmark volume.
+    Launches the scanner once, untimed, BEFORE invoke_purge_cache and the Cold Cache run, so the timed cold run is the
+    process's second start. The first start pays for things a desktop user pays once: the antivirus scan of the
+    executable and its DLLs, SmartScreen, runtime extraction and page-in. The prewarm runs the real scan command on a
+    tiny directory, so the same code paths and libraries load, without touching the benchmark volume.
     """
-    scanner_id = scanner["id"]
-    try:
-        if scanner_id in ("windirstat", "wiztree"):
-            with tempfile.TemporaryDirectory() as dummy_dir:
-                (Path(dummy_dir) / "warmup.txt").write_bytes(b"warmup")
-                dummy_csv = Path(dummy_dir) / "warmup.csv"
-                if scanner_id == "wiztree":
-                    cmd = [bin_path, dummy_dir, f"/export={dummy_csv}", "/exportfiles=0", "/admin=0"]
-                else:
-                    cmd = [bin_path, "/SaveTo", str(dummy_csv), dummy_dir]
-                subprocess.run(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=20,
-                    check=False,
-                )
-        elif scanner["runner_type"] == "cli":
-            flag = "version" if scanner_id == "spaceknife" else "--version"
-            subprocess.run(
-                [bin_path, flag],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=20,
-                check=False,
-            )
-        else:
-            with tempfile.TemporaryDirectory() as dummy_dir:
-                (Path(dummy_dir) / "warmup.txt").write_bytes(b"warmup")
-                cmd = [
-                    tok.replace("{bin}", bin_path).replace("{path}", dummy_dir) for tok in scanner["command_template"]
-                ]
+    with tempfile.TemporaryDirectory() as dummy_dir:
+        (Path(dummy_dir) / "warmup.txt").write_bytes(b"warmup")
+        export_file = str(Path(dummy_dir) / "warmup.csv")
+        cmd = [
+            tok.replace("{bin}", bin_path).replace("{path}", dummy_dir).replace("{export_file}", export_file)
+            for tok in scanner["command_template"]
+        ]
+        try:
+            if scanner["runner_type"] == "cli":
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60, check=False)
+            else:
+                # GUI scanners never exit on their own; the image scan happens while the process is created
                 p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(0.8)
+                time.sleep(2.0)
                 p.terminate()
                 try:
-                    p.wait(timeout=3)
+                    p.wait(timeout=5)
                 except Exception:
                     p.kill()
+        except Exception as exc:
+            print(f"[runner] prewarm of {scanner['name']} failed: {exc}", file=sys.stderr)
+
+
+def windows_defender_state(scan_path: str) -> Optional[Dict[str, Any]]:
+    """Defender real-time protection state during the scans, and whether the benchmark path is excluded from it."""
+    script = (
+        "$s = Get-MpComputerStatus; $p = Get-MpPreference; "
+        "@{ realtime = [bool]$s.RealTimeProtectionEnabled; tamper = [bool]$s.IsTamperProtected; "
+        "exclusions = @($p.ExclusionPath) } | ConvertTo-Json -Compress"
+    )
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script], capture_output=True, text=True, timeout=60, check=False
+        ).stdout
+        data = json.loads(out)
     except Exception:
-        pass
+        return None
+    target = os.path.normcase(os.path.abspath(scan_path))
+    excluded = False
+    for raw in data.get("exclusions") or []:
+        if not raw:
+            continue
+        excl = os.path.normcase(os.path.abspath(str(raw)))
+        if target == excl or target.startswith(excl.rstrip("\\/") + os.sep):
+            excluded = True
+    return {"realtime": bool(data.get("realtime")), "tamper": bool(data.get("tamper")), "bench_excluded": excluded}
 
 
 def main() -> int:
@@ -1506,6 +1512,11 @@ def main() -> int:
             }
         )
 
+    if os_key == "windows" and results:
+        defender = windows_defender_state(scan_path)
+        print(f"[runner] Windows Defender during the scans: {defender}")
+        for entry in results:
+            entry["defender"] = defender
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:

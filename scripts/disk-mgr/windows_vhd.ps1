@@ -6,10 +6,11 @@
       .\windows_vhd.ps1 create <size_gb> <mount_path> [ntfs|refs]
       .\windows_vhd.ps1 purge-cache <mount_path>
       .\windows_vhd.ps1 teardown <mount_path>
+      .\windows_vhd.ps1 defender-on <mount_path>
 #>
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("create", "purge-cache", "teardown")]
+    [ValidateSet("create", "purge-cache", "teardown", "defender-on")]
     [string]$Action,
 
     [Parameter(Position=1)]
@@ -234,6 +235,30 @@ attach vdisk
         }
         Start-Sleep -Milliseconds 1000
         Write-Host "[windows_vhd] Cold cache state restored for ${DriveLetter}:\"
+    }
+
+    "defender-on" {
+        # Scan phase with Defender scanning like on a desktop: real-time protection back on, and neither the benchmark
+        # volume nor the scanner binaries (under the repository) excluded. The VHDX file, temp folders (export files)
+        # and the harness processes stay excluded. Generation ran with it off, so only the scans pay its cost.
+        $DriveLetter = Get-DriveLetterFromPath $Arg1
+        $errors = @()
+        try {
+            Set-MpPreference -DisableRealtimeMonitoring $false -DisableIOAVProtection $false `
+                -DisableBehaviorMonitoring $false -DisableScriptScanning $false -ErrorAction Stop
+        } catch { $errors += "Set-MpPreference: $($_.Exception.Message)" }
+        foreach ($path in @("${DriveLetter}:\", $PWD.Path)) {
+            try { Remove-MpPreference -ExclusionPath $path -ErrorAction Stop } catch { $errors += "Remove-MpPreference($path): $($_.Exception.Message)" }
+        }
+        Start-Sleep -Seconds 3
+        $st = Get-MpComputerStatus
+        $excl = @((Get-MpPreference).ExclusionPath) -join "; "
+        Write-Host "[windows_vhd] Defender for scans: RealTimeProtectionEnabled=$($st.RealTimeProtectionEnabled) OnAccessProtectionEnabled=$($st.OnAccessProtectionEnabled) IsTamperProtected=$($st.IsTamperProtected)"
+        Write-Host "[windows_vhd] Remaining exclusions: $excl"
+        foreach ($e in $errors) { Write-Warning "[windows_vhd] Defender: $e" }
+        if (-not $st.RealTimeProtectionEnabled) {
+            throw "Defender real-time protection could not be turned on; the Defender-on scan would measure nothing"
+        }
     }
 
     "teardown" {

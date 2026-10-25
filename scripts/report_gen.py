@@ -71,6 +71,18 @@ def balanced_index(
     }
 
 
+def defender_rows(raw_results: List[Dict[str, Any]]) -> List[str]:
+    """Windows Defender state during the scans (recorded by run_cli_scanners.py on Windows)."""
+    state = next((e["defender"] for e in raw_results if isinstance(e.get("defender"), dict)), None)
+    if not state:
+        return []
+    if not state.get("realtime"):
+        return ["| **Windows Defender (scans)** | `real-time off` | Scans ran without on-access antivirus scanning |"]
+    scope = "benchmark volume excluded" if state.get("bench_excluded") else "benchmark volume **scanned** on access"
+    tamper = "; tamper protection on (cannot be turned off)" if state.get("tamper") else ""
+    return [f"| **Windows Defender (scans)** | `real-time on` | {scope}{tamper} |"]
+
+
 def _mean(values: List[Any]) -> Optional[float]:
     known = [float(v) for v in values if v is not None]
     return sum(known) / len(known) if known else None
@@ -175,6 +187,7 @@ def generate_report(
         "| Metric | Value | Description |",
         "| :--- | :--- | :--- |",
         f"| **Platform / Arch** | `{os_name} / {arch_name}` | `{cores}` Logical CPU Cores |",
+        *defender_rows(raw_results),
         f"| **$B_{{\\text{{meta}}}}$ (Metadata Ceiling)** | `{b_meta:,.0f} files/sec` | Native OS concurrent traversal ceiling (`getdents64` / `FindFirstFileExW`) |",
         f"| **$B_{{\\text{{seq}}}}$ (Sequential Read)** | `{b_seq:,.2f} MB/s` | Unbuffered sequential disk throughput ceiling |",
         f"| **$B_{{\\text{{cpu}}}}$ (Memory Tree Sort)** | `{b_cpu:,.2f} ms` | Pure-memory 1,000,000-node tree aggregation & descending sort baseline |",
