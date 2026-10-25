@@ -2,15 +2,15 @@
  "meta": {
   "kind": "mft",
   "preset": "very-lite",
-  "run_id": "40218334732",
-  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40218334732",
-  "sha": "6d7ac1cdfe2dcdd5ee71e5db62a8466f56017c24",
+  "run_id": "40219489399",
+  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40219489399",
+  "sha": "96b7d6ac8e7632a41015a1f378550e44ca199bd3",
   "date": "2026-10-25"
  },
  "payload": {
   "schema": 2,
   "preset": "very-lite",
-  "sha": "6d7ac1cdfe2dcdd5ee71e5db62a8466f56017c24",
+  "sha": "96b7d6ac8e7632a41015a1f378550e44ca199bd3",
   "files": 100006,
   "dirs": 11896,
   "aged_timeline": true,
@@ -21,9 +21,9 @@
    "windows-x86_64-mft": {
     "title": "Win x64 (NTFS · MFT)",
     "cores": 4,
-    "iops": 6284.519640869393,
-    "cpu_ms": 88.5354,
-    "ok": 2,
+    "iops": 5210.364519734742,
+    "cpu_ms": 122.2946,
+    "ok": 3,
     "tried": 3,
     "fastest_cold": "windirstat",
     "fastest_warm": "windirstat"
@@ -36,11 +36,11 @@
     "version": "2.9.3"
    },
    "wiztree": {
-    "name": "WizTree64",
+    "name": "WizTree",
     "version": "4.33"
    },
    "spaceknife": {
-    "name": "spaceknife-backend",
+    "name": "SpaceKnife",
     "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)"
    }
   },
@@ -53,7 +53,7 @@
     "cold": 100.00000000000004,
     "warm": 100.00000000000004,
     "index": 100.00000000000004,
-    "rss_mb": 84.63,
+    "rss_mb": 84.77,
     "abs_acc_pct": 0.31,
     "verification": "size+files+zones",
     "valid_platforms": 1,
@@ -63,55 +63,78 @@
    },
    {
     "id": "wiztree",
-    "scanner": "WizTree64",
+    "scanner": "WizTree",
     "version": "4.33",
-    "overall": 82.04055831890477,
-    "cold": 85.54939717730419,
-    "warm": 82.83533690037757,
-    "index": 77.9207681521248,
-    "rss_mb": 98.75,
+    "overall": 81.83444710622388,
+    "cold": 85.47577349678924,
+    "warm": 83.05778600970291,
+    "index": 77.19427056433474,
+    "rss_mb": 98.87,
     "abs_acc_pct": 0.31,
     "verification": "size+files+zones",
     "valid_platforms": 1,
     "entered_platforms": 1,
     "wins": 0,
     "rank": 2
+   },
+   {
+    "id": "spaceknife",
+    "scanner": "SpaceKnife",
+    "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)",
+    "overall": 74.96290412372578,
+    "cold": 74.4320387452169,
+    "warm": 73.68568467635771,
+    "index": 76.80618098386012,
+    "rss_mb": 82.1,
+    "abs_acc_pct": 0.06,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 3
    }
   ],
-  "unranked": [
-   "spaceknife"
-  ],
+  "unranked": [],
   "per_platform": {
    "windows-x86_64-mft": {
     "windirstat": {
      "status": "ok",
-     "cold_s": 0.7486,
-     "warm_s": 0.71525,
+     "cold_s": 0.80531,
+     "warm_s": 0.78924,
      "cold_rel": 100.0,
      "warm_rel": 100.0,
      "index_rel": 100.0,
      "platform_score": 100.00000000000004,
-     "rss_mb": 84.63,
+     "rss_mb": 84.77,
      "verification": "size+files+zones",
      "acc_pct": 0.31,
      "rank": 1
     },
     "wiztree": {
      "status": "ok",
-     "cold_s": 0.87505,
-     "warm_s": 0.86346,
-     "cold_rel": 85.54939717730417,
-     "warm_rel": 82.83533690037754,
-     "index_rel": 77.92076815212482,
-     "platform_score": 82.04055831890477,
-     "rss_mb": 98.75,
+     "cold_s": 0.9421499999999999,
+     "warm_s": 0.95023,
+     "cold_rel": 85.47577349678926,
+     "warm_rel": 83.05778600970292,
+     "index_rel": 77.19427056433472,
+     "platform_score": 81.83444710622388,
+     "rss_mb": 98.87,
      "verification": "size+files+zones",
      "acc_pct": 0.31,
      "rank": 2
     },
     "spaceknife": {
-     "status": "invalid",
-     "reason": "❌ INVALID: Incomplete traversal (top-level folder zone_deep missing from the output)"
+     "status": "ok",
+     "cold_s": 1.0819400000000001,
+     "warm_s": 1.0710899999999999,
+     "cold_rel": 74.43203874521693,
+     "warm_rel": 73.68568467635774,
+     "index_rel": 76.80618098386014,
+     "platform_score": 74.96290412372578,
+     "rss_mb": 82.1,
+     "verification": "size+files+zones",
+     "acc_pct": -0.06,
+     "rank": 3
     }
    }
   }
