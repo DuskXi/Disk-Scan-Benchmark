@@ -215,7 +215,7 @@ jobs:
             --out "results/${{ matrix.target_label }}/raw_results.json" \
             --bin-dir "./bin"
 
-      - name: Generate Normalized Report & Append to Step Summary
+      - name: Generate Normalized Report
         shell: bash
         run: |
           python ./scripts/report_gen.py \
@@ -226,7 +226,7 @@ jobs:
             --json-out "results/${{ matrix.target_label }}/normalized_results.json" \
             --title-suffix "(${{ matrix.target_label }} | ${{ inputs.preset }})"
 
-          cat "results/${{ matrix.target_label }}/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "results/${{ matrix.target_label }}/benchmark_report.md"
 
       - name: Teardown Standard Virtual Disk Container
         if: always()
@@ -296,8 +296,7 @@ jobs:
             --json-out "results/${RAM_LABEL}/normalized_results.json" \
             --title-suffix "(${RAM_LABEL} | ${{ inputs.preset }} /dev/shm)"
 
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          cat "results/${RAM_LABEL}/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "results/${RAM_LABEL}/benchmark_report.md"
 
           ./scripts/disk-mgr/linux_loop.sh teardown "${{ matrix.mount_path }}" || true
 
@@ -547,7 +546,7 @@ jobs:
               --out "results/$LABEL/benchmark_report.md" \
               --json-out "results/$LABEL/normalized_results.json" \
               --title-suffix "(windows-arm64 NTFS | ${{ inputs.preset }})"
-            cat "results/$LABEL/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+            cat "results/$LABEL/benchmark_report.md"
           fi
 
       - name: Upload NTFS Results
@@ -726,17 +725,61 @@ jobs:
               --cross-fs-checked
           fi
 
-          cat "$N/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat "$N/benchmark_report.md"
+          echo ""
           if [ -f "$R/benchmark_report.md" ]; then
-            cat "$R/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat "$R/benchmark_report.md"
+            echo ""
           fi
-          cat "$N/refs_audit.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$N/refs_audit.md"
 
       - name: Upload Final Windows Results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-windows-final-${{ inputs.preset }}
           path: results/
+          retention-days: 30
+
+  # GitHub lists job summaries in the order the jobs finish, so the overall leaderboard can only sit at the top if
+  # one last job writes the whole summary: the leaderboard first, then every platform's full report below it.
+  # The platform jobs print their own report into their job log instead.
+  leaderboard:
+    name: "Overall Leaderboard (${{ inputs.preset }})"
+    needs: [benchmark, benchmark-ntfs-arm64, windows-summary]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download All Platform Results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-results-*-${{ inputs.preset }}
+          path: artifacts/
+
+      - name: Build Leaderboard & Write Run Summary
+        shell: bash
+        run: |
+          mkdir -p leaderboard
+          python ./scripts/leaderboard.py \
+            --artifacts artifacts \
+            --preset "${{ inputs.preset }}" \
+            --sha "${{ github.sha }}" \
+            --out leaderboard/leaderboard.md \
+            --json-out leaderboard/leaderboard.json \
+            --summary-out leaderboard/summary.md
+          cat leaderboard/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Leaderboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-leaderboard-${{ inputs.preset }}
+          path: leaderboard/
           retention-days: 30
