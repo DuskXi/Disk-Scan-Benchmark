@@ -12,7 +12,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 ## 🏆 排行榜 · Leaderboard
 
-![updated](https://img.shields.io/badge/updated-2026--10--25-4c8eda) ![presets](https://img.shields.io/badge/presets-3%2F6-dbab09) ![scanners](https://img.shields.io/badge/scanners-15-6f42c1) ![platforms](https://img.shields.io/badge/platforms-14-0969da) ![MFT presets](https://img.shields.io/badge/MFT%20presets-5-8250df)
+![updated](https://img.shields.io/badge/updated-2026--10--25-4c8eda) ![presets](https://img.shields.io/badge/presets-3%2F7-dbab09) ![scanners](https://img.shields.io/badge/scanners-15-6f42c1) ![platforms](https://img.shields.io/badge/platforms-14-0969da) ![MFT presets](https://img.shields.io/badge/MFT%20presets-5-8250df)
 
 > 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。`very-lite` / `lite` 体量过小，计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。评分方法与数据生成原理见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)。
 >
@@ -427,10 +427,15 @@ Add an object to the `scanners` array of [`scanners_registry.json`](scripts/wrap
 | `mid` | 3,000,000 | 1&nbsp;TiB | 大目录树 · large tree |
 | `high` | 5,000,000 | 2&nbsp;TiB | 重负载 · heavy |
 | `very-high` | 9,000,000 | 3&nbsp;TiB | 极限 · extreme |
+| `before-death` | 14,000,000 | 3.70&nbsp;TB | 临终的 4&nbsp;TB 盘（尚未运行）· a dying 4&nbsp;TB disk (not run yet) |
 
 `very-lite` 和 `lite` 的扫描只要零点几秒到几秒，计时里进程启动等固定开销占了大头，所以只作参考，不计入跨体量综合分。
 
 `very-lite` and `lite` scans finish in well under a few seconds, so process start-up dominates their timings; they are for reference only and stay out of the overall score.
+
+`before-death`（临死之前）：一块 4&nbsp;TB 硬盘塞到 3.70&nbsp;TB（十进制，约 3,446&nbsp;GiB，九成以上满）、1400 万个文件，正是再不用磁盘分析工具清理垃圾就真要满死的状态。这一档已经配置好，暂时还没有运行。
+
+`before-death`: a 4&nbsp;TB disk filled to 3.70&nbsp;TB (decimal, about 3,446&nbsp;GiB, over 90% full) with 14 million files, the state a disk reaches right before it dies of a full drive unless someone cleans it up with a disk-space analyzer. Configured, not run yet.
 
 ---
 

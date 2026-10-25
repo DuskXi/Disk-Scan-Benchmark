@@ -31,6 +31,9 @@ enum CliPreset {
     /// 9,000,000 items (900万项), 3 TB (3072 GB) logical size
     #[value(name = "very-high")]
     VeryHigh,
+    /// 14,000,000 items (1400万项), 3.70 TB (3446 GB) logical size: a nearly full 4 TB disk
+    #[value(name = "before-death")]
+    BeforeDeath,
     /// Custom scale via --files and --logical-gb
     #[value(name = "custom")]
     Custom,
@@ -45,6 +48,7 @@ impl From<CliPreset> for ScalePreset {
             CliPreset::Mid => ScalePreset::Mid,
             CliPreset::High => ScalePreset::High,
             CliPreset::VeryHigh => ScalePreset::VeryHigh,
+            CliPreset::BeforeDeath => ScalePreset::BeforeDeath,
             CliPreset::Custom => ScalePreset::Custom,
         }
     }
@@ -60,7 +64,7 @@ struct Args {
     #[arg(long)]
     root: PathBuf,
 
-    /// Benchmark scale preset tier (very-lite, lite, low, mid, high, very-high, custom)
+    /// Benchmark scale preset tier (very-lite, lite, low, mid, high, very-high, before-death, custom)
     #[arg(long, value_enum)]
     preset: Option<CliPreset>,
 

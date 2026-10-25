@@ -277,7 +277,7 @@ def generate_report(
         "",
         "| Property | Ground Truth Value | Notes |",
         "| :--- | :--- | :--- |",
-        f"| **Scale Preset Tier** | `{preset_name}` | Configurable scale preset (`very-lite` / `lite` / `low` / `mid` / `high` / `very-high`) |",
+        f"| **Scale Preset Tier** | `{preset_name}` | Configurable scale preset (`very-lite` / `lite` / `low` / `mid` / `high` / `very-high` / `before-death`) |",
         f"| **Total File Items** | `{total_files:,}` | Includes `{hardlinks:,}` Hard Links & `{symlinks:,}` Symlinks/Loop Traps |",
         f"| **Total Directories** | `{total_dirs:,}` | Deep chains (8-25 levels) + Flat high-density buckets |",
         f"| **Apparent Logical Size** | `{format_bytes_gib(apparent_bytes)}` (`{apparent_bytes:,} B`) | Deduplicated logical volume across all zones |",

@@ -40,7 +40,7 @@ from leaderboard import (
     render_overall_table,
 )
 
-PRESETS = ["very-lite", "lite", "low", "mid", "high", "very-high"]
+PRESETS = ["very-lite", "lite", "low", "mid", "high", "very-high", "before-death"]
 SMALL = {"very-lite", "lite"}  # reference only: start-up cost dominates the wall clock
 PRESET_SIZE = {
     "very-lite": "10 万文件 · 100k files",
@@ -49,6 +49,7 @@ PRESET_SIZE = {
     "mid": "300 万文件 · 3M files",
     "high": "500 万文件 · 5M files",
     "very-high": "900 万文件 · 9M files",
+    "before-death": "1400 万文件 · 14M files",
 }
 START, END = "<!-- LEADERBOARD:START -->", "<!-- LEADERBOARD:END -->"
 RANK_COLORS = {1: "e3b341", 2: "a8b3bd", 3: "c47f3d"}

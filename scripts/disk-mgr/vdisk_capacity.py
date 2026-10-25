@@ -11,7 +11,15 @@ import math
 import sys
 from typing import Optional
 
-PRESET_GB = {"very-lite": 100, "lite": 350, "low": 500, "mid": 1024, "high": 2048, "very-high": 3072}
+PRESET_GB = {
+    "very-lite": 100,
+    "lite": 350,
+    "low": 500,
+    "mid": 1024,
+    "high": 2048,
+    "very-high": 3072,
+    "before-death": 3446,
+}
 PRESET_FILES = {
     "very-lite": 100_000,
     "lite": 400_000,
@@ -19,6 +27,7 @@ PRESET_FILES = {
     "mid": 3_000_000,
     "high": 5_000_000,
     "very-high": 9_000_000,
+    "before-death": 14_000_000,
 }
 # Headroom for metadata, directory index allocation and the reserved tail of small files (see fs-mirage topology).
 PER_FILE_HEADROOM_BYTES = 64 * 1024

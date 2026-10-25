@@ -8,6 +8,7 @@ run-name: >-
   inputs.preset == 'mid' && '3M files / 1TB' ||
   inputs.preset == 'high' && '5M files / 2TB' ||
   inputs.preset == 'very-high' && '9M files / 3TB' ||
+  inputs.preset == 'before-death' && '14M files / 3.7TB' ||
   format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }}${{
   inputs.defender_scan && ' · Defender on' || '' }}
 
@@ -16,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       preset:
-        description: "Scale preset tier (very-lite: 100k/100GB, lite: 400k/350GB, low: 1M/500GB, mid: 3M/1TB, high: 5M/2TB, very-high: 9M/3TB, custom)"
+        description: "Scale preset tier (very-lite: 100k/100GB, lite: 400k/350GB, low: 1M/500GB, mid: 3M/1TB, high: 5M/2TB, very-high: 9M/3TB, before-death: 14M/3.7TB, custom)"
         required: true
         default: "very-lite"
         type: choice
@@ -27,6 +28,7 @@ on:
           - mid
           - high
           - very-high
+          - before-death
           - custom
       files:
         description: "Custom total file items (used only when preset == 'custom')"
@@ -240,6 +242,7 @@ jobs:
             mid)       INODES=6000000 ;;
             high)      INODES=9000000 ;;
             very-high) INODES=15000000 ;;
+            before-death) INODES=24000000 ;;
             *)         INODES=4000000 ;;
           esac
           if [ "${{ matrix.platform }}" = "linux" ]; then
@@ -352,6 +355,7 @@ jobs:
             mid)       INODES=6000000 ;;
             high)      INODES=9000000 ;;
             very-high) INODES=15000000 ;;
+            before-death) INODES=24000000 ;;
             *)         INODES=4000000 ;;
           esac
 
