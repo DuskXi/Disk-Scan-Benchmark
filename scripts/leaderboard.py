@@ -24,7 +24,7 @@ import re
 import statistics
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from report_gen import small_preset_notice, verification_label
 
@@ -171,6 +171,19 @@ def fmt_s(seconds: float) -> str:
 
 def fmt_score(value: Optional[float]) -> str:
     return "-" if value is None else f"{value:.1f}"
+
+
+def best_flags(values: Sequence[Optional[float]], fmt: Callable[[float], str], low: bool = False) -> List[bool]:
+    """Which entries show the column's best value (highest, or lowest with low=True); ties as shown all count."""
+    present = [v for v in values if v is not None]
+    if not present:
+        return [False] * len(values)
+    best = fmt(min(present) if low else max(present))
+    return [v is not None and fmt(v) == best for v in values]
+
+
+def bold_if(text: str, on: bool) -> str:
+    return f"**{text}**" if on else text
 
 
 def _median(values: List[Optional[float]]) -> Optional[float]:
@@ -364,23 +377,34 @@ def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
         "| " + " | ".join(heads) + " |",
         "| " + " | ".join(align for _, _, align in cols) + " |",
     ]
-    for o in p["overall"]:
+    rows = p["overall"]
+    # the best value of each column in bold (highest score; least RAM; smallest size error)
+    best = {key: best_flags([o.get(key) for o in rows], fmt_score) for key in ("overall", "cold", "warm", "index")}
+    best["rss_mb"] = best_flags([o.get("rss_mb") or None for o in rows], lambda v: f"{v:,.0f}", low=True)
+    best["abs_acc_pct"] = best_flags([o.get("abs_acc_pct") for o in rows], lambda v: f"{v:.2f}", low=True)
+    for i, o in enumerate(rows):
         medal = MEDALS.get(o["rank"], str(o["rank"]))
         sep = NB if bi else " "
-        rss = f"{o['rss_mb']:,.0f}{sep}MB" if o.get("rss_mb") else "-"
+        rss = bold_if(f"{o['rss_mb']:,.0f}{sep}MB", best["rss_mb"][i]) if o.get("rss_mb") else "-"
         unverified = "n/a" if bi else "未核验"
-        acc = f"{o['abs_acc_pct']:.2f}%" if o.get("abs_acc_pct") is not None else unverified
+        acc = (
+            bold_if(f"{o['abs_acc_pct']:.2f}%", best["abs_acc_pct"][i])
+            if o.get("abs_acc_pct") is not None
+            else unverified
+        )
         verified = verify_code(o.get("verification")) if bi else verification_label(o.get("verification"))
         name = nobreak(o["scanner"]) if bi else o["scanner"]
         wins = "" if bi else f" {o['wins'] or '-'} |"
-        cold, warm = fmt_score(o["cold"]), fmt_score(o["warm"])
+        score, index = bold_if(fmt_score(o["overall"]), best["overall"][i]), bold_if(
+            fmt_score(o["index"]), best["index"][i]
+        )
+        cold, warm = bold_if(fmt_score(o["cold"]), best["cold"][i]), bold_if(fmt_score(o["warm"]), best["warm"][i])
         if bi:
             # the seconds behind the relative scores, in small print: geometric mean over its valid platforms
             cold += f"<br><sub>{seconds_geomean(p, o['id'], 'cold_s')}</sub>"
             warm += f"<br><sub>{seconds_geomean(p, o['id'], 'warm_s')}</sub>"
         lines.append(
-            f"| {medal} | **{name}** | **{fmt_score(o['overall'])}** | {cold} "
-            f"| {warm} | {fmt_score(o['index'])} | {rss} | {acc} | {verified} "
+            f"| {medal} | **{name}** | {score} | {cold} | {warm} | {index} | {rss} | {acc} | {verified} "
             f"| {o['valid_platforms']}/{o['entered_platforms']} |{wins}"
         )
     if p["unranked"]:
@@ -470,6 +494,11 @@ def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], b
         "| :--- | " + " | ".join(":---:" for _ in labels) + " |",
     ]
     status_bi = {"cannot_run": "⛔", "disqualified": "❌", "invalid": "⚠️"}
+    # per platform column: the fastest cold and the fastest warm time in bold (they can belong to different scanners)
+    fastest: Dict[str, Dict[str, str]] = {}
+    for lbl in labels:
+        ok = [e for sid in order if (e := p["per_platform"][lbl].get(sid)) and e["status"] == "ok"]
+        fastest[lbl] = {k: fmt_s(min(e[k] for e in ok)) for k in ("cold_s", "warm_s")} if ok else {}
     for sid in order:
         cells = []
         for lbl in labels:
@@ -478,10 +507,13 @@ def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], b
                 cells.append("—")
             elif e["status"] == "ok":
                 rank = MEDALS.get(e["rank"], f"#{e['rank']}") + ("❕" if e.get("warnings") else "")
+                cold_t, warm_t = fmt_s(e["cold_s"]), fmt_s(e["warm_s"])
+                cold_t = bold_if(cold_t, cold_t == fastest[lbl].get("cold_s"))
+                warm_t = bold_if(warm_t, warm_t == fastest[lbl].get("warm_s"))
                 if bi:
-                    cells.append(f"{rank}<br>{fmt_s(e['cold_s'])}{NB}/{NB}{fmt_s(e['warm_s'])}")
+                    cells.append(f"{rank}<br>{cold_t}{NB}/{NB}{warm_t}")
                 else:
-                    cells.append(f"{rank} {fmt_s(e['cold_s'])} / {fmt_s(e['warm_s'])}")
+                    cells.append(f"{rank} {cold_t} / {warm_t}")
             else:
                 cells.append(status_bi.get(e["status"], "?") if bi else STATUS_TEXT.get(e["status"], e["status"]))
         name = nobreak(p["scanners"][sid]["name"]) if bi else p["scanners"][sid]["name"]

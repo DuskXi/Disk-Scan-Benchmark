@@ -28,6 +28,8 @@ from leaderboard import (
     apply_display_names,
     display_names,
     fmt_s,
+    best_flags,
+    bold_if,
     fmt_score,
     head,
     merge_platforms,
@@ -120,12 +122,17 @@ def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
     """
     present = [p for p in PRESETS if p in mft]
     ranked = cross_size(mft)
+    best_combined = combined_best(ranked)
+    best_in = {p: preset_best(ranked, p) for p in present}
     rows: List[Tuple[str, str, str, str]] = [
         (
             MEDALS.get(r["rank"], str(r["rank"])),
             r["id"],
             r["name"],
-            fmt_score(r["combined"]) + ("\\*" if r["combined_from_small_only"] else ""),
+            bold_if(
+                fmt_score(r["combined"]) + ("\\*" if r["combined_from_small_only"] else ""),
+                best_combined.get(r["id"], False),
+            ),
         )
         for r in ranked
     ]
@@ -151,12 +158,13 @@ def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
             if o and plat and plat.get("status") == "ok":
                 times = f"{fmt_s(plat['cold_s'])}{NB}/{NB}{fmt_s(plat['warm_s'])}{NB}s"
                 warn = "❕" if plat.get("warnings") else ""
-                cells.append(f"{score_cell(o['rank'], o['overall'])}{warn}<br><sub>{times}</sub>")
+                best = best_in[p].get(sid, False)
+                cells.append(f"{score_cell(o['rank'], o['overall'], best)}{warn}<br><sub>{times}</sub>")
             elif plat:
                 cells.append(status_icon.get(str(plat.get("status")), "?"))
             else:
                 cells.append("—")
-        lines.append(f"| {rank} | **{nobreak(name)}** | **{combined}** | " + " | ".join(cells) + " |")
+        lines.append(f"| {rank} | **{nobreak(name)}** | {combined} | " + " | ".join(cells) + " |")
     lines += [
         "",
         "<sub>综合分 = `low` 及以上各体量 MFT 分数的几何平均，\\* 为仅供参考的小体量；每格是该体量的名次和分数，"
@@ -173,8 +181,21 @@ def preset_head(preset: str) -> str:
     return nobreak(preset) + ("\\*" if preset in SMALL else "")
 
 
-def score_cell(rank: int, score: Optional[float]) -> str:
-    return f"{MEDALS.get(rank, '#' + str(rank))}{NB}{fmt_score(score)}"
+def score_cell(rank: int, score: Optional[float], best: bool = False) -> str:
+    return f"{MEDALS.get(rank, '#' + str(rank))}{NB}{bold_if(fmt_score(score), best)}"
+
+
+def combined_best(ranked: List[Dict[str, Any]]) -> Dict[str, bool]:
+    """Scanner id -> its combined score is the column's best (scores from small sizes only compete only when no
+    scanner has a full one)."""
+    pool = [r for r in ranked if not r["combined_from_small_only"]] or ranked
+    return dict(zip([r["id"] for r in pool], best_flags([r["combined"] for r in pool], fmt_score)))
+
+
+def preset_best(ranked: List[Dict[str, Any]], preset: str) -> Dict[str, bool]:
+    """Scanner id -> its score is the best in this preset's column."""
+    scored = [(r["id"], v["score"]) for r in ranked if (v := r["presets"].get(preset))]
+    return dict(zip([sid for sid, _ in scored], best_flags([s for _, s in scored], fmt_score)))
 
 
 def render_section(
@@ -219,11 +240,18 @@ def render_section(
         "| " + " | ".join(heads) + " |",
         "| " + " | ".join([":---:", ":---", "---:"] + [":---:" for _ in present]) + " |",
     ]
-    for row in cross_size(standard):
+    ranked = cross_size(standard)
+    best_combined = combined_best(ranked)
+    best_in = {p: preset_best(ranked, p) for p in present}
+    for row in ranked:
         combined = fmt_score(row["combined"]) + ("\\*" if row["combined_from_small_only"] else "")
-        cells = [score_cell(v["rank"], v["score"]) if (v := row["presets"].get(p)) else "—" for p in present]
+        combined = bold_if(combined, best_combined.get(row["id"], False))
+        cells = [
+            score_cell(v["rank"], v["score"], best_in[p].get(row["id"], False)) if (v := row["presets"].get(p)) else "—"
+            for p in present
+        ]
         lines.append(
-            f"| {MEDALS.get(row['rank'], str(row['rank']))} | **{nobreak(row['name'])}** | **{combined}** | "
+            f"| {MEDALS.get(row['rank'], str(row['rank']))} | **{nobreak(row['name'])}** | {combined} | "
             + " | ".join(cells)
             + " |"
         )

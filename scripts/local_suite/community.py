@@ -148,11 +148,24 @@ def render_board(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> List[str]
         "| 名次<br>Rank | 扫描器<br>Scanner | **综合分**<br>**Score** | 冷扫<br>Cold | 热扫<br>Warm | 测过的盘<br>Drives |",
         "| :---: | :--- | ---: | ---: | ---: | ---: |",
     ]
-    for r in board(subs):
-        fmt = lambda v: "-" if v is None else f"{v:.1f}"  # noqa: E731
+    rows = board(subs)
+
+    def fmt(v: Optional[float]) -> str:
+        return "-" if v is None else f"{v:.1f}"
+
+    # the best value of each score column in bold (ties as shown all count)
+    best = {
+        k: max((fmt(r[k]) for r in rows if r[k] is not None), key=float, default="") for k in ("score", "cold", "warm")
+    }
+
+    def cell(r: Dict[str, Any], key: str) -> str:
+        text = fmt(r[key])
+        return f"**{text}**" if r[key] is not None and text == best[key] else text
+
+    for r in rows:
         lines.append(
-            f"| {MEDALS.get(r['rank'], str(r['rank']))} | **{names.get(r['id'], r['id'])}** | **{fmt(r['score'])}** "
-            f"| {fmt(r['cold'])} | {fmt(r['warm'])} | {r['volumes']} |"
+            f"| {MEDALS.get(r['rank'], str(r['rank']))} | **{names.get(r['id'], r['id'])}** | {cell(r, 'score')} "
+            f"| {cell(r, 'cold')} | {cell(r, 'warm')} | {r['volumes']} |"
         )
     lines += ["", END]
     return lines
