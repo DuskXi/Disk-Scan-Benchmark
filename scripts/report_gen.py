@@ -83,6 +83,20 @@ def defender_rows(raw_results: List[Dict[str, Any]]) -> List[str]:
     return [f"| **Windows Defender (scans)** | `real-time on` | {scope}{tamper} |"]
 
 
+def fmt_acc(value: Optional[float]) -> str:
+    return "未核验" if value is None else f"{value:+.2f}%"
+
+
+VERIFY_PARTS = {"size": "大小", "files": "文件数", "zones": "区域", "io-only": "仅 I/O", "none": "无"}
+
+
+def verification_label(value: Optional[str]) -> str:
+    """What the completeness check could look at for this scanner (from run_cli_scanners.py)."""
+    if not value:
+        return "-"
+    return " + ".join(VERIFY_PARTS.get(part, part) for part in value.split("+"))
+
+
 def _mean(values: List[Any]) -> Optional[float]:
     known = [float(v) for v in values if v is not None]
     return sum(known) / len(known) if known else None
@@ -118,8 +132,9 @@ def generate_report(
     for entry in raw_results:
         cold_ms = float(entry.get("cold_time_ms", 0.0))
         warm_ms = float(entry.get("warm_time_ms", 0.0))
-        scanned_files = int(entry.get("scanned_files", total_files) or total_files)
-        scanned_bytes = int(entry.get("scanned_bytes", 0))
+        # Throughput is items of the tree per second, whatever count the tool reports (or does not)
+        scanned_files = int(entry.get("scanned_files") or total_files)
+        scanned_bytes = int(entry.get("scanned_bytes") or 0)
         size_metric = entry.get("size_metric", "allocated")
         ref_bytes = apparent_bytes if size_metric == "apparent" else allocated_bytes
 
@@ -133,12 +148,14 @@ def generate_report(
         cpu_cost_ratio = warm_ms / b_cpu
 
         # Accuracy Diff %
-        if "accuracy_diff_pct" in entry and ref_bytes > 0:
+        # None = the tool reported no size (GUI tools), so there is nothing to compare
+        acc_diff_pct: Optional[float]
+        if entry.get("accuracy_diff_pct") is not None and ref_bytes > 0:
             acc_diff_pct = float(entry["accuracy_diff_pct"])
-        elif ref_bytes > 0:
+        elif ref_bytes > 0 and scanned_bytes > 0:
             acc_diff_pct = ((scanned_bytes - ref_bytes) / ref_bytes) * 100.0
         else:
-            acc_diff_pct = 0.0
+            acc_diff_pct = None
 
         # Projected 1M-file scan time on a Consumer NVMe PC
         effective_pc_fps = max(1.0, (eta_io_pct / 100.0) * ref_pc_b_meta)
@@ -167,7 +184,7 @@ def generate_report(
             "warm_files_per_sec": round(scanned_files / max(warm_ms / 1000.0, 1e-6), 1),
             "eta_io_percent": round(eta_io_pct, 2),
             "cpu_cost_ratio": round(cpu_cost_ratio, 3),
-            "accuracy_diff_pct": round(acc_diff_pct, 2),
+            "accuracy_diff_pct": round(acc_diff_pct, 2) if acc_diff_pct is not None else None,
             "projected_nvme_1m_sec": round(projected_pc_1m_sec, 2),
         }
         normalized_rows.append(row)
@@ -208,10 +225,11 @@ def generate_report(
         f"| **Apparent Logical Size** | `{format_bytes_gib(apparent_bytes)}` (`{apparent_bytes:,} B`) | Deduplicated logical volume across all zones |",
         f"| **Allocated Physical Size** | `{format_bytes_gib(allocated_bytes)}` (`{allocated_bytes:,} B`) | Dirty-Extent anchored physical blocks on disk |",
         (
-            "| **Creation Timeline** | `aged` (`FSM_AGING=1`) | Same tree, created in a years-of-use order: "
+            "| **Creation Timeline** | `aged` | Same tree, created in a years-of-use order: "
             "directory and file records scattered, directory indexes grown in pieces |"
             if gt.get("aged_timeline")
-            else "| **Creation Timeline** | `fresh` | Created directory by directory: records and indexes contiguous |"
+            else "| **Creation Timeline** | `fresh` (`FSM_AGING=0`) | Created directory by directory: records and indexes "
+            "contiguous |"
         ),
     ]
 
@@ -244,8 +262,8 @@ def generate_report(
             "",
             "## 3. Normalized Scanner Benchmark Results (有效成绩排行榜)",
             "",
-            "| Rank | Scanner | Version | Cold Time (ms) | Warm Avg (ms) | Cold Speed (files/s) | Warm Speed (files/s) | Tool-reported Scan (ms) | $\\eta_{\\text{io}}$ Efficiency | Warm CPU Cost Ratio | Peak RSS (MB) | Accuracy Diff % | Est. PC 1M Scan (s) |",
-            "| :---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Rank | Scanner | Version | Cold Time (ms) | Warm Avg (ms) | Cold Speed (files/s) | Warm Speed (files/s) | Tool-reported Scan (ms) | $\\eta_{\\text{io}}$ Efficiency | Warm CPU Cost Ratio | Peak RSS (MB) | Accuracy Diff % | Verified | Est. PC 1M Scan (s) |",
+            "| :---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | :---: | ---: |",
         ]
     )
 
@@ -262,7 +280,8 @@ def generate_report(
             f"| **{r['eta_io_percent']:.1f}%** "
             f"| `{r['cpu_cost_ratio']:.2f}x` "
             f"| `{r['peak_rss_mb']:.1f}` "
-            f"| `{r['accuracy_diff_pct']:+.2f}%` "
+            f"| `{fmt_acc(r['accuracy_diff_pct'])}` "
+            f"| {verification_label(r.get('verification'))} "
             f"| `{r['projected_nvme_1m_sec']:.2f}s` |"
         )
 
@@ -325,7 +344,7 @@ def generate_report(
             status_badge = "❌ DISQUALIFIED" if "DISQUALIFIED" in reason else "⚠️ INVALID"
             lines.append(
                 f"| `{status_badge}` | **{r['scanner']}** | `{r.get('version', '-')}` | `{r['cold_time_ms']:,.1f}` "
-                f"| `{r['warm_time_ms']:,.1f}` | `{r['accuracy_diff_pct']:+.2f}%` | {reason} |"
+                f"| `{r['warm_time_ms']:,.1f}` | `{fmt_acc(r['accuracy_diff_pct'])}` | {reason} |"
             )
     else:
         checks = "扫描边界与真实目录遍历完整性核验"
@@ -405,7 +424,8 @@ def generate_report(
             "- **Small presets (<= 400k files) and speed ranking**: whole-process wall time includes fixed start-up cost (interpreter / thread-pool init, and a 2.2 s floor for GUI monitors), so use `Warm Speed (files/s)` at `mid` or larger for throughput comparisons. `Tool-reported Scan (ms)` is the scan time a tool prints about itself, excluding start-up.",
             "- **$\\eta_{\\text{io}}$ (Cold Cache I/O Efficiency)**: $\\eta_{\\text{io}} = \\frac{\\text{Scanner Cold Speed}}{B_{\\text{meta}}} \\times 100$ (%). All scanners are evaluated with raw `$MFT` bypass disabled (standard OS filesystem API traversal mode).",
             "- **Warm CPU Cost Ratio**: $\\text{CPU Cost Ratio} = \\frac{T_{\\text{scanner-warm}}}{T_{\\text{baseline-cpu}}}$. Lower values indicate less user-space tree construction, string allocation, and sorting overhead.",
-            "- **Accuracy Diff %**: Percentage deviation between scanner-reported volume size and `ground_truth.json` (reveals hard-link double counting or sparse block miscalculation).",
+            "- **Accuracy Diff %**: Percentage deviation between scanner-reported volume size and `ground_truth.json` (reveals hard-link double counting or sparse block miscalculation). `未核验` = the tool reported no size of its own.",
+            "- **Verified (核验)**: what the completeness check could use, all of it reported by the tool itself and never filled in from the ground truth: 大小 (total ≥ 75% of the truth), 文件数 (≥ 90% of the files), 区域 (every top-level folder present and ≥ 75% of its size); 仅 I/O = a GUI tool with no output, checked only by its directory-enumeration I/O count.",
             "",
         ]
     )

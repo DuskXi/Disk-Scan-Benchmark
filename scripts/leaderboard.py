@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from report_gen import small_preset_notice
+from report_gen import small_preset_notice, verification_label
 
 PAYLOAD_SCHEMA = 2
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
@@ -142,6 +142,7 @@ def score_platform(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                 "index_rel": index_rel,
                 "platform_score": geomean([cold_rel, warm_rel, index_rel]),
                 "rss_mb": float(r["peak_rss_mb"]) if r.get("peak_rss_mb") else None,
+                "verification": r.get("verification"),
                 # GUI scanners report no size of their own (the monitor fills in the ground truth), so no accuracy
                 "acc_pct": (
                     float(r["accuracy_diff_pct"])
@@ -219,6 +220,7 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
         warm = geomean([e["warm_rel"] for e in ok])
         index = geomean([e["index_rel"] for e in ok])
         accs = [abs(e["acc_pct"]) for e in ok if e.get("acc_pct") is not None]
+        levels = [e.get("verification") for e in ok if e.get("verification")]
         overall.append(
             {
                 "id": sid,
@@ -230,6 +232,7 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
                 "index": index,
                 "rss_mb": _median([e.get("rss_mb") for e in ok]),
                 "abs_acc_pct": statistics.median(accs) if accs else None,
+                "verification": max(set(levels), key=levels.count) if levels else None,
                 "valid_platforms": len(ok),
                 "entered_platforms": len(entries),
                 "wins": sum(1 for e in ok if e.get("rank") == 1),
@@ -261,16 +264,16 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
 
 def render_overall_table(p: Dict[str, Any]) -> List[str]:
     lines = [
-        "| 名次 | 扫描器 | **综合分** | 冷扫 | 热扫 | 均衡指数 | 峰值内存 | 大小误差 | 有效平台 | 平台第一 |",
-        "| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: |",
+        "| 名次 | 扫描器 | **综合分** | 冷扫 | 热扫 | 均衡指数 | 峰值内存 | 大小误差 | 核验 | 有效平台 | 平台第一 |",
+        "| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: | :---: |",
     ]
     for o in p["overall"]:
         medal = MEDALS.get(o["rank"], str(o["rank"]))
         rss = f"{o['rss_mb']:,.0f} MB" if o.get("rss_mb") else "-"
-        acc = f"{o['abs_acc_pct']:.2f}%" if o.get("abs_acc_pct") is not None else "-"
+        acc = f"{o['abs_acc_pct']:.2f}%" if o.get("abs_acc_pct") is not None else "未核验"
         lines.append(
             f"| {medal} | **{o['scanner']}** | **{fmt_score(o['overall'])}** | {fmt_score(o['cold'])} "
-            f"| {fmt_score(o['warm'])} | {fmt_score(o['index'])} | {rss} | {acc} "
+            f"| {fmt_score(o['warm'])} | {fmt_score(o['index'])} | {rss} | {acc} | {verification_label(o.get('verification'))} "
             f"| {o['valid_platforms']}/{o['entered_platforms']} | {o['wins'] or '-'} |"
         )
     if p["unranked"]:

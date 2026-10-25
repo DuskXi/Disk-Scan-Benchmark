@@ -15,6 +15,7 @@
     "command_template_by_os": "Per-OS replacement for command_template",
     "bin_name": "Executable name when it differs from 'name' (e.g. erd for erdtree, du64 for Sysinternals du)",
     "exe_by_arch": "Which executable of a multi-architecture archive to use per architecture",
+    "verify_command_template": "Untimed extra run whose output is used to check completeness, for tools whose timed command prints nothing (ncdu -o /dev/null)",
     "install specs": "URL of an archive or raw executable; gh-artifact:<repo>:<run>:<artifact>; system:<command or path>; cargo:<crate>@<version>:<binary>; brew:<formula>"
   },
   "mft_field_comment": "Optional 'mft' object (command_template using {volume} = volume root) marks scanners that can scan the raw NTFS $MFT; only those run in the MFT-only benchmark (benchmark-mft.yml).",
@@ -95,6 +96,8 @@
       "size_metric": "allocated",
       "command_template": ["{bin}", "-0", "-o", "/dev/null", "{path}"],
       "output_parser": "ncdu_null",
+      "verify_command_template": ["{bin}", "-0", "-o", "{export_file}", "{path}"],
+      "verify_parser": "ncdu_json",
       "install": {
         "linux_x86_64": "https://dev.yorhel.nl/download/ncdu-2.9.2-linux-x86_64.tar.gz",
         "linux_aarch64": "https://dev.yorhel.nl/download/ncdu-2.9.2-linux-aarch64.tar.gz",

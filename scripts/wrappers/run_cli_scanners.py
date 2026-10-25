@@ -550,6 +550,65 @@ def parse_erdtree(text: str, scan_path: str) -> Tuple[int, int, Dict[str, Dict[s
     return total, files, zones
 
 
+def parse_ncdu_export(path: Path, metric: str) -> Tuple[int, int, Dict[str, Dict[str, Any]]]:
+    """
+    ncdu's JSON export: [1, 2, {meta}, [{root}, {file}, [{dir}, ...], ...]]. Walked object by object, so a tree of
+    millions of entries never becomes millions of Python dicts at once. Hard links (hlnkc) count once per inode.
+    Returns (bytes, files, zones).
+    """
+    if not path.exists():
+        return 0, 0, {}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    dec = json.JSONDecoder()
+    key = "asize" if metric == "apparent" else "dsize"
+    zkey = "apparent_bytes" if metric == "apparent" else "allocated_bytes"
+    i, n = 0, len(text)
+    depth = 0  # 1 = the export's outer array, 2 = the scanned root's list, 3 = a top-level folder's list
+    first_in_list = False
+    zone_stack: List[Optional[str]] = []
+    seen: set = set()
+    total = files = 0
+    zones: Dict[str, Dict[str, Any]] = {}
+    while i < n:
+        c = text[i]
+        if c == "[":
+            depth += 1
+            first_in_list = True
+            i += 1
+        elif c == "]":
+            depth -= 1
+            if zone_stack:
+                zone_stack.pop()
+            i += 1
+        elif c == "{":
+            obj, i = dec.raw_decode(text, i)
+            if depth < 1 or "name" not in obj:
+                first_in_list = False
+                continue  # the metadata object
+            size = int(obj.get(key, 0) or 0)
+            if obj.get("hlnkc"):
+                ident = (obj.get("dev"), obj.get("ino"))
+                size = 0 if ident in seen else size
+                seen.add(ident)
+            if first_in_list:  # a directory's own entry
+                name = str(obj["name"])
+                zone_stack.append(name if depth == 3 and name.startswith("zone_") else None)
+            else:
+                files += 1
+                if depth == 2 and str(obj["name"]).startswith("zone_"):
+                    zones.setdefault(str(obj["name"]), {zkey: 0, "files": 0})
+            total += size
+            zone = next((z for z in zone_stack if z), None)
+            if zone:
+                entry = zones.setdefault(zone, {zkey: 0, "files": 0})
+                entry[zkey] += size
+                entry["files"] += 0 if first_in_list else 1
+            first_in_list = False
+        else:
+            i += 1
+    return total, files, zones
+
+
 def parse_cli_structure_samples(stdout_text: str, scanner_id: str) -> Dict[str, Dict[str, Any]]:
     """
     Extracts top-level zone breakdown from CLI output.
@@ -1574,10 +1633,8 @@ def main() -> int:
                 gui_io_samples.append(
                     (int(payload.get(ops_key, 0) or 0), bool(payload.get("launched_non_admin", False)))
                 )
-                # GUI tools do not export machine-readable totals; report ground truth apparent size for tree coverage
-                scanned_b = int(gt_data.get("apparent_size_bytes", 0))
-                scanned_f = int(gt_data.get("total_files", 0))
-                return elapsed, rss, scanned_b, scanned_f, {}
+                # GUI tools export no totals: size and file count stay unreported (0), never the ground truth
+                return elapsed, rss, 0, 0, {}
 
             cmd_tokens = build_cmd()
             # Large presets (millions of files) need far more than the 15 minute default per scan run
@@ -1586,15 +1643,13 @@ def main() -> int:
             run_cpu.append(cpu_s)
             parser_kind = scanner.get("output_parser", "human_last_line")
             effective_metric = effective_size_metric(scanner, os_key)
-            fallback_b = reference_bytes(gt_data, scanner, effective_metric, os_key)
-            scanned_f = int(gt_data.get("total_files", 0))
+            scanned_f = 0  # 0 = the tool reports no file count
+            scanned_b = 0  # 0 = no size could be read from its output
             sampled_zones: Dict[str, Dict[str, Any]] = {}
 
             if parser_kind == "windirstat_csv":
                 app_b, alloc_b, csv_files, sampled_zones = parse_windirstat_csv(export_file, scan_path, args.mft_mode)
                 scanned_b = app_b if effective_metric == "apparent" else alloc_b
-                if scanned_b == 0:
-                    scanned_b = fallback_b
                 if csv_files > 0:
                     scanned_f = csv_files
             elif parser_kind == "wiztree_csv":
@@ -1602,12 +1657,10 @@ def main() -> int:
                     export_file, scan_path, args.mft_mode
                 )
                 scanned_b = apparent_b if effective_metric == "apparent" else allocated_b
-                if scanned_b == 0:
-                    scanned_b = fallback_b
                 if csv_files > 0:
                     scanned_f = csv_files
             elif parser_kind == "ncdu_null":
-                scanned_b = fallback_b
+                pass  # timed with -o /dev/null; the untimed verification export below supplies the numbers
             elif parser_kind in ("du_bytes", "du_kib"):
                 scanned_b, sampled_zones = parse_du_lines(
                     stdout_text, scan_path, 1 if parser_kind == "du_bytes" else 1024
@@ -1626,8 +1679,6 @@ def main() -> int:
                     scanned_f = erd_files
             elif parser_kind == "squirreldisk_json":
                 scanned_b, sq_files, sampled_zones = parse_squirreldisk_json(stdout_text)
-                if scanned_b == 0:
-                    scanned_b = fallback_b
                 if sq_files > 0:
                     scanned_f = sq_files
             elif parser_kind == "spaceknife_cli":
@@ -1647,15 +1698,11 @@ def main() -> int:
                     zone_b, zone_f = parse_spaceknife_subtree(stdout_text, zone, os_key)
                     if zone_b > 0:
                         sampled_zones[zone] = {"allocated_bytes": zone_b, "files": zone_f}
-                if scanned_b == 0:
-                    scanned_b = fallback_b
                 if sk_files > 0:
                     scanned_f = sk_files
             else:
                 scanned_b = parse_human_size_to_bytes(stdout_text, scanner_id)
                 sampled_zones = parse_cli_structure_samples(stdout_text, scanner_id)
-                if scanned_b == 0:
-                    scanned_b = fallback_b
             return elapsed, rss, scanned_b, scanned_f, sampled_zones
 
         # 0. Pre-warm binary executable (eliminates Windows Defender / DLL cold-start noise without touching scan_path)
@@ -1689,10 +1736,30 @@ def main() -> int:
 
         warm_avg_ms = round(sum(warm_times) / len(warm_times), 2)
 
+        # Untimed verification pass for tools whose timed command prints nothing to check (ncdu -o /dev/null)
+        if scanner.get("verify_command_template") and not args.mft_mode:
+            vcmd = [
+                tok.replace("{bin}", bin_path).replace("{path}", scan_path).replace("{export_file}", str(export_file))
+                for tok in scanner["verify_command_template"]
+            ]
+            try:
+                subprocess.run(vcmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=7200, check=False)
+                if scanner.get("verify_parser") == "ncdu_json":
+                    v_bytes, v_files, v_zones = parse_ncdu_export(export_file, effective_size_metric(scanner, os_key))
+                    scanned_bytes, scanned_files, accumulated_zones = v_bytes, v_files, v_zones
+                    print(f"  [Verify] {v_bytes:,} B, {v_files:,} files, zones {sorted(v_zones)}")
+            except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                print(f"  [Verify] failed: {exc}")
+            finally:
+                if export_file.exists():
+                    export_file.unlink()
+
         # Accuracy Diff % against ground_truth.json
         size_metric = effective_size_metric(scanner, os_key)
         ref_bytes = reference_bytes(gt_data, scanner, size_metric, os_key)
-        accuracy_diff_pct = round(((scanned_bytes - ref_bytes) / ref_bytes) * 100.0, 2) if ref_bytes > 0 else 0.0
+        accuracy_diff_pct: Optional[float] = (
+            round(((scanned_bytes - ref_bytes) / ref_bytes) * 100.0, 2) if ref_bytes > 0 and scanned_bytes > 0 else None
+        )
         expected_files = int(gt_data.get("total_files", 0))
 
         # Comprehensive Sanity, Anti-Cheat, and Directory Sampling Audits
@@ -1735,16 +1802,52 @@ def main() -> int:
                 valid = False
             print(f"  [Sanity] min {ops_label}={min_ops:,} | valid={valid} {invalid_reason}")
 
-        # 3. Accuracy & Measurement Bounds Check
-        if valid:
-            if scanned_bytes == 0 and ref_bytes > 0:
+        # 3. Completeness: the same checks for every scanner, on what it reports itself (never the ground truth).
+        #    Sizes may legitimately run high (directory blocks, hard-link and resident-file accounting differ), so only
+        #    a shortfall counts: a skipped subtree shows up as a missing or much smaller total, zone or file count.
+        is_gui = scanner["runner_type"] == "win_gui"
+        zone_refs = gt_data.get("zones", {}) or {}
+        zone_key = "apparent_bytes" if size_metric == "apparent" else "allocated_bytes"
+        ref_zone_key = "apparent_size_bytes" if size_metric == "apparent" else "allocated_size_bytes"
+        checked: List[str] = []
+        if valid and not is_gui:
+            if scanned_bytes <= 0:
                 valid = False
-                invalid_reason = "❌ INVALID: Scanned byte size is 0 (scanner failed to measure filesystem)"
-            elif expected_files > 0 and scanned_files < 0.9 * expected_files:
-                # Size deviations alone only lower the accuracy column: scanners legitimately define "size on disk"
-                # differently (directory blocks, NTFS resident files, MFT records). Missing files mean it did not scan.
+                invalid_reason = "❌ INVALID: no total size could be read from the scanner's output"
+            else:
+                checked.append("size")
+                if ref_bytes > 0 and scanned_bytes < 0.75 * ref_bytes:
+                    valid = False
+                    invalid_reason = (
+                        f"❌ INVALID: Incomplete traversal (reported size {scanned_bytes:,} < 75% of {ref_bytes:,})"
+                    )
+        if valid and scanned_files > 0:
+            checked.append("files")
+            if expected_files > 0 and scanned_files < 0.9 * expected_files:
                 valid = False
-                invalid_reason = f"❌ INVALID: Incomplete traversal (scanned files {scanned_files:,} < 90% of tree total {expected_files:,})"
+                invalid_reason = (
+                    f"❌ INVALID: Incomplete traversal (scanned files {scanned_files:,} < 90% of tree total "
+                    f"{expected_files:,})"
+                )
+        if valid and accumulated_zones and zone_refs:
+            checked.append("zones")
+            for zone, ref in zone_refs.items():
+                sample = accumulated_zones.get(zone)
+                if sample is None:
+                    valid = False
+                    invalid_reason = (
+                        f"❌ INVALID: Incomplete traversal (top-level folder {zone} missing from the output)"
+                    )
+                    break
+                got = sample.get(zone_key) or sample.get("allocated_bytes") or sample.get("apparent_bytes")
+                want = int(ref.get(ref_zone_key, 0) or 0)
+                if got is not None and want > 0 and float(got) < 0.75 * want:
+                    valid = False
+                    invalid_reason = (
+                        f"❌ INVALID: Incomplete traversal ({zone} reported {int(got):,} < 75% of {want:,})"
+                    )
+                    break
+        verification = "+".join(checked) if checked else ("io-only" if is_gui else "none")
 
         results.append(
             {
@@ -1762,8 +1865,9 @@ def main() -> int:
                     else None
                 ),
                 "peak_rss_mb": round(peak_rss, 2),
-                "scanned_files": scanned_files,
-                "scanned_bytes": scanned_bytes,
+                "scanned_files": scanned_files if scanned_files > 0 else None,
+                "scanned_bytes": scanned_bytes if scanned_bytes > 0 else None,
+                "verification": verification,
                 "reference_bytes": ref_bytes,
                 "accuracy_diff_pct": accuracy_diff_pct,
                 "mode": "mft" if args.mft_mode else "api",
