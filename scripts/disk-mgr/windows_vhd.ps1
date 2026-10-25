@@ -146,13 +146,25 @@ function Wait-BenchVolume([string]$Letter, [string]$FileSystem) {
         if (Test-Path "${Letter}:\") {
             if (-not $FileSystem -or ((fsutil fsinfo volumeinfo "${Letter}:" | Out-String) -match $FileSystem)) { return }
         }
-        if ($i -eq 20 -and $FileSystem) {
+        if (($i -eq 10 -or $i -eq 30) -and $FileSystem) {
+            # The letter can stay on the partition's old (raw) volume while the filesystem driver mounts its own volume
+            # device: take the letter off the old one and give it to the volume that has the filesystem
             $vol = Get-CimInstance Win32_Volume -Filter "FileSystem='$FileSystem'" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($vol) { mountvol "${Letter}:" $vol.DeviceID | Out-Null }
+            if ($vol -and $vol.DriveLetter -ne "${Letter}:") {
+                mountvol "${Letter}:" /D 2>$null | Out-Null
+                mountvol "${Letter}:" $vol.DeviceID | Out-Null
+                Write-Host "[windows_vhd] moved ${Letter}: to the $FileSystem volume $($vol.DeviceID)"
+            }
         }
         Start-Sleep -Seconds 1
     }
-    if (-not (Test-Path "${Letter}:\")) { throw "Volume ${Letter}: did not come back" }
+    if (-not (Test-Path "${Letter}:\")) {
+        Write-Host "[windows_vhd] volumes:"
+        Get-CimInstance Win32_Volume | Format-Table DriveLetter, FileSystem, Label, Capacity, DeviceID -AutoSize | Out-String -Width 220 | Write-Host
+        Get-Partition -ErrorAction SilentlyContinue | Format-Table DiskNumber, PartitionNumber, DriveLetter, Size, Type -AutoSize | Out-String | Write-Host
+        mountvol | Write-Host
+        throw "Volume ${Letter}: did not come back"
+    }
 }
 
 switch ($Action) {
