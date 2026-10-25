@@ -1,0 +1,1045 @@
+{
+ "meta": {
+  "kind": "standard",
+  "preset": "low",
+  "run_id": "40207921185",
+  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40207921185",
+  "sha": "36e418bf20ea7159babc1f1f736300df2c47dde6",
+  "date": "2026-10-25"
+ },
+ "payload": {
+  "schema": 2,
+  "preset": "low",
+  "sha": "36e418bf20ea7159babc1f1f736300df2c47dde6",
+  "files": 1000006,
+  "dirs": 120911,
+  "aged_timeline": false,
+  "platforms": [
+   "linux-x86_64",
+   "linux-arm64",
+   "macos-x86_64",
+   "macos-arm64",
+   "windows-x86_64",
+   "windows-arm64",
+   "windows-x86_64-refs"
+  ],
+  "platform_info": {
+   "linux-x86_64": {
+    "title": "Linux x64 (ext4)",
+    "cores": 4,
+    "iops": 19604.016645069863,
+    "cpu_ms": 88.808292,
+    "ok": 9,
+    "tried": 9,
+    "fastest_cold": "diskus",
+    "fastest_warm": "squirreldisk"
+   },
+   "linux-arm64": {
+    "title": "Linux ARM64 (ext4)",
+    "cores": 4,
+    "iops": 19517.56362797098,
+    "cpu_ms": 114.67011600000001,
+    "ok": 7,
+    "tried": 7,
+    "fastest_cold": "gdu",
+    "fastest_warm": "diskus"
+   },
+   "macos-x86_64": {
+    "title": "macOS x64 (APFS)",
+    "cores": 4,
+    "iops": 1233714.905614492,
+    "cpu_ms": 230.940542,
+    "ok": 9,
+    "tried": 9,
+    "fastest_cold": "squirreldisk",
+    "fastest_warm": "squirreldisk"
+   },
+   "macos-arm64": {
+    "title": "macOS ARM64 (APFS)",
+    "cores": 3,
+    "iops": 1358317.3153343797,
+    "cpu_ms": 110.51279099999999,
+    "ok": 8,
+    "tried": 8,
+    "fastest_cold": "diskus",
+    "fastest_warm": "squirreldisk"
+   },
+   "windows-x86_64": {
+    "title": "Win x64 (NTFS)",
+    "cores": 4,
+    "iops": 11351.264074623845,
+    "cpu_ms": 85.03139999999999,
+    "ok": 10,
+    "tried": 10,
+    "fastest_cold": "windirstat",
+    "fastest_warm": "spaceknife"
+   },
+   "windows-arm64": {
+    "title": "Win ARM64 (NTFS)",
+    "cores": 4,
+    "iops": 6185.125937837971,
+    "cpu_ms": 109.559,
+    "ok": 5,
+    "tried": 5,
+    "fastest_cold": "windirstat",
+    "fastest_warm": "spaceknife"
+   },
+   "windows-x86_64-refs": {
+    "title": "Win x64 (ReFS)",
+    "cores": 4,
+    "iops": 6161.703556092948,
+    "cpu_ms": 103.7435,
+    "ok": 10,
+    "tried": 10,
+    "fastest_cold": "windirstat",
+    "fastest_warm": "spaceknife"
+   }
+  },
+  "missing_platforms": [],
+  "scanners": {
+   "diskus": {
+    "name": "diskus",
+    "version": "0.9.0"
+   },
+   "gdu": {
+    "name": "gdu",
+    "version": "5.38.0"
+   },
+   "squirreldisk": {
+    "name": "squirreldisk",
+    "version": "2.6.1"
+   },
+   "spaceknife": {
+    "name": "spaceknife-backend",
+    "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)"
+   },
+   "pdu": {
+    "name": "pdu",
+    "version": "0.24.0"
+   },
+   "dust": {
+    "name": "dust",
+    "version": "1.2.6"
+   },
+   "dua": {
+    "name": "dua-cli",
+    "version": "2.46.0"
+   },
+   "erdtree": {
+    "name": "erdtree",
+    "version": "3.1.2"
+   },
+   "ncdu": {
+    "name": "ncdu",
+    "version": "2.9.2"
+   },
+   "windirstat": {
+    "name": "WinDirStat",
+    "version": "2.9.3"
+   },
+   "wiztree": {
+    "name": "WizTree64",
+    "version": "4.33"
+   },
+   "spacesniffer": {
+    "name": "SpaceSniffer",
+    "version": "2.2.0.27"
+   }
+  },
+  "overall": [
+   {
+    "id": "spaceknife",
+    "scanner": "spaceknife-backend",
+    "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)",
+    "overall": 90.37818867608152,
+    "cold": 82.01375198229132,
+    "warm": 95.81401282443323,
+    "index": 93.9453285125859,
+    "rss_mb": 249.33,
+    "abs_acc_pct": 0.67,
+    "valid_platforms": 7,
+    "entered_platforms": 7,
+    "wins": 3,
+    "rank": 1
+   },
+   {
+    "id": "squirreldisk",
+    "scanner": "squirreldisk",
+    "version": "2.6.1",
+    "overall": 81.93352864953228,
+    "cold": 76.83731414749938,
+    "warm": 82.90023926662097,
+    "index": 86.3489414001737,
+    "rss_mb": 30.1,
+    "abs_acc_pct": 0.81,
+    "valid_platforms": 5,
+    "entered_platforms": 5,
+    "wins": 3,
+    "rank": 2
+   },
+   {
+    "id": "dua",
+    "scanner": "dua-cli",
+    "version": "2.46.0",
+    "overall": 60.89967709680173,
+    "cold": 70.74744811431519,
+    "warm": 51.0113707570684,
+    "index": 62.58455903092331,
+    "rss_mb": 46.04,
+    "abs_acc_pct": 0.0,
+    "valid_platforms": 7,
+    "entered_platforms": 7,
+    "wins": 0,
+    "rank": 3
+   },
+   {
+    "id": "gdu",
+    "scanner": "gdu",
+    "version": "5.38.0",
+    "overall": 58.90953806611649,
+    "cold": 49.85689939471665,
+    "warm": 63.814895479794785,
+    "index": 64.25538400164842,
+    "rss_mb": 44.7,
+    "abs_acc_pct": 0.58,
+    "valid_platforms": 7,
+    "entered_platforms": 7,
+    "wins": 0,
+    "rank": 4
+   },
+   {
+    "id": "wiztree",
+    "scanner": "WizTree64",
+    "version": "4.33",
+    "overall": 51.476709721899255,
+    "cold": 63.94689754866206,
+    "warm": 36.100270839774566,
+    "index": 59.08842318124755,
+    "rss_mb": 521.375,
+    "abs_acc_pct": 0.58,
+    "valid_platforms": 2,
+    "entered_platforms": 2,
+    "wins": 0,
+    "rank": 5
+   },
+   {
+    "id": "windirstat",
+    "scanner": "WinDirStat",
+    "version": "2.9.3",
+    "overall": 50.39162213932998,
+    "cold": 100.00000000000004,
+    "warm": 24.879186310168834,
+    "index": 51.432643213070385,
+    "rss_mb": 247.81,
+    "abs_acc_pct": 0.58,
+    "valid_platforms": 3,
+    "entered_platforms": 3,
+    "wins": 0,
+    "rank": 6
+   },
+   {
+    "id": "diskus",
+    "scanner": "diskus",
+    "version": "0.9.0",
+    "overall": 46.71033745690324,
+    "cold": 66.58187702141139,
+    "warm": 32.98150662840413,
+    "index": 46.41009842838963,
+    "rss_mb": 29.759999999999998,
+    "abs_acc_pct": 0.29,
+    "valid_platforms": 6,
+    "entered_platforms": 6,
+    "wins": 1,
+    "rank": 7
+   },
+   {
+    "id": "erdtree",
+    "scanner": "erdtree",
+    "version": "3.1.2",
+    "overall": 40.83418441382371,
+    "cold": 46.86446011144247,
+    "warm": 34.34048931407381,
+    "index": 42.307908854958605,
+    "rss_mb": 866.0799999999999,
+    "abs_acc_pct": 0.1,
+    "valid_platforms": 4,
+    "entered_platforms": 4,
+    "wins": 0,
+    "rank": 8
+   },
+   {
+    "id": "ncdu",
+    "scanner": "ncdu",
+    "version": "2.9.2",
+    "overall": 38.32587156068252,
+    "cold": 29.04250006907989,
+    "warm": 33.12711218969212,
+    "index": 58.5138321999813,
+    "rss_mb": 210.85,
+    "abs_acc_pct": 0.0,
+    "valid_platforms": 4,
+    "entered_platforms": 4,
+    "wins": 0,
+    "rank": 9
+   },
+   {
+    "id": "pdu",
+    "scanner": "pdu",
+    "version": "0.24.0",
+    "overall": 36.92725816156249,
+    "cold": 53.63522354515437,
+    "warm": 24.161063737359612,
+    "index": 38.857516648104074,
+    "rss_mb": 29.404999999999998,
+    "abs_acc_pct": 0.29,
+    "valid_platforms": 4,
+    "entered_platforms": 4,
+    "wins": 0,
+    "rank": 10
+   },
+   {
+    "id": "dust",
+    "scanner": "dust",
+    "version": "1.2.6",
+    "overall": 30.55299274167927,
+    "cold": 47.39982904489024,
+    "warm": 18.262375129080684,
+    "index": 32.94786181940866,
+    "rss_mb": 391.06,
+    "abs_acc_pct": 0.5,
+    "valid_platforms": 7,
+    "entered_platforms": 7,
+    "wins": 0,
+    "rank": 11
+   },
+   {
+    "id": "spacesniffer",
+    "scanner": "SpaceSniffer",
+    "version": "2.2.0.27",
+    "overall": 21.143954655448603,
+    "cold": 31.687597632633544,
+    "warm": 9.685085215095087,
+    "index": 30.801076488049386,
+    "rss_mb": 552.605,
+    "abs_acc_pct": null,
+    "valid_platforms": 2,
+    "entered_platforms": 2,
+    "wins": 0,
+    "rank": 12
+   }
+  ],
+  "unranked": [],
+  "per_platform": {
+   "linux-x86_64": {
+    "diskus": {
+     "status": "ok",
+     "cold_s": 8.35732,
+     "warm_s": 3.0645300000000004,
+     "cold_rel": 100.0,
+     "warm_rel": 51.28453629104626,
+     "index_rel": 69.48616574918411,
+     "platform_score": 70.89706560605406,
+     "rss_mb": 17.16,
+     "acc_pct": 0.0,
+     "rank": 4
+    },
+    "gdu": {
+     "status": "ok",
+     "cold_s": 9.406780000000001,
+     "warm_s": 2.15632,
+     "cold_rel": 88.84357878041158,
+     "warm_rel": 72.88482228982711,
+     "index_rel": 81.12934659424864,
+     "platform_score": 80.68888371342608,
+     "rss_mb": 53.89,
+     "acc_pct": 0.0,
+     "rank": 3
+    },
+    "squirreldisk": {
+     "status": "ok",
+     "cold_s": 9.78011,
+     "warm_s": 1.57163,
+     "cold_rel": 85.45220861524052,
+     "warm_rel": 100.0,
+     "index_rel": 97.64341781638898,
+     "platform_score": 94.14315635829952,
+     "rss_mb": 30.1,
+     "acc_pct": 6.6,
+     "rank": 1
+    },
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 9.96526,
+     "warm_s": 1.6101400000000001,
+     "cold_rel": 83.86454543082668,
+     "warm_rel": 97.60828250959544,
+     "index_rel": 99.46203981106659,
+     "platform_score": 93.37719203672596,
+     "rss_mb": 251.66,
+     "acc_pct": 0.04,
+     "rank": 2
+    },
+    "pdu": {
+     "status": "ok",
+     "cold_s": 10.50159,
+     "warm_s": 2.81264,
+     "cold_rel": 79.58147290077025,
+     "warm_rel": 55.87739632516071,
+     "index_rel": 72.7469570677864,
+     "platform_score": 68.64690930491916,
+     "rss_mb": 50.19,
+     "acc_pct": 0.0,
+     "rank": 5
+    },
+    "dust": {
+     "status": "ok",
+     "cold_s": 11.541360000000001,
+     "warm_s": 5.35766,
+     "cold_rel": 72.41191679316822,
+     "warm_rel": 29.334261599280286,
+     "index_rel": 52.648895856722476,
+     "platform_score": 48.179041686764414,
+     "rss_mb": 393.36,
+     "acc_pct": -0.16,
+     "rank": 8
+    },
+    "dua": {
+     "status": "ok",
+     "cold_s": 11.75921,
+     "warm_s": 4.35977,
+     "cold_rel": 71.07042054695852,
+     "warm_rel": 36.048461272039575,
+     "index_rel": 53.79930475868097,
+     "platform_score": 51.655601944760065,
+     "rss_mb": 14.66,
+     "acc_pct": 0.0,
+     "rank": 6
+    },
+    "erdtree": {
+     "status": "ok",
+     "cold_s": 13.20548,
+     "warm_s": 4.272939999999999,
+     "cold_rel": 63.28675671009309,
+     "warm_rel": 36.78099856305027,
+     "index_rel": 53.4346303702967,
+     "platform_score": 49.91752624904203,
+     "rss_mb": 859.35,
+     "acc_pct": -0.1,
+     "rank": 7
+    },
+    "ncdu": {
+     "status": "ok",
+     "cold_s": 30.1335,
+     "warm_s": 3.97204,
+     "cold_rel": 27.73431562878524,
+     "warm_rel": 39.56732560598584,
+     "index_rel": 65.47583462260607,
+     "platform_score": 41.57303502926743,
+     "rss_mb": 3.36,
+     "acc_pct": 0.0,
+     "rank": 9
+    }
+   },
+   "linux-arm64": {
+    "gdu": {
+     "status": "ok",
+     "cold_s": 7.3621099999999995,
+     "warm_s": 1.0651,
+     "cold_rel": 100.0,
+     "warm_rel": 74.70566144024036,
+     "index_rel": 84.04280130963033,
+     "platform_score": 85.62843600057937,
+     "rss_mb": 44.7,
+     "acc_pct": 0.0,
+     "rank": 3
+    },
+    "diskus": {
+     "status": "ok",
+     "cold_s": 7.83368,
+     "warm_s": 0.79569,
+     "cold_rel": 93.98022385392305,
+     "warm_rel": 100.0,
+     "index_rel": 94.93668900320881,
+     "platform_score": 96.26982569090286,
+     "rss_mb": 30.79,
+     "acc_pct": 0.0,
+     "rank": 1
+    },
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 7.96176,
+     "warm_s": 0.87142,
+     "cold_rel": 92.46837382689253,
+     "warm_rel": 91.30958665167199,
+     "index_rel": 100.0,
+     "platform_score": 94.51553543003564,
+     "rss_mb": 249.33,
+     "acc_pct": 0.04,
+     "rank": 2
+    },
+    "dua": {
+     "status": "ok",
+     "cold_s": 9.09722,
+     "warm_s": 5.29654,
+     "cold_rel": 80.92703045545782,
+     "warm_rel": 15.022826222401795,
+     "index_rel": 35.85471895714015,
+     "platform_score": 35.193613232451234,
+     "rss_mb": 12.02,
+     "acc_pct": 0.0,
+     "rank": 6
+    },
+    "dust": {
+     "status": "ok",
+     "cold_s": 9.1258,
+     "warm_s": 5.13672,
+     "cold_rel": 80.67358478160818,
+     "warm_rel": 15.490235013783115,
+     "index_rel": 38.20165404572413,
+     "platform_score": 36.27637170265388,
+     "rss_mb": 391.06,
+     "acc_pct": -0.16,
+     "rank": 5
+    },
+    "erdtree": {
+     "status": "ok",
+     "cold_s": 11.23715,
+     "warm_s": 5.80079,
+     "cold_rel": 65.5158113934583,
+     "warm_rel": 13.716924763695982,
+     "index_rel": 31.628007716268858,
+     "platform_score": 30.518152500717772,
+     "rss_mb": 842.16,
+     "acc_pct": -0.1,
+     "rank": 7
+    },
+    "ncdu": {
+     "status": "ok",
+     "cold_s": 22.82389,
+     "warm_s": 2.09211,
+     "cold_rel": 32.25615791173196,
+     "warm_rel": 38.03289501986033,
+     "index_rel": 65.13735382829549,
+     "platform_score": 43.072562607398005,
+     "rss_mb": 3.05,
+     "acc_pct": 0.0,
+     "rank": 4
+    }
+   },
+   "macos-x86_64": {
+    "squirreldisk": {
+     "status": "ok",
+     "cold_s": 19.00395,
+     "warm_s": 18.96865,
+     "cold_rel": 100.0,
+     "warm_rel": 100.0,
+     "index_rel": 100.0,
+     "platform_score": 100.00000000000004,
+     "rss_mb": 418.34,
+     "acc_pct": 0.0,
+     "rank": 1
+    },
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 21.61774,
+     "warm_s": 20.05294,
+     "cold_rel": 87.90905062231296,
+     "warm_rel": 94.5928626924531,
+     "index_rel": 77.77337610472935,
+     "platform_score": 86.4783982189183,
+     "rss_mb": 418.34,
+     "acc_pct": 0.01,
+     "rank": 2
+    },
+    "pdu": {
+     "status": "ok",
+     "cold_s": 32.01243,
+     "warm_s": 45.48927,
+     "cold_rel": 59.36428443576448,
+     "warm_rel": 41.699174332760236,
+     "index_rel": 50.41210009298589,
+     "platform_score": 49.97227957089656,
+     "rss_mb": 418.34,
+     "acc_pct": 0.0,
+     "rank": 5
+    },
+    "dua": {
+     "status": "ok",
+     "cold_s": 34.84413,
+     "warm_s": 27.31156,
+     "cold_rel": 54.53988950219162,
+     "warm_rel": 69.45282510409511,
+     "index_rel": 56.25235752035377,
+     "platform_score": 59.72850337377571,
+     "rss_mb": 46.04,
+     "acc_pct": -0.0,
+     "rank": 3
+    },
+    "diskus": {
+     "status": "ok",
+     "cold_s": 35.304370000000006,
+     "warm_s": 32.24881,
+     "cold_rel": 53.82888860500839,
+     "warm_rel": 58.81968978080122,
+     "index_rel": 49.51411460805732,
+     "platform_score": 53.92072464933947,
+     "rss_mb": 418.34,
+     "acc_pct": 0.0,
+     "rank": 4
+    },
+    "dust": {
+     "status": "ok",
+     "cold_s": 48.918169999999996,
+     "warm_s": 46.79893,
+     "cold_rel": 38.84844833729471,
+     "warm_rel": 40.532230117227044,
+     "index_rel": 42.36144489411368,
+     "platform_score": 40.55536495100464,
+     "rss_mb": 418.34,
+     "acc_pct": -0.38,
+     "rank": 6
+    },
+    "erdtree": {
+     "status": "ok",
+     "cold_s": 63.92293,
+     "warm_s": 44.43804,
+     "cold_rel": 29.72947266340889,
+     "warm_rel": 42.68561349690491,
+     "index_rel": 34.459747863552955,
+     "platform_score": 35.23116002055085,
+     "rss_mb": 872.81,
+     "acc_pct": 0.0,
+     "rank": 7
+    },
+    "ncdu": {
+     "status": "ok",
+     "cold_s": 77.14352000000001,
+     "warm_s": 69.12142,
+     "cold_rel": 24.634538325448464,
+     "warm_rel": 27.44250624480805,
+     "index_rel": 47.284312334093286,
+     "platform_score": 31.73669943833231,
+     "rss_mb": 418.34,
+     "acc_pct": 0.0,
+     "rank": 8
+    },
+    "gdu": {
+     "status": "ok",
+     "cold_s": 102.69412,
+     "warm_s": 50.57586,
+     "cold_rel": 18.50539251906536,
+     "warm_rel": 37.50534345832182,
+     "index_rel": 30.093968070740157,
+     "platform_score": 27.539558148339076,
+     "rss_mb": 46.04,
+     "acc_pct": -0.02,
+     "rank": 9
+    }
+   },
+   "macos-arm64": {
+    "diskus": {
+     "status": "ok",
+     "cold_s": 12.62083,
+     "warm_s": 20.20661,
+     "cold_rel": 100.0,
+     "warm_rel": 54.627817333041016,
+     "index_rel": 72.42943508835387,
+     "platform_score": 73.41356522751842,
+     "rss_mb": 529.59,
+     "acc_pct": 34.97,
+     "rank": 4
+    },
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 14.31424,
+     "warm_s": 12.55352,
+     "cold_rel": 88.16975263793258,
+     "warm_rel": 87.9309548238263,
+     "index_rel": 85.24866297994006,
+     "platform_score": 87.1063192403924,
+     "rss_mb": 529.59,
+     "acc_pct": 34.9,
+     "rank": 2
+    },
+    "squirreldisk": {
+     "status": "ok",
+     "cold_s": 14.71241,
+     "warm_s": 11.03843,
+     "cold_rel": 85.78356639055056,
+     "warm_rel": 100.0,
+     "index_rel": 100.0,
+     "platform_score": 95.01701131766869,
+     "rss_mb": 529.59,
+     "acc_pct": 34.97,
+     "rank": 1
+    },
+    "dua": {
+     "status": "ok",
+     "cold_s": 17.54006,
+     "warm_s": 11.93348,
+     "cold_rel": 71.95431486551357,
+     "warm_rel": 92.49967318837423,
+     "index_rel": 79.55855592769365,
+     "platform_score": 80.90238238305957,
+     "rss_mb": 45.25,
+     "acc_pct": 34.97,
+     "rank": 3
+    },
+    "dust": {
+     "status": "ok",
+     "cold_s": 22.247619999999998,
+     "warm_s": 22.49754,
+     "cold_rel": 56.72889954071492,
+     "warm_rel": 49.06505333472015,
+     "index_rel": 60.47694379433764,
+     "platform_score": 55.21479830432893,
+     "rss_mb": 529.59,
+     "acc_pct": 34.03,
+     "rank": 5
+    },
+    "erdtree": {
+     "status": "ok",
+     "cold_s": 32.25222,
+     "warm_s": 17.09398,
+     "cold_rel": 39.131662874679634,
+     "warm_rel": 64.57495562765372,
+     "index_rel": 55.01479502538278,
+     "platform_score": 51.803285692536235,
+     "rss_mb": 955.06,
+     "acc_pct": 34.97,
+     "rank": 6
+    },
+    "ncdu": {
+     "status": "ok",
+     "cold_s": 39.09547,
+     "warm_s": 37.85235,
+     "cold_rel": 32.28207769340028,
+     "warm_rel": 29.161808976193026,
+     "index_rel": 58.13075126776079,
+     "platform_score": 37.96592262466758,
+     "rss_mb": 529.59,
+     "acc_pct": 0.0,
+     "rank": 7
+    },
+    "gdu": {
+     "status": "ok",
+     "cold_s": 100.82126,
+     "warm_s": 37.13024,
+     "cold_rel": 12.518024472219452,
+     "warm_rel": 29.728948695187533,
+     "index_rel": 31.22180867993659,
+     "platform_score": 22.649457381162282,
+     "rss_mb": 45.25,
+     "acc_pct": 34.76,
+     "rank": 8
+    }
+   },
+   "windows-x86_64": {
+    "windirstat": {
+     "status": "ok",
+     "cold_s": 10.8494,
+     "warm_s": 5.02072,
+     "cold_rel": 100.0,
+     "warm_rel": 27.41120795423764,
+     "index_rel": 53.17316883023353,
+     "platform_score": 52.62679301670351,
+     "rss_mb": 247.81,
+     "acc_pct": 0.58,
+     "rank": 5
+    },
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 13.68718,
+     "warm_s": 1.37624,
+     "cold_rel": 79.26687601098253,
+     "warm_rel": 100.0,
+     "index_rel": 100.0,
+     "platform_score": 92.54733433665764,
+     "rss_mb": 207.56,
+     "acc_pct": 0.67,
+     "rank": 1
+    },
+    "dua": {
+     "status": "ok",
+     "cold_s": 13.70062,
+     "warm_s": 1.77271,
+     "cold_rel": 79.18911698886619,
+     "warm_rel": 77.63480772376757,
+     "index_rel": 84.10058478091503,
+     "platform_score": 80.26144959485022,
+     "rss_mb": 85.22,
+     "acc_pct": 0.01,
+     "rank": 3
+    },
+    "gdu": {
+     "status": "ok",
+     "cold_s": 13.88799,
+     "warm_s": 1.4018,
+     "cold_rel": 78.12073597403224,
+     "warm_rel": 98.17663004708233,
+     "index_rel": 94.07986636794818,
+     "platform_score": 89.69268937093801,
+     "rss_mb": 35.94,
+     "acc_pct": 0.58,
+     "rank": 2
+    },
+    "wiztree": {
+     "status": "ok",
+     "cold_s": 17.012790000000003,
+     "warm_s": 4.56407,
+     "cold_rel": 63.772020932486676,
+     "warm_rel": 30.153788175904406,
+     "index_rel": 55.9208202031105,
+     "platform_score": 47.553431786017484,
+     "rss_mb": 525.91,
+     "acc_pct": 0.58,
+     "rank": 6
+    },
+    "squirreldisk": {
+     "status": "ok",
+     "cold_s": 21.11309,
+     "warm_s": 2.52527,
+     "cold_rel": 51.38707787443714,
+     "warm_rel": 54.49872686881007,
+     "index_rel": 58.23422818634929,
+     "platform_score": 54.63524157446785,
+     "rss_mb": 28.89,
+     "acc_pct": 0.7,
+     "rank": 4
+    },
+    "diskus": {
+     "status": "ok",
+     "cold_s": 30.79841,
+     "warm_s": 9.26052,
+     "cold_rel": 35.22714321940646,
+     "warm_rel": 14.861368476068298,
+     "index_rel": 24.02593903569867,
+     "platform_score": 23.25620601835595,
+     "rss_mb": 28.73,
+     "acc_pct": 0.63,
+     "rank": 7
+    },
+    "pdu": {
+     "status": "ok",
+     "cold_s": 31.91819,
+     "warm_s": 9.118379999999998,
+     "cold_rel": 33.991275821091364,
+     "warm_rel": 15.09303187627627,
+     "index_rel": 24.505424263407672,
+     "platform_score": 23.252450414155042,
+     "rss_mb": 8.46,
+     "acc_pct": 0.63,
+     "rank": 8
+    },
+    "dust": {
+     "status": "ok",
+     "cold_s": 33.86757,
+     "warm_s": 11.86026,
+     "cold_rel": 32.03477545037923,
+     "warm_rel": 11.60379283422117,
+     "index_rel": 21.44445020837063,
+     "platform_score": 19.976168332567507,
+     "rss_mb": 360.24,
+     "acc_pct": 0.5,
+     "rank": 9
+    },
+    "spacesniffer": {
+     "status": "ok",
+     "cold_s": 40.03006,
+     "warm_s": 16.250809999999998,
+     "cold_rel": 27.10313199630478,
+     "warm_rel": 8.468747096298584,
+     "index_rel": 26.143095941324944,
+     "platform_score": 18.171825323428884,
+     "rss_mb": 553.36,
+     "acc_pct": null,
+     "rank": 10
+    }
+   },
+   "windows-arm64": {
+    "windirstat": {
+     "status": "ok",
+     "cold_s": 22.840619999999998,
+     "warm_s": 6.33002,
+     "cold_rel": 100.0,
+     "warm_rel": 28.90859744518974,
+     "index_rel": 57.329529520131814,
+     "platform_score": 54.92901355064777,
+     "rss_mb": 251.8,
+     "acc_pct": 0.58,
+     "rank": 4
+    },
+    "dua": {
+     "status": "ok",
+     "cold_s": 31.67194,
+     "warm_s": 3.81994,
+     "cold_rel": 72.11626442838677,
+     "warm_rel": 47.90441734686932,
+     "index_rel": 64.21038339123666,
+     "platform_score": 60.53474016289499,
+     "rss_mb": 96.32,
+     "acc_pct": 0.01,
+     "rank": 3
+    },
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 31.79621,
+     "warm_s": 1.82992,
+     "cold_rel": 71.83441045332131,
+     "warm_rel": 100.0,
+     "index_rel": 98.79140405424579,
+     "platform_score": 89.19706477875798,
+     "rss_mb": 246.36,
+     "acc_pct": 0.67,
+     "rank": 1
+    },
+    "gdu": {
+     "status": "ok",
+     "cold_s": 32.36748,
+     "warm_s": 2.2271900000000002,
+     "cold_rel": 70.56656866706955,
+     "warm_rel": 82.16272522775337,
+     "index_rel": 84.62485011493946,
+     "platform_score": 78.87219296842673,
+     "rss_mb": 31.73,
+     "acc_pct": 0.58,
+     "rank": 2
+    },
+    "dust": {
+     "status": "ok",
+     "cold_s": 78.86386999999999,
+     "warm_s": 25.24541,
+     "cold_rel": 28.96208365123345,
+     "warm_rel": 7.248525573559708,
+     "index_rel": 16.51348984705848,
+     "platform_score": 15.134663901698762,
+     "rss_mb": 344.4,
+     "acc_pct": 0.5,
+     "rank": 5
+    }
+   },
+   "windows-x86_64-refs": {
+    "windirstat": {
+     "status": "ok",
+     "cold_s": 32.44713,
+     "warm_s": 15.49831,
+     "cold_rel": 100.0,
+     "warm_rel": 19.433602760559058,
+     "index_rel": 44.63192429570768,
+     "platform_score": 44.265595485175844,
+     "rss_mb": 243.09,
+     "acc_pct": 0.58,
+     "rank": 6
+    },
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 44.495760000000004,
+     "warm_s": 3.01188,
+     "cold_rel": 72.92184693552824,
+     "warm_rel": 100.0,
+     "index_rel": 99.13597408971839,
+     "platform_score": 89.74900572657756,
+     "rss_mb": 208.21,
+     "acc_pct": 0.77,
+     "rank": 1
+    },
+    "squirreldisk": {
+     "status": "ok",
+     "cold_s": 45.63486,
+     "warm_s": 4.1922299999999995,
+     "cold_rel": 71.10163151590692,
+     "warm_rel": 71.84434060154143,
+     "index_rel": 84.42358530991662,
+     "platform_score": 75.55188547703439,
+     "rss_mb": 29.2,
+     "acc_pct": 0.81,
+     "rank": 3
+    },
+    "dua": {
+     "status": "ok",
+     "cold_s": 47.1469,
+     "warm_s": 4.3358,
+     "cold_rel": 68.82134350296626,
+     "warm_rel": 69.46538124452235,
+     "index_rel": 80.67063791683948,
+     "platform_score": 72.78954764324054,
+     "rss_mb": 85.3,
+     "acc_pct": 0.0,
+     "rank": 4
+    },
+    "gdu": {
+     "status": "ok",
+     "cold_s": 48.07562,
+     "warm_s": 3.42239,
+     "cold_rel": 67.49185969936529,
+     "warm_rel": 88.00516598049902,
+     "index_rel": 88.66578165369184,
+     "platform_score": 80.75545519788159,
+     "rss_mb": 29.98,
+     "acc_pct": 0.58,
+     "rank": 2
+    },
+    "wiztree": {
+     "status": "ok",
+     "cold_s": 50.601980000000005,
+     "warm_s": 6.96881,
+     "cold_rel": 64.12225371418272,
+     "warm_rel": 43.21943057709996,
+     "index_rel": 62.435453224128224,
+     "platform_score": 55.72366797240981,
+     "rss_mb": 516.84,
+     "acc_pct": 0.58,
+     "rank": 5
+    },
+    "pdu": {
+     "status": "ok",
+     "cold_s": 62.962300000000006,
+     "warm_s": 31.082330000000002,
+     "cold_rel": 51.53421968384255,
+     "warm_rel": 9.690007151973484,
+     "index_rel": 25.368122098214513,
+     "platform_score": 23.311454605203974,
+     "rss_mb": 8.62,
+     "acc_pct": 0.58,
+     "rank": 8
+    },
+    "diskus": {
+     "status": "ok",
+     "cold_s": 66.36963,
+     "warm_s": 57.30553,
+     "cold_rel": 48.88852024638377,
+     "warm_rel": 5.255827840698795,
+     "index_rel": 17.579965622023657,
+     "platform_score": 16.530602453467246,
+     "rss_mb": 23.89,
+     "acc_pct": 0.58,
+     "rank": 10
+    },
+    "dust": {
+     "status": "ok",
+     "cold_s": 72.09577,
+     "warm_s": 33.790330000000004,
+     "cold_rel": 45.00559464168286,
+     "warm_rel": 8.9134376610113,
+     "index_rel": 23.09961999778494,
+     "platform_score": 21.004169956511554,
+     "rss_mb": 369.24,
+     "acc_pct": 0.5,
+     "rank": 9
+    },
+    "spacesniffer": {
+     "status": "ok",
+     "cold_s": 87.58246000000001,
+     "warm_s": 27.19255,
+     "cold_rel": 37.04752070220453,
+     "warm_rel": 11.076121952520085,
+     "index_rel": 36.288981035449154,
+     "platform_score": 24.602196560587945,
+     "rss_mb": 551.85,
+     "acc_pct": null,
+     "rank": 7
+    }
+   }
+  }
+ }
+}
