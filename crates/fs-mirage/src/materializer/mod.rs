@@ -269,8 +269,9 @@ pub fn materialize_tree(
         .collect();
     let hl_alloc_map: Mutex<HashMap<&str, u64>> =
         Mutex::new(HashMap::with_capacity(hardlink_targets.len().min(65536)));
-    // Allocated bytes per top-level folder (zone), for the per-zone ground truth
+    // Allocated bytes per top-level folder (zone), for the per-zone ground truth: everything, and files only
     let zone_alloc: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
+    let zone_files_alloc: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
 
     // 2. Group regular files by parent directory to minimize per-directory B-Tree lock contention on NTFS / APFS
     let mut dir_groups: HashMap<&str, Vec<&FileEntry>> =
@@ -461,6 +462,7 @@ pub fn materialize_tree(
         if local_alloc_sum > 0 {
             total_allocated.fetch_add(local_alloc_sum, Ordering::Relaxed);
             add_zone_alloc(&zone_alloc, parent_rel, local_alloc_sum);
+            add_zone_alloc(&zone_files_alloc, parent_rel, local_alloc_sum);
         }
         if !local_hl_hits.is_empty() {
             if let Ok(mut guard) = hl_alloc_map.lock() {
@@ -661,6 +663,11 @@ pub fn materialize_tree(
             z.allocated_size_bytes = bytes;
         }
     }
+    for (zone, bytes) in zone_files_alloc.into_inner().unwrap_or_default() {
+        if let Some(z) = plan.manifest.zones.get_mut(&zone) {
+            z.allocated_files_only_bytes = bytes;
+        }
+    }
 
     Ok(plan.manifest)
 }
@@ -682,6 +689,7 @@ pub struct AllocCounts {
     pub files_only: u64,
     pub hardlink_extra: u64,
     pub zones: HashMap<String, u64>,
+    pub zone_files: HashMap<String, u64>,
 }
 
 /// Re-reads the allocation of every planned path. Btrfs, XFS and ZFS settle a file's block count only after the
@@ -696,12 +704,14 @@ pub fn recount_allocation(root: &Path, plan: &TopologyPlan) -> AllocCounts {
             .unwrap_or(0)
     };
     let zone_alloc: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
+    let zone_files_alloc: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
     let files_only: u64 = plan
         .regular_files
         .par_iter()
         .map(|e| {
             let b = blocks(&to_os_path(root, &e.rel_path));
             add_zone_alloc(&zone_alloc, &e.rel_path, b);
+            add_zone_alloc(&zone_files_alloc, &e.rel_path, b);
             b
         })
         .sum();
@@ -724,6 +734,7 @@ pub fn recount_allocation(root: &Path, plan: &TopologyPlan) -> AllocCounts {
         files_only,
         hardlink_extra,
         zones: zone_alloc.into_inner().unwrap_or_default(),
+        zone_files: zone_files_alloc.into_inner().unwrap_or_default(),
     }
 }
 

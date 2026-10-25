@@ -12,6 +12,7 @@
   },
   "optional_fields_comment": {
     "apparent_on": "OS list where the scanner can only report logical sizes; it is then compared against the apparent ground truth",
+    "excludes_dir_blocks": "OS list where the scanner does not count the blocks folders themselves occupy; its total and each top-level folder are then compared against the files-only allocation",
     "command_template_by_os": "Per-OS replacement for command_template",
     "bin_name": "Executable name when it differs from 'name' (e.g. erd for erdtree, du64 for Sysinternals du)",
     "display_name": "Name shown on the boards when 'name' is an executable name (spaceknife-backend -> SpaceKnife)",
@@ -323,6 +324,7 @@
       "architectures": ["x86_64", "aarch64"],
       "size_metric": "allocated",
       "command_template": ["{bin}", "--no-config", "--no-progress", "-C", "none", "-.", "-i", "-d", "physical", "-y", "iflat", "-L", "1", "{path}"],
+      "excludes_dir_blocks": ["linux"],
       "output_parser": "erdtree",
       "notes": "加 -. 和 -i 才会计入隐藏文件和被 .gitignore 忽略的文件；整棵树常驻内存",
       "notes_en": "-. and -i make it count hidden and git-ignored files; keeps the whole tree in memory",

@@ -194,6 +194,10 @@ pub struct ZoneGroundTruth {
     /// Bytes the zone's files and folders really occupy on the volume, measured while materializing (0 in a plan)
     #[serde(default)]
     pub allocated_size_bytes: u64,
+    /// The same without the folders' own blocks, for scanners that do not count directory blocks (see
+    /// `GroundTruthManifest::allocated_files_only_bytes`); folders are a large share of a zone on ZFS
+    #[serde(default)]
+    pub allocated_files_only_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -651,6 +655,7 @@ impl TopologyPlan {
                 dirs: 0,
                 apparent_size_bytes: 0,
                 allocated_size_bytes: 0,
+                allocated_files_only_bytes: 0,
             });
             entry.dirs += 1;
         }
@@ -670,6 +675,7 @@ impl TopologyPlan {
                 dirs: 0,
                 apparent_size_bytes: 0,
                 allocated_size_bytes: 0,
+                allocated_files_only_bytes: 0,
             });
             entry.files += 1;
             entry.apparent_size_bytes += sz;

@@ -141,6 +141,7 @@ fn recount(args: &Args, plan: &TopologyPlan) -> Result<()> {
     manifest.allocated_size_with_hardlinks_bytes = counts.total + counts.hardlink_extra;
     for (name, zone) in manifest.zones.iter_mut() {
         zone.allocated_size_bytes = counts.zones.get(name).copied().unwrap_or(0);
+        zone.allocated_files_only_bytes = counts.zone_files.get(name).copied().unwrap_or(0);
     }
     fs::write(&args.manifest_out, serde_json::to_string_pretty(&manifest)?)?;
     println!(

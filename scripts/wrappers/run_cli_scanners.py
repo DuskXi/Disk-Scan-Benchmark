@@ -814,6 +814,21 @@ def device_read_count(path: str, os_key: str) -> Optional[int]:
     return None
 
 
+def save_scanner_output(out_dir: Path, scanner_id: str, text: str, keep: int = 200_000) -> None:
+    """
+    The scanner's own output of the cold run, next to raw_results.json (scanner_output/<id>.txt), so a result that
+    could not be parsed or failed verification can be checked against what the tool really printed.
+    """
+    if len(text) > 2 * keep:
+        text = text[:keep] + f"\n... [{len(text) - 2 * keep:,} characters left out] ...\n" + text[-keep:]
+    try:
+        target = out_dir / "scanner_output"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / f"{scanner_id}.txt").write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"  [warn] could not save the output of {scanner_id}: {exc}")
+
+
 def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tuple[float, float, str, Optional[float]]:
     """
     Executes a CLI command and returns (elapsed_ms, peak_rss_mb, stdout_text, cpu_seconds).
@@ -1641,6 +1656,7 @@ def main() -> int:
             cli_timeout = args.timeout or max(900, int(gt_data.get("total_files", 0)) // 1000)
             elapsed, rss, stdout_text, cpu_s = run_monitored_cli(cmd_tokens, os_key, cli_timeout)
             run_cpu.append(cpu_s)
+            run_outputs.append(stdout_text)
             parser_kind = scanner.get("output_parser", "human_last_line")
             effective_metric = effective_size_metric(scanner, os_key)
             scanned_f = 0  # 0 = the tool reports no file count
@@ -1708,6 +1724,7 @@ def main() -> int:
         # 0. Pre-warm binary executable (eliminates Windows Defender / DLL cold-start noise without touching scan_path)
         gui_io_samples: List[Tuple[int, bool]] = []
         tool_scan_ms_samples: List[float] = []
+        run_outputs: List[str] = []  # each CLI run's stdout + stderr, cold first
         sk_mft_fallbacks: List[Optional[str]] = []
         run_cpu: List[Optional[float]] = []  # per run, cold first: CPU seconds of the scanner's process tree
         run_reads: List[Optional[int]] = []  # per run, cold first: read requests completed by the device
@@ -1809,6 +1826,9 @@ def main() -> int:
         zone_refs = gt_data.get("zones", {}) or {}
         zone_key = "apparent_bytes" if size_metric == "apparent" else "allocated_bytes"
         ref_zone_key = "apparent_size_bytes" if size_metric == "apparent" else "allocated_size_bytes"
+        if size_metric != "apparent" and os_key in scanner.get("excludes_dir_blocks", []):
+            # same accounting as the total (reference_bytes): the zone without its folders' own blocks
+            ref_zone_key = "allocated_files_only_bytes"
         checked: List[str] = []
         if valid and not is_gui:
             if scanned_bytes <= 0:
@@ -1840,7 +1860,8 @@ def main() -> int:
                     )
                     break
                 got = sample.get(zone_key) or sample.get("allocated_bytes") or sample.get("apparent_bytes")
-                want = int(ref.get(ref_zone_key, 0) or 0)
+                # manifests from before the files-only zone field fall back to the full allocation
+                want = int(ref.get(ref_zone_key) or ref.get("allocated_size_bytes", 0) or 0)
                 if got is None:
                     # the folder's name shows up (e.g. in a largest-files list) but no size is reported for it
                     valid = False
@@ -1853,6 +1874,8 @@ def main() -> int:
                     )
                     break
         verification = "+".join(checked) if checked else ("io-only" if is_gui else "none")
+        if run_outputs:
+            save_scanner_output(Path(args.out).parent, scanner_id, run_outputs[0])
 
         results.append(
             {
