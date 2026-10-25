@@ -427,15 +427,15 @@ Add an object to the `scanners` array of [`scanners_registry.json`](scripts/wrap
 | `mid` | 3,000,000 | 1&nbsp;TiB | 大目录树 · large tree |
 | `high` | 5,000,000 | 2&nbsp;TiB | 重负载 · heavy |
 | `very-high` | 9,000,000 | 3&nbsp;TiB | 极限 · extreme |
-| `before-death` | 14,000,000 | 3.70&nbsp;TB | 临终的 4&nbsp;TB 盘（尚未运行）· a dying 4&nbsp;TB disk (not run yet) |
+| `before-death` | 14,000,000 | 3.70&nbsp;TiB | 临终的 4&nbsp;TB 盘（尚未运行）· a dying 4&nbsp;TB disk (not run yet) |
 
 `very-lite` 和 `lite` 的扫描只要零点几秒到几秒，计时里进程启动等固定开销占了大头，所以只作参考，不计入跨体量综合分。
 
 `very-lite` and `lite` scans finish in well under a few seconds, so process start-up dominates their timings; they are for reference only and stay out of the overall score.
 
-`before-death`（临死之前）：一块 4&nbsp;TB 硬盘塞到 3.70&nbsp;TB（十进制，约 3,446&nbsp;GiB，九成以上满）、1400 万个文件，正是再不用磁盘分析工具清理垃圾就真要满死的状态。这一档已经配置好，暂时还没有运行。
+`before-death`（临死之前）：一块 4&nbsp;TB 的 NVMe 在系统里通常显示 3.72&nbsp;TB 左右，这一档把它塞到 3.70&nbsp;TB（3,788.8&nbsp;GiB，约 99.5% 满，只剩二十来 GB）、1400 万个文件，正是再不用磁盘分析工具清理垃圾就真要满死的状态。这一档已经配置好，暂时还没有运行。
 
-`before-death`: a 4&nbsp;TB disk filled to 3.70&nbsp;TB (decimal, about 3,446&nbsp;GiB, over 90% full) with 14 million files, the state a disk reaches right before it dies of a full drive unless someone cleans it up with a disk-space analyzer. Configured, not run yet.
+`before-death`: a 4&nbsp;TB NVMe drive usually shows about 3.72&nbsp;TB in the OS; this size fills it to 3.70&nbsp;TB (3,788.8&nbsp;GiB, about 99.5% full, some 20&nbsp;GB left) with 14 million files, the state a disk reaches right before it dies of a full drive unless someone cleans it up with a disk-space analyzer. Configured, not run yet.
 
 ---
 

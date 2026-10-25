@@ -164,8 +164,9 @@ impl ScalePreset {
     /// - mid:     3,000,000 items, 1024 GB (1 TB)
     /// - high:    5,000,000 items, 2048 GB (2 TB)
     /// - very-high: 9,000,000 items, 3072 GB (3 TB)
-    /// - before-death: 14,000,000 items, 3446 GB (3.70 TB decimal): a 4 TB disk about 92% full, the state it may
-    ///   reach when nobody has cleaned it up with a disk-space analyzer in time
+    /// - before-death: 14,000,000 items, 3788.8 GB (3.70 TB as the OS shows it, i.e. TiB): a 4 TB NVMe drive shows
+    ///   about 3.72 TB, so this is one about 99.5% full, the state it may reach when nobody has cleaned it up with a
+    ///   disk-space analyzer in time
     pub fn spec(&self) -> Option<(usize, f64)> {
         match self {
             ScalePreset::VeryLite => Some((100_000, 100.0)),
@@ -174,7 +175,7 @@ impl ScalePreset {
             ScalePreset::Mid => Some((3_000_000, 1024.0)),
             ScalePreset::High => Some((5_000_000, 2048.0)),
             ScalePreset::VeryHigh => Some((9_000_000, 3072.0)),
-            ScalePreset::BeforeDeath => Some((14_000_000, 3446.0)),
+            ScalePreset::BeforeDeath => Some((14_000_000, 3788.8)),
             ScalePreset::Custom => None,
         }
     }
