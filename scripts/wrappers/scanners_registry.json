@@ -1,32 +1,21 @@
 {
   "$schema_comment": "Declarative Scanner Registry for disk-scanner-bench. To add a new program, append an entry to 'scanners' following 'addition_rule_schema'.",
   "addition_rule_schema": {
-    "required_fields": [
-      "id",
-      "name",
-      "version",
-      "enabled",
-      "runner_type",
-      "platforms",
-      "architectures",
-      "size_metric",
-      "command_template",
-      "output_parser",
-      "install"
-    ],
-    "runner_type_values": [
-      "cli (Standard CLI or export-mode process monitored until exit by run_cli_scanners.py)",
-      "win_gui (Pure Windows GUI program monitored via win_gui_monitor.ps1 until I/O + CPU settle)"
-    ],
-    "size_metric_values": [
-      "allocated (Compares against ground_truth.allocated_size_bytes)",
-      "apparent (Compares against ground_truth.apparent_size_bytes)"
-    ],
+    "required_fields": ["id", "name", "version", "enabled", "runner_type", "platforms", "architectures", "size_metric", "command_template", "output_parser", "install"],
+    "runner_type_values": ["cli (Standard CLI or export-mode process monitored until exit by run_cli_scanners.py)", "win_gui (Pure Windows GUI program monitored via win_gui_monitor.ps1 until I/O + CPU settle)"],
+    "size_metric_values": ["allocated (Compares against ground_truth.allocated_size_bytes)", "apparent (Compares against ground_truth.apparent_size_bytes)"],
     "template_placeholders": {
       "{bin}": "Resolved binary path or executable name",
       "{path}": "Mounted benchmark volume root path",
       "{export_file}": "Temporary export file path for CSV/JSON output"
     }
+  },
+  "optional_fields_comment": {
+    "apparent_on": "OS list where the scanner can only report logical sizes; it is then compared against the apparent ground truth",
+    "command_template_by_os": "Per-OS replacement for command_template",
+    "bin_name": "Executable name when it differs from 'name' (e.g. erd for erdtree, du64 for Sysinternals du)",
+    "exe_by_arch": "Which executable of a multi-architecture archive to use per architecture",
+    "install specs": "URL of an archive or raw executable; gh-artifact:<repo>:<run>:<artifact>; system:<command or path>; cargo:<crate>@<version>:<binary>; brew:<formula>"
   },
   "mft_field_comment": "Optional 'mft' object (command_template using {volume} = volume root) marks scanners that can scan the raw NTFS $MFT; only those run in the MFT-only benchmark (benchmark-mft.yml).",
   "arm64_windows_comment": "The windows-11-arm job runs only scanners with a windows_aarch64 build (gdu, dua, dust, WinDirStat, SpaceKnife); x64-only tools (WizTree, SpaceSniffer, TreeSize, SquirrelDisk) are skipped instead of being timed under emulation.",
@@ -50,7 +39,8 @@
         "macos_aarch64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_darwin_arm64.tgz",
         "windows_x86_64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_windows_amd64.exe.zip",
         "windows_aarch64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_windows_arm64.exe.zip"
-      }
+      },
+      "apparent_on": ["windows"]
     },
     {
       "id": "dua",
@@ -91,7 +81,8 @@
         "macos_aarch64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-aarch64-apple-darwin.tar.gz",
         "windows_x86_64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-x86_64-pc-windows-msvc.zip",
         "windows_aarch64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-aarch64-pc-windows-msvc.zip"
-      }
+      },
+      "apparent_on": ["windows"]
     },
     {
       "id": "ncdu",
@@ -123,9 +114,7 @@
       "command_template": ["{bin}", "{path}", "/export={export_file}", "/exportfiles=0", "/admin=0"],
       "mft": {"command_template": ["{bin}", "{volume}", "/export={export_file}", "/exportfiles=0", "/admin=1"]},
       "output_parser": "wiztree_csv",
-      "install": {
-        "windows_x86_64": "https://www.diskanalyzer.com/files/wiztree_4_33_portable.zip"
-      }
+      "install": {"windows_x86_64": "https://www.diskanalyzer.com/files/wiztree_4_33_portable.zip"}
     },
     {
       "id": "spacesniffer",
@@ -172,9 +161,7 @@
       "command_template": ["{bin}", "/NOADMIN", "{path}"],
       "mft": {"command_template": ["{bin}", "{volume}"]},
       "output_parser": "gui_monitor",
-      "install": {
-        "windows_x86_64": "https://downloads.jam-software.de/treesize_free/TreeSizeFree-Portable.zip"
-      }
+      "install": {"windows_x86_64": "https://downloads.jam-software.de/treesize_free/TreeSizeFree-Portable.zip"}
     },
     {
       "id": "spaceknife",
@@ -216,6 +203,122 @@
         "macos_x86_64": "https://github.com/adileo/squirreldisk/releases/download/v2.6.1/squirreldisk-x86_64-apple-darwin",
         "macos_aarch64": "https://github.com/adileo/squirreldisk/releases/download/v2.6.1/squirreldisk-aarch64-apple-darwin",
         "windows_x86_64": "https://github.com/adileo/squirreldisk/releases/download/v2.6.1/squirreldisk-x86_64-pc-windows-msvc.exe"
+      }
+    },
+    {
+      "id": "gnu-du",
+      "name": "GNU du",
+      "version": "coreutils 9.4 (ubuntu-24.04 image)",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "-B1", "-d", "1", "{path}"],
+      "output_parser": "du_bytes",
+      "notes": "系统基线：单线程，硬链接只算一次，计入目录块",
+      "install": {"linux_x86_64": "system:du", "linux_aarch64": "system:du"}
+    },
+    {
+      "id": "bsd-du",
+      "name": "BSD du",
+      "version": "macOS system /usr/bin/du",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["macos"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "-k", "-d", "1", "{path}"],
+      "output_parser": "du_kib",
+      "notes": "系统基线：单线程，硬链接只算一次，精度为 KiB",
+      "install": {"macos_x86_64": "system:/usr/bin/du", "macos_aarch64": "system:/usr/bin/du"}
+    },
+    {
+      "id": "sysinternals-du",
+      "name": "Sysinternals du",
+      "bin_name": "du64",
+      "version": "1.62",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "-accepteula", "-nobanner", "-c", "-l", "1", "{path}"],
+      "output_parser": "sysinternals_du_csv",
+      "exe_by_arch": {"x86_64": "du64.exe", "aarch64": "du64a.exe"},
+      "notes": "微软 Sysinternals 出品；单线程；CSV 同时给出大小和实际占用",
+      "install": {
+        "windows_x86_64": "https://download.sysinternals.com/files/DU.zip",
+        "windows_aarch64": "https://download.sysinternals.com/files/DU.zip"
+      }
+    },
+    {
+      "id": "pdu",
+      "name": "pdu",
+      "version": "0.24.0",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos", "windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "apparent_on": ["windows"],
+      "command_template": ["{bin}", "--json-output", "--max-depth=2", "--min-ratio=0", "--threads=max", "-H", "-q", "block-size", "{path}"],
+      "command_template_by_os": {
+        "windows": ["{bin}", "--json-output", "--max-depth=2", "--min-ratio=0", "--threads=max", "-q", "apparent-size", "{path}"]
+      },
+      "output_parser": "pdu_json",
+      "notes": "parallel-disk-usage；用 --threads=max，因为默认的 auto 把虚拟盘误判成机械盘时会降到 1 线程；硬链接去重（-H）和块大小只在 Unix 上有",
+      "install": {
+        "linux_x86_64": "https://github.com/KSXGitHub/parallel-disk-usage/releases/download/0.24.0/pdu-x86_64-unknown-linux-musl",
+        "linux_aarch64": "cargo:parallel-disk-usage@0.24.0:pdu",
+        "macos_x86_64": "https://github.com/KSXGitHub/parallel-disk-usage/releases/download/0.24.0/pdu-x86_64-apple-darwin",
+        "macos_aarch64": "cargo:parallel-disk-usage@0.24.0:pdu",
+        "windows_x86_64": "https://github.com/KSXGitHub/parallel-disk-usage/releases/download/0.24.0/pdu-x86_64-pc-windows-msvc.exe",
+        "windows_aarch64": "cargo:parallel-disk-usage@0.24.0:pdu"
+      }
+    },
+    {
+      "id": "diskus",
+      "name": "diskus",
+      "version": "0.9.0",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos", "windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "apparent_on": ["windows"],
+      "command_template": ["{bin}", "{path}"],
+      "output_parser": "bare_integer",
+      "notes": "只输出总大小；默认线程数为核数 × 3；Windows 版只报逻辑大小",
+      "install": {
+        "linux_x86_64": "https://github.com/sharkdp/diskus/releases/download/v0.9.0/diskus-v0.9.0-x86_64-unknown-linux-musl.tar.gz",
+        "linux_aarch64": "https://github.com/sharkdp/diskus/releases/download/v0.9.0/diskus-v0.9.0-aarch64-unknown-linux-gnu.tar.gz",
+        "macos_x86_64": "https://github.com/sharkdp/diskus/releases/download/v0.9.0/diskus-v0.9.0-x86_64-apple-darwin.tar.gz",
+        "macos_aarch64": "https://github.com/sharkdp/diskus/releases/download/v0.9.0/diskus-v0.9.0-aarch64-apple-darwin.tar.gz",
+        "windows_x86_64": "https://github.com/sharkdp/diskus/releases/download/v0.9.0/diskus-v0.9.0-x86_64-pc-windows-msvc.zip",
+        "windows_aarch64": "cargo:diskus@0.9.0:diskus"
+      }
+    },
+    {
+      "id": "erdtree",
+      "name": "erdtree",
+      "bin_name": "erd",
+      "version": "3.1.2",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos", "windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "command_template": ["{bin}", "--no-config", "--no-progress", "-C", "none", "-.", "-i", "-d", "physical", "-y", "iflat", "-L", "1", "{path}"],
+      "output_parser": "erdtree",
+      "notes": "加 -. 和 -i 才会计入隐藏文件和被 .gitignore 忽略的文件；整棵树常驻内存",
+      "install": {
+        "linux_x86_64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-x86_64-unknown-linux-musl.tar.gz",
+        "linux_aarch64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-aarch64-unknown-linux-musl.tar.gz",
+        "macos_x86_64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-x86_64-apple-darwin.tar.gz",
+        "macos_aarch64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-aarch64-apple-darwin.tar.gz",
+        "windows_x86_64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-x86_64-pc-windows-msvc.exe",
+        "windows_aarch64": "cargo:erdtree@3.1.2:erd"
       }
     }
   ]

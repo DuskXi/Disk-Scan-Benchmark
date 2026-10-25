@@ -272,6 +272,18 @@ def find_subtree_row(rows: List[List[str]], scan_path: str) -> Optional[List[str
     return None
 
 
+def effective_size_metric(scanner: Dict[str, Any], os_key: str) -> str:
+    """'apparent' where a scanner can only report logical sizes on this OS ("apparent_on"), else its size_metric."""
+    if os_key in scanner.get("apparent_on", []):
+        return "apparent"
+    return str(scanner.get("size_metric", "allocated"))
+
+
+def command_template_for(scanner: Dict[str, Any], os_key: str) -> List[str]:
+    """The scanner's command line, with an optional per-OS override ("command_template_by_os")."""
+    return list(scanner.get("command_template_by_os", {}).get(os_key, scanner["command_template"]))
+
+
 def reference_bytes(gt_data: Dict[str, Any], scanner: Dict[str, Any], metric: str, os_key: str) -> int:
     """Ground-truth size a scanner is compared against, honoring how the scanner accounts for allocation."""
     if metric == "apparent":
@@ -411,6 +423,131 @@ def parse_windirstat_csv(
                 pass
 
     return logical_bytes, physical_bytes, total_files, sampled_zones
+
+
+def _zone_of(path_text: str) -> Optional[str]:
+    name = re.split(r"[\\/]", path_text.strip().rstrip("\\/"))[-1]
+    return name if name.startswith("zone_") else None
+
+
+def parse_du_lines(text: str, scan_path: str, unit: int) -> Tuple[int, Dict[str, Dict[str, Any]]]:
+    """
+    GNU `du -B1 -d 1` (unit 1) or BSD `du -k -d 1` (unit 1024): "<size>\t<path>" per line, the scanned root last.
+    Returns (root bytes, top-level zones).
+    """
+    root = os.path.normpath(scan_path)
+    total = 0
+    zones: Dict[str, Dict[str, Any]] = {}
+    for line in text.splitlines():
+        m = re.match(r"^\s*(\d+)\s+(.+?)\s*$", line)
+        if not m:
+            continue
+        size, path_text = int(m.group(1)) * unit, m.group(2)
+        if os.path.normpath(path_text) == root:
+            total = size
+        elif (zone := _zone_of(path_text)) is not None:
+            zones[zone] = {"allocated_bytes": size}
+    if total == 0:
+        sizes = [int(m.group(1)) * unit for m in re.finditer(r"(?m)^\s*(\d+)\s+", text)]
+        total = sizes[-1] if sizes else 0
+    return total, zones
+
+
+def parse_sysinternals_du_csv(text: str, scan_path: str, metric: str) -> Tuple[int, int, Dict[str, Dict[str, Any]]]:
+    """
+    Sysinternals `du -c -l 1`: CSV with Path,CurrentFileCount,CurrentFileSize,FileCount,DirectoryCount,DirectorySize,
+    DirectorySizeOnDisk. The root row (or, failing a path match, the largest row) is the total.
+    Returns (bytes, files, zones).
+    """
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    start = next((i for i, ln in enumerate(lines) if "DirectorySize" in ln and "Path" in ln), None)
+    if start is None:
+        return 0, 0, {}
+    rows = list(csv.DictReader(lines[start:]))
+    size_col = "DirectorySize" if metric == "apparent" else "DirectorySizeOnDisk"
+    root = os.path.normcase(os.path.normpath(scan_path))
+    best: Optional[Dict[str, str]] = None
+    zones: Dict[str, Dict[str, Any]] = {}
+
+    def num(row: Dict[str, str], key: str) -> int:
+        try:
+            return int(str(row.get(key) or "0").replace(",", "").strip())
+        except ValueError:
+            return 0
+
+    for row in rows:
+        path_text = str(row.get("Path") or "").strip().strip('"')
+        if os.path.normcase(os.path.normpath(path_text)) == root:
+            best = row
+        elif (zone := _zone_of(path_text)) is not None:
+            zones[zone] = {("apparent_bytes" if metric == "apparent" else "allocated_bytes"): num(row, size_col)}
+    if best is None and rows:
+        best = max(rows, key=lambda r: num(r, size_col))
+    if best is None:
+        return 0, 0, zones
+    return num(best, size_col), num(best, "FileCount"), zones
+
+
+def parse_pdu_json(text: str, metric: str) -> Tuple[int, Dict[str, Dict[str, Any]]]:
+    """pdu --json-output: {"tree": {"name", "size", "children": [...]}}; children are the top-level entries."""
+    start = text.find("{")
+    if start < 0:
+        return 0, {}
+    try:
+        data = json.loads(text[start:])
+    except json.JSONDecodeError:
+        return 0, {}
+    tree = data.get("tree", data)
+    key = "apparent_bytes" if metric == "apparent" else "allocated_bytes"
+    zones = {}
+    for child in tree.get("children", []) or []:
+        if (zone := _zone_of(str(child.get("name", "")))) is not None:
+            zones[zone] = {key: int(child.get("size", 0))}
+    return int(tree.get("size", 0)), zones
+
+
+def parse_bare_integer(text: str) -> int:
+    """diskus prints only the byte count when stdout is not a terminal."""
+    nums = re.findall(r"(?m)^\s*(\d+)\s*$", text)
+    return int(nums[-1]) if nums else 0
+
+
+def parse_erdtree(text: str, scan_path: str) -> Tuple[int, int, Dict[str, Dict[str, Any]]]:
+    """
+    erdtree `-y iflat -L 1` without --human: "<n> <unit>   <name>" per entry with the root first, then a
+    "<d> directories, <f> files" summary. Returns (root bytes, files, zones).
+    """
+    units = {
+        "B": 1,
+        "KB": 1000,
+        "MB": 1000**2,
+        "GB": 1000**3,
+        "TB": 1000**4,
+        "KIB": 1024,
+        "MIB": 1024**2,
+        "GIB": 1024**3,
+        "TIB": 1024**4,
+    }
+    ansi = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
+    root_name = os.path.basename(os.path.normpath(scan_path))
+    entries: List[Tuple[int, str]] = []
+    files = 0
+    for raw in text.splitlines():
+        line = ansi.sub("", raw)
+        m = re.match(r"^\s*([\d.]+)\s*([KMGT]?i?B)\s+(.+?)\s*$", line, re.IGNORECASE)
+        if m:
+            size = int(float(m.group(1)) * units.get(m.group(2).upper(), 1))
+            entries.append((size, m.group(3)))
+            continue
+        s = re.search(r"([\d,]+)\s+files?", line)
+        if s and "director" in line:
+            files = int(s.group(1).replace(",", ""))
+    if not entries:
+        return 0, files, {}
+    root = next((size for size, name in entries if os.path.basename(name.rstrip("\\/")) == root_name), None)
+    total = root if root is not None else max(size for size, _ in entries)
+    zones = {z: {"allocated_bytes": size} for size, name in entries if (z := _zone_of(name)) is not None}
+    return total, files, zones
 
 
 def parse_cli_structure_samples(stdout_text: str, scanner_id: str) -> Dict[str, Dict[str, Any]]:
@@ -777,6 +914,8 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
         scanner["name"] + exe_suffix,
         scanner_id + exe_suffix,
     ]
+    if scanner.get("bin_name"):
+        candidates.append(scanner["bin_name"] + exe_suffix)
     if scanner_id == "gdu":
         candidates.extend(
             [
@@ -811,6 +950,25 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
     spec = install_map.get(target_key)
     if not spec:
         return None
+
+    if spec.startswith("system:"):
+        # A tool the OS image already ships (GNU du on Ubuntu, BSD du on macOS)
+        return shutil.which(spec.split(":", 1)[1])
+
+    if spec.startswith("cargo:"):
+        # Format: cargo:<crate>@<version>:<binary>; for targets without a prebuilt release asset
+        crate_ver, bin_name = spec.split(":", 2)[1:]
+        crate, version = crate_ver.split("@", 1)
+        cargo_root = bin_dir / f"cargo-{scanner_id}"
+        built = cargo_root / "bin" / (bin_name + exe_suffix)
+        if built.exists():
+            return str(built)
+        print(f"[installer] cargo install {crate} {version} (--bin {bin_name}) into {cargo_root}...")
+        subprocess.run(
+            ["cargo", "install", crate, "--version", version, "--locked", "--bin", bin_name, "--root", str(cargo_root)],
+            check=False,
+        )
+        return str(built) if built.exists() else None
 
     bin_dir.mkdir(parents=True, exist_ok=True)
     print(f"[installer] Installing pinned {scanner['name']} v{scanner['version']} for {target_key} from {spec}...")
@@ -904,7 +1062,9 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
 
         if not archive_name.endswith((".tar.gz", ".tgz", ".zip")):
             # A release asset that is the executable itself (e.g. squirreldisk-x86_64-unknown-linux-gnu)
-            raw_target = bin_dir / (scanner["name"] + exe_suffix if os_key == "windows" else scanner_id)
+            raw_target = bin_dir / (
+                scanner.get("bin_name", scanner["name"]) + exe_suffix if os_key == "windows" else scanner_id
+            )
             shutil.copy2(archive_path, raw_target)
             if os_key != "windows":
                 raw_target.chmod(raw_target.stat().st_mode | stat.S_IEXEC)
@@ -943,7 +1103,9 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
             if wt64.exists():
                 return str(wt64)
 
-        target_bin = bin_dir / (scanner["name"] + exe_suffix if os_key == "windows" else scanner_id)
+        target_bin = bin_dir / (
+            scanner.get("bin_name", scanner["name"]) + exe_suffix if os_key == "windows" else scanner_id
+        )
         matched_files: List[Path] = []
         exact_target_lower = (scanner["name"] + exe_suffix).lower()
         cand_lower_set = {c.lower() for c in candidates}
@@ -972,6 +1134,15 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
                     continue
                 if fn_lower in cand_lower_set or fn_lower.startswith(scanner_id.lower()):
                     matched_files.append(Path(root) / fn)
+
+        wanted = scanner.get("exe_by_arch", {}).get(arch_key)
+        if wanted:
+            # One archive with a build per architecture (Sysinternals: du64.exe / du64a.exe)
+            for root, _, files in os.walk(extract_dir):
+                for fn in files:
+                    if fn.lower() == wanted.lower():
+                        shutil.copy2(Path(root) / fn, target_bin)
+                        return str(target_bin)
 
         if matched_files:
             # Prefer exact match on scanner['name'] (e.g. WizTree64.exe over 32-bit WizTree.exe), then architecture subfolder
@@ -1040,6 +1211,14 @@ def configure_windows_gui_scanner(scanner_id: str, os_key: str, bin_path: str = 
     """
     if os_key != "windows":
         return
+    if scanner_id == "sysinternals-du":
+        # -accepteula is passed too; the registry flag also covers the prewarm launch
+        subprocess.run(
+            ["reg", "add", r"HKCU\Software\Sysinternals\Du", "/v", "EulaAccepted", "/t", "REG_DWORD", "/d", "1", "/f"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
     if scanner_id == "wiztree" and bin_path:
         write_wiztree_ini(bin_path, mft)
     if scanner_id == "windirstat":
@@ -1073,7 +1252,7 @@ def prewarm_scanner_binary(scanner: Dict[str, Any], bin_path: str, os_key: str) 
         export_file = str(Path(dummy_dir) / "warmup.csv")
         cmd = [
             tok.replace("{bin}", bin_path).replace("{path}", dummy_dir).replace("{export_file}", export_file)
-            for tok in scanner["command_template"]
+            for tok in command_template_for(scanner, os_key)
         ]
         try:
             if scanner["runner_type"] == "cli":
@@ -1261,7 +1440,7 @@ def main() -> int:
         print(f"\n=== Benchmarking {scanner['name']} v{scanner['version']} ({scanner['runner_type']}) ===")
         export_file = Path(tempfile.gettempdir()) / f"bench_export_{scanner_id}.csv"
 
-        cmd_template = scanner["mft"]["command_template"] if args.mft_mode else scanner["command_template"]
+        cmd_template = scanner["mft"]["command_template"] if args.mft_mode else command_template_for(scanner, os_key)
 
         def build_cmd() -> List[str]:
             return [
@@ -1330,11 +1509,7 @@ def main() -> int:
             elapsed, rss, stdout_text, cpu_s = run_monitored_cli(cmd_tokens, os_key, cli_timeout)
             run_cpu.append(cpu_s)
             parser_kind = scanner.get("output_parser", "human_last_line")
-            effective_metric = (
-                "apparent"
-                if (os_key == "windows" and scanner_id in ("gdu", "dust", "windirstat", "wiztree"))
-                else scanner.get("size_metric", "allocated")
-            )
+            effective_metric = effective_size_metric(scanner, os_key)
             fallback_b = reference_bytes(gt_data, scanner, effective_metric, os_key)
             scanned_f = int(gt_data.get("total_files", 0))
             sampled_zones: Dict[str, Dict[str, Any]] = {}
@@ -1357,6 +1532,22 @@ def main() -> int:
                     scanned_f = csv_files
             elif parser_kind == "ncdu_null":
                 scanned_b = fallback_b
+            elif parser_kind in ("du_bytes", "du_kib"):
+                scanned_b, sampled_zones = parse_du_lines(
+                    stdout_text, scan_path, 1 if parser_kind == "du_bytes" else 1024
+                )
+            elif parser_kind == "sysinternals_du_csv":
+                scanned_b, du_files, sampled_zones = parse_sysinternals_du_csv(stdout_text, scan_path, effective_metric)
+                if du_files > 0:
+                    scanned_f = du_files
+            elif parser_kind == "pdu_json":
+                scanned_b, sampled_zones = parse_pdu_json(stdout_text, effective_metric)
+            elif parser_kind == "bare_integer":
+                scanned_b = parse_bare_integer(stdout_text)
+            elif parser_kind == "erdtree":
+                scanned_b, erd_files, sampled_zones = parse_erdtree(stdout_text, scan_path)
+                if erd_files > 0:
+                    scanned_f = erd_files
             elif parser_kind == "squirreldisk_json":
                 scanned_b, sq_files, sampled_zones = parse_squirreldisk_json(stdout_text)
                 if scanned_b == 0:
@@ -1423,11 +1614,7 @@ def main() -> int:
         warm_avg_ms = round(sum(warm_times) / len(warm_times), 2)
 
         # Accuracy Diff % against ground_truth.json
-        size_metric = (
-            "apparent"
-            if (os_key == "windows" and scanner_id in ("gdu", "dust", "windirstat", "wiztree"))
-            else scanner.get("size_metric", "allocated")
-        )
+        size_metric = effective_size_metric(scanner, os_key)
         ref_bytes = reference_bytes(gt_data, scanner, size_metric, os_key)
         accuracy_diff_pct = round(((scanned_bytes - ref_bytes) / ref_bytes) * 100.0, 2) if ref_bytes > 0 else 0.0
         expected_files = int(gt_data.get("total_files", 0))
