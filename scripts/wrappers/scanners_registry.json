@@ -177,11 +177,11 @@
     {
       "id": "spaceknife",
       "name": "spaceknife-backend",
-      "version": "wip/mft-rust-88c0dd3 (run-40136435405)",
+      "version": "0.3.3 dev-38c3b73 (run-40188287823)",
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["linux", "windows"],
-      "architectures": ["x86_64"],
+      "architectures": ["x86_64", "aarch64"],
       "size_metric": "allocated",
       "command_template": ["{bin}", "scan", "{path}", "--no-snapshot", "--top", "5", "--depth", "1"],
       "mft": {
@@ -189,8 +189,10 @@
       },
       "output_parser": "spaceknife_cli",
       "install": {
-        "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:40136435405:SpaceKnife-portable-linux-x64",
-        "windows_x86_64": "gh-artifact:DuskXi/SpaceKnife:40136435405:SpaceKnife-portable-win-x64"
+        "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-linux-x64",
+        "linux_aarch64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-linux-arm64",
+        "windows_x86_64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-win-x64",
+        "windows_aarch64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-win-arm64"
       }
     },
     {
