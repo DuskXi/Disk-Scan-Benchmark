@@ -14,6 +14,7 @@
     "apparent_on": "OS list where the scanner can only report logical sizes; it is then compared against the apparent ground truth",
     "excludes_dir_blocks": "OS list where the scanner does not count the blocks folders themselves occupy; its total and each top-level folder are then compared against the files-only allocation",
     "command_template_by_os": "Per-OS replacement for command_template",
+    "env": "Extra environment variables for the scanner process (e.g. COLUMNS, so a table printed for an 80-column console is not cropped when the output is a pipe)",
     "bin_name": "Executable name when it differs from 'name' (e.g. erd for erdtree, du64 for Sysinternals du)",
     "display_name": "Name shown on the boards when 'name' is an executable name (spaceknife-backend -> SpaceKnife)",
     "notes / notes_en": "Short Chinese / English notes shown in the README scanner table",
@@ -185,6 +186,7 @@
         "command_template": ["{bin}", "scan", "{volume}", "--mft", "--no-snapshot", "--top", "5", "--depth", "2"]
       },
       "output_parser": "spaceknife_cli",
+      "env": {"COLUMNS": "200"},
       "install": {
         "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-linux-x64",
         "linux_aarch64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-linux-arm64",

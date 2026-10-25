@@ -192,13 +192,17 @@ def parse_spaceknife_subtree(text: str, name: str, os_key: str) -> Tuple[int, in
     units.update({"kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4, "pib": 1024**5})
     row_re = re.compile(
         rf"^[\s│▸▾]*{re.escape(name)}\s+([0-9]+(?:\.[0-9]+)?)\s*(PiB|TiB|GiB|MiB|KiB|PB|TB|GB|MB|KB|B)\s+"
-        r"[0-9.]+%.*?([0-9][0-9,]*)\s*$",
+        r"[0-9.]+%(.*)$",
         re.IGNORECASE | re.MULTILINE,
     )
     m = row_re.search(clean)
     if not m:
         return 0, 0
-    return int(float(m.group(1)) * units.get(m.group(2).lower(), 1)), int(m.group(3).replace(",", ""))
+    # the file count is the last column; a table wider than the console crops it ("200,0…"): count unknown then
+    files = re.search(r"([0-9][0-9,]*)$", m.group(3).strip())
+    return int(float(m.group(1)) * units.get(m.group(2).lower(), 1)), (
+        int(files.group(1).replace(",", "")) if files else 0
+    )
 
 
 def parse_spaceknife_output(text: str, effective_metric: str, os_key: str) -> Tuple[int, int]:
@@ -829,7 +833,9 @@ def save_scanner_output(out_dir: Path, scanner_id: str, text: str, keep: int = 2
         print(f"  [warn] could not save the output of {scanner_id}: {exc}")
 
 
-def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tuple[float, float, str, Optional[float]]:
+def run_monitored_cli(
+    cmd: List[str], os_key: str, timeout_sec: int = 900, extra_env: Optional[Dict[str, str]] = None
+) -> Tuple[float, float, str, Optional[float]]:
     """
     Executes a CLI command and returns (elapsed_ms, peak_rss_mb, stdout_text, cpu_seconds).
     cpu_seconds is the user + kernel CPU time of the process and everything it started (None if unknown).
@@ -840,6 +846,7 @@ def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tu
     t0 = time.perf_counter()
     child_env = os.environ.copy()
     child_env["SPACEKNIFE_LANGUAGE"] = "en"
+    child_env.update(extra_env or {})
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -1654,7 +1661,9 @@ def main() -> int:
             cmd_tokens = build_cmd()
             # Large presets (millions of files) need far more than the 15 minute default per scan run
             cli_timeout = args.timeout or max(900, int(gt_data.get("total_files", 0)) // 1000)
-            elapsed, rss, stdout_text, cpu_s = run_monitored_cli(cmd_tokens, os_key, cli_timeout)
+            elapsed, rss, stdout_text, cpu_s = run_monitored_cli(
+                cmd_tokens, os_key, cli_timeout, {k: str(v) for k, v in scanner.get("env", {}).items()}
+            )
             run_cpu.append(cpu_s)
             run_outputs.append(stdout_text)
             parser_kind = scanner.get("output_parser", "human_last_line")
