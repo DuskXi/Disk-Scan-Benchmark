@@ -442,13 +442,14 @@ Add an object to the `scanners` array of [`scanners_registry.json`](scripts/wrap
 | Linux&nbsp;ARM64 | `ubuntu-24.04-arm` | ext4 · Btrfs · XFS · ZFS |
 | macOS&nbsp;x64 | `macos-15-intel` | APFS |
 | macOS&nbsp;ARM64 | `macos-15` | APFS |
-| Windows&nbsp;x64 | `windows-latest` | NTFS · ReFS · Btrfs&nbsp;(WinBtrfs) |
+| Windows&nbsp;x64 | `windows-latest` | NTFS · ReFS · Btrfs&nbsp;(WinBtrfs)\* |
 | Windows&nbsp;ARM64 | `windows-11-arm` | NTFS |
 | Windows&nbsp;x64&nbsp;MFT | `windows-latest` | NTFS，直接读 `$MFT` · raw `$MFT` |
 
 - **Linux**：测试盘是直接 I/O 的 loop 设备；ZFS 在冷扫前导出再导入存储池。<br>The test volume is a direct-I/O loop device; the ZFS pool is exported and imported before each cold scan.
 - **macOS**：APFS 磁盘镜像。<br>An APFS disk image.
-- **Windows**：动态 VHDX。同一份数据在 NTFS 和 ReFS 上各跑一次，用来核查有没有偷读 MFT；Btrfs 通过 WinBtrfs 驱动挂载，是实验项。<br>A dynamic VHDX. The same tree runs on NTFS and on ReFS to catch scanners that read the MFT; Btrfs is mounted through the WinBtrfs driver and is experimental.
+- **Windows**：动态 VHDX。同一份数据在 NTFS 和 ReFS 上各跑一次，用来核查有没有偷读 MFT。<br>A dynamic VHDX. The same tree runs on NTFS and on ReFS to catch scanners that read the MFT.
+- **\* WinBtrfs**：通过第三方 WinBtrfs 驱动挂载，是实验项，只跑 `very-lite` 和 `lite`：在它上面建文件的速度随目录树变大急剧下降（10 万文件 15 秒，40 万文件 13 分钟，100 万文件 100 分钟还没建完），更大的体量在任务时限内跑不完。这两档本来就只供参考、不计入综合分。<br>Mounted through the third-party WinBtrfs driver; experimental and run at `very-lite` and `lite` only. Creating files on it slows down sharply as the tree grows (100k files: 15 s, 400k: 13 min, 1M: unfinished after 100 min), so larger sizes cannot finish within the job's time limit. Those two sizes are reference-only and stay out of the overall score anyway.
 - **Windows ARM64**：只跑有原生 ARM64 版本的扫描器；Defender 受篡改防护保护，无法关闭。<br>Only scanners with a native ARM64 build run here; Defender stays on because of tamper protection.
 - **MFT 专栏 · MFT column**：单独的工作流 `benchmark-mft.yml`，只比较直接读 `$MFT` 的扫描模式。<br>A separate workflow, `benchmark-mft.yml`, compares only the scan modes that read `$MFT` directly.
 

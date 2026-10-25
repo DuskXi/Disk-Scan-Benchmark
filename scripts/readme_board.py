@@ -420,12 +420,15 @@ def main() -> int:
             )
             return 0
         out = data_dir / f"{args.kind}-{preset}.json"
-        if args.only_if_current:
-            # a supplement to this run's own earlier publish: never replaces a newer run of the same preset
-            current = json.loads(out.read_text(encoding="utf-8"))["meta"].get("run_id") if out.exists() else None
-            if str(current) != str(args.run_id):
-                print(f"[readme_board] not publishing: {out.name} holds run {current}, not this run {args.run_id}")
-                return 0
+        current = json.loads(out.read_text(encoding="utf-8"))["meta"].get("run_id") if out.exists() else None
+        if args.only_if_current and str(current) != str(args.run_id):
+            # a supplement to this run's own earlier publish: never replaces another run of the same preset
+            print(f"[readme_board] not publishing: {out.name} holds run {current}, not this run {args.run_id}")
+            return 0
+        if str(current).isdigit() and str(args.run_id).isdigit() and int(str(current)) > int(args.run_id):
+            # run ids only grow: an older run that finishes late must not replace a newer run's result
+            print(f"[readme_board] not publishing: {out.name} already holds the newer run {current}")
+            return 0
         data_dir.mkdir(parents=True, exist_ok=True)
         record = {
             "meta": {

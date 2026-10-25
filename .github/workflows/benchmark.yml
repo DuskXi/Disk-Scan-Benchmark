@@ -807,6 +807,9 @@ jobs:
 
   benchmark-btrfs-win:
     name: "Bench (windows-x86_64-btrfs | ${{ inputs.preset }})"
+    # Small presets only: creating files on WinBtrfs slows down far faster than the tree grows (100k files: 15 s,
+    # 400k: 13 min, 1M: still running after 100 min), so from low up it cannot finish within the job's time limit
+    if: ${{ inputs.preset == 'very-lite' || inputs.preset == 'lite' }}
     runs-on: windows-latest
     # Experimental: WinBtrfs is a third-party driver, not WHQL-signed, with known hangs under heavy writes; a
     # failure here must not hold up or fail the rest of the run
@@ -1079,7 +1082,7 @@ jobs:
   leaderboard-btrfs:
     name: "Overall Leaderboard + WinBtrfs (${{ inputs.preset }})"
     needs: [leaderboard, benchmark-btrfs-win]
-    if: ${{ !cancelled() && needs.leaderboard.result == 'success' }}
+    if: ${{ !cancelled() && needs.leaderboard.result == 'success' && needs.benchmark-btrfs-win.result != 'skipped' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write  # re-publishes the README leaderboard and badge files to main
