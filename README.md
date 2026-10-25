@@ -12,7 +12,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 ## 🏆 排行榜 · Leaderboard
 
-![updated](https://img.shields.io/badge/updated-2026--10--25-4c8eda) ![presets](https://img.shields.io/badge/presets-3%2F6-dbab09) ![scanners](https://img.shields.io/badge/scanners-15-6f42c1) ![platforms](https://img.shields.io/badge/platforms-14-0969da) ![MFT presets](https://img.shields.io/badge/MFT%20presets-3-8250df)
+![updated](https://img.shields.io/badge/updated-2026--10--25-4c8eda) ![presets](https://img.shields.io/badge/presets-3%2F6-dbab09) ![scanners](https://img.shields.io/badge/scanners-15-6f42c1) ![platforms](https://img.shields.io/badge/platforms-14-0969da) ![MFT presets](https://img.shields.io/badge/MFT%20presets-4-8250df)
 
 > 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。`very-lite` / `lite` 体量过小，计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。评分方法与数据生成原理见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)。
 >
@@ -304,11 +304,11 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 Scanners that read the NTFS `$MFT` directly are ranked here, apart from the directory-walking board above; their cold and warm times should be close, since every scan reads the whole MFT.
 
-| # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | very‑lite\* | lite\* | low |
-| :---: | :--- | ---: | :---: | :---: | :---: |
-| 🥇 | **SpaceKnife** | **100.0** | 🥉&nbsp;72.3<br><sub>0.79&nbsp;/&nbsp;0.75&nbsp;s</sub> | 🥇&nbsp;100.0<br><sub>1.84&nbsp;/&nbsp;1.79&nbsp;s</sub> | 🥇&nbsp;100.0<br><sub>3.84&nbsp;/&nbsp;3.72&nbsp;s</sub> |
-| 🥈 | **WizTree** | **45.7** | 🥈&nbsp;78.7<br><sub>0.66&nbsp;/&nbsp;0.67&nbsp;s</sub> | 🥈&nbsp;59.2<br><sub>2.66&nbsp;/&nbsp;2.85&nbsp;s</sub> | 🥈&nbsp;45.7<br><sub>7.25&nbsp;/&nbsp;6.78&nbsp;s</sub> |
-| 🥉 | **WinDirStat** | **43.8** | 🥇&nbsp;100.0<br><sub>0.56&nbsp;/&nbsp;0.55&nbsp;s</sub> | 🥉&nbsp;57.5<br><sub>3.07&nbsp;/&nbsp;2.95&nbsp;s</sub> | 🥉&nbsp;43.8<br><sub>7.90&nbsp;/&nbsp;7.82&nbsp;s</sub> |
+| # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | very‑lite\* | lite\* | low | mid |
+| :---: | :--- | ---: | :---: | :---: | :---: | :---: |
+| 🥇 | **SpaceKnife** | **100.0** | 🥉&nbsp;72.3<br><sub>0.79&nbsp;/&nbsp;0.75&nbsp;s</sub> | 🥇&nbsp;100.0<br><sub>1.84&nbsp;/&nbsp;1.79&nbsp;s</sub> | 🥇&nbsp;100.0<br><sub>3.84&nbsp;/&nbsp;3.72&nbsp;s</sub> | 🥇&nbsp;100.0<br><sub>7.29&nbsp;/&nbsp;7.29&nbsp;s</sub> |
+| 🥈 | **WinDirStat** | **39.0** | 🥇&nbsp;100.0<br><sub>0.56&nbsp;/&nbsp;0.55&nbsp;s</sub> | 🥉&nbsp;57.5<br><sub>3.07&nbsp;/&nbsp;2.95&nbsp;s</sub> | 🥉&nbsp;43.8<br><sub>7.90&nbsp;/&nbsp;7.82&nbsp;s</sub> | 🥈&nbsp;34.6<br><sub>18.5&nbsp;/&nbsp;18.5&nbsp;s</sub> |
+| 🥉 | **WizTree** | **37.5** | 🥈&nbsp;78.7<br><sub>0.66&nbsp;/&nbsp;0.67&nbsp;s</sub> | 🥈&nbsp;59.2<br><sub>2.66&nbsp;/&nbsp;2.85&nbsp;s</sub> | 🥈&nbsp;45.7<br><sub>7.25&nbsp;/&nbsp;6.78&nbsp;s</sub> | 🥉&nbsp;30.8<br><sub>17.4&nbsp;/&nbsp;22.1&nbsp;s</sub> |
 
 <sub>综合分 = `low` 及以上各体量 MFT 分数的几何平均，\* 为仅供参考的小体量；每格是该体量的名次和分数，下一行小字是冷扫 / 热扫秒数。⛔ 无法运行 · ❌ 违规 · ⚠️ 无效 · — 未参加。<br><br>Score = geometric mean of the MFT scores from `low` up; \* marks the reference-only small sizes. Each cell: rank and score in that size, then cold / warm seconds in small print. ⛔ cannot run · ❌ disqualified · ⚠️ invalid · — not run.</sub>
 
