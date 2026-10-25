@@ -111,7 +111,10 @@ if IS_WINDOWS:
                     (file_id,) = struct.unpack_from("<q", buf.raw, off + 96)
                     name = buf.raw[off + 104 : off + 104 + name_len].decode("utf-16-le", "replace")
                     if name not in (".", ".."):
-                        out.append((name, _record(file_id & 0xFFFFFFFFFFFFFFFF), bool(attrs & 0x10)))
+                        # a directory only if it is not a reparse point: symlinks and junctions to directories also
+                        # carry FILE_ATTRIBUTE_DIRECTORY, and following them loops forever on link cycles
+                        is_dir = bool(attrs & 0x10) and not attrs & 0x400
+                        out.append((name, _record(file_id & 0xFFFFFFFFFFFFFFFF), is_dir))
                     if not nxt:
                         break
                     off += nxt

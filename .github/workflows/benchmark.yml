@@ -281,6 +281,8 @@ jobs:
 
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
         shell: bash
+        timeout-minutes: 10
+        continue-on-error: true
         run: python ./scripts/profile/layout_probe.py "${{ matrix.mount_path }}" --json-out "results/${{ matrix.target_label }}/layout.json" > /dev/null || true
 
       - name: Measure Hardware Ceiling Baseline (hw-probe)
@@ -485,6 +487,8 @@ jobs:
 
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
         shell: bash
+        timeout-minutes: 10
+        continue-on-error: true
         run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
 
       - name: Measure Hardware Ceiling Baseline on NTFS (hw-probe)
@@ -618,6 +622,8 @@ jobs:
 
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
         shell: bash
+        timeout-minutes: 10
+        continue-on-error: true
         run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
 
       - name: Measure Hardware Ceiling Baseline on NTFS (hw-probe)
@@ -760,6 +766,8 @@ jobs:
 
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
         shell: bash
+        timeout-minutes: 10
+        continue-on-error: true
         run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
 
       - name: Measure Hardware Ceiling Baseline on ReFS (hw-probe)
@@ -882,6 +890,8 @@ jobs:
 
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
         shell: bash
+        timeout-minutes: 10
+        continue-on-error: true
         run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
 
       - name: Measure Hardware Ceiling Baseline on Btrfs (hw-probe)
