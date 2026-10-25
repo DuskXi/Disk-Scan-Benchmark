@@ -8,7 +8,7 @@
 
 ## 🏆 排行榜 Leaderboard
 
-![最近更新](https://img.shields.io/badge/%E6%9C%80%E8%BF%91%E6%9B%B4%E6%96%B0-2026--10--25-4c8eda) ![已测体量](https://img.shields.io/badge/%E5%B7%B2%E6%B5%8B%E4%BD%93%E9%87%8F-2%2F6-dbab09) ![扫描器](https://img.shields.io/badge/%E6%89%AB%E6%8F%8F%E5%99%A8-15-6f42c1) ![平台](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-7-0969da) ![MFT 专栏](https://img.shields.io/badge/MFT%20%E4%B8%93%E6%A0%8F-2%20%E4%B8%AA%E4%BD%93%E9%87%8F-8250df)
+![最近更新](https://img.shields.io/badge/%E6%9C%80%E8%BF%91%E6%9B%B4%E6%96%B0-2026--10--25-4c8eda) ![已测体量](https://img.shields.io/badge/%E5%B7%B2%E6%B5%8B%E4%BD%93%E9%87%8F-2%2F6-dbab09) ![扫描器](https://img.shields.io/badge/%E6%89%AB%E6%8F%8F%E5%99%A8-15-6f42c1) ![平台](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-7-0969da) ![MFT 专栏](https://img.shields.io/badge/MFT%20%E4%B8%93%E6%A0%8F-3%20%E4%B8%AA%E4%BD%93%E9%87%8F-8250df)
 
 > 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。`very-lite` / `lite` 体量过小，计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。评分方法与数据生成原理见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)。
 
@@ -142,10 +142,10 @@ Win ARM64 没有 ReFS 对照任务，那一列的成绩没有经过 NTFS/ReFS �
 
 直接读取 NTFS `$MFT` 的扫描模式单独比较（冷热两次耗时应接近，因为每次都要读完整个 MFT）。这里的成绩不和上面的普通遍历混排。
 
-| 扫描器 | very-lite | lite | 徽章 |
-| :--- | :---: | :---: | :---: |
-| **WinDirStat** | 🥇 0.75 / 0.72 s | 🥈 2.95 / 2.88 s | ![WinDirStat MFT](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDuskXi%2FDisk-Scan-Benchmark%2Fmain%2Fleaderboard%2Fbadges%2Fwindirstat-mft-lite.json) |
-| **WizTree64** | 🥈 0.88 / 0.86 s | 🥇 2.55 / 2.74 s | ![WizTree64 MFT](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDuskXi%2FDisk-Scan-Benchmark%2Fmain%2Fleaderboard%2Fbadges%2Fwiztree-mft-lite.json) |
+| 扫描器 | very-lite | lite | low | 徽章 |
+| :--- | :---: | :---: | :---: | :---: |
+| **WinDirStat** | 🥇 0.75 / 0.72 s | 🥈 2.95 / 2.88 s | 🥇 5.22 / 5.42 s | ![WinDirStat MFT](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDuskXi%2FDisk-Scan-Benchmark%2Fmain%2Fleaderboard%2Fbadges%2Fwindirstat-mft-low.json) |
+| **WizTree64** | 🥈 0.88 / 0.86 s | 🥇 2.55 / 2.74 s | 🥈 4.99 / 4.94 s | ![WizTree64 MFT](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDuskXi%2FDisk-Scan-Benchmark%2Fmain%2Fleaderboard%2Fbadges%2Fwiztree-mft-low.json) |
 
 <sub>单元格：名次 冷扫 / 热扫 秒。</sub>
 

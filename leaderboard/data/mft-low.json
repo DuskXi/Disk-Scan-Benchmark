@@ -1,0 +1,119 @@
+{
+ "meta": {
+  "kind": "mft",
+  "preset": "low",
+  "run_id": "40218339530",
+  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40218339530",
+  "sha": "6d7ac1cdfe2dcdd5ee71e5db62a8466f56017c24",
+  "date": "2026-10-25"
+ },
+ "payload": {
+  "schema": 2,
+  "preset": "low",
+  "sha": "6d7ac1cdfe2dcdd5ee71e5db62a8466f56017c24",
+  "files": 1000006,
+  "dirs": 120911,
+  "aged_timeline": true,
+  "platforms": [
+   "windows-x86_64-mft"
+  ],
+  "platform_info": {
+   "windows-x86_64-mft": {
+    "title": "Win x64 (NTFS · MFT)",
+    "cores": 4,
+    "iops": 10641.943687884417,
+    "cpu_ms": 81.8254,
+    "ok": 2,
+    "tried": 3,
+    "fastest_cold": "wiztree",
+    "fastest_warm": "wiztree"
+   }
+  },
+  "missing_platforms": [],
+  "scanners": {
+   "spaceknife": {
+    "name": "spaceknife-backend",
+    "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)"
+   },
+   "wiztree": {
+    "name": "WizTree64",
+    "version": "4.33"
+   },
+   "windirstat": {
+    "name": "WinDirStat",
+    "version": "2.9.3"
+   }
+  },
+  "overall": [
+   {
+    "id": "windirstat",
+    "scanner": "WinDirStat",
+    "version": "2.9.3",
+    "overall": 95.57245232200019,
+    "cold": 95.69703542468233,
+    "warm": 91.2220243094331,
+    "index": 100.00000000000004,
+    "rss_mb": 536.47,
+    "abs_acc_pct": 0.58,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 1,
+    "rank": 1
+   },
+   {
+    "id": "wiztree",
+    "scanner": "WizTree64",
+    "version": "4.33",
+    "overall": 94.97724191230783,
+    "cold": 100.00000000000004,
+    "warm": 100.00000000000004,
+    "index": 85.67589723741558,
+    "rss_mb": 575.28,
+    "abs_acc_pct": 0.58,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 2
+   }
+  ],
+  "unranked": [
+   "spaceknife"
+  ],
+  "per_platform": {
+   "windows-x86_64-mft": {
+    "wiztree": {
+     "status": "ok",
+     "cold_s": 4.99439,
+     "warm_s": 4.94209,
+     "cold_rel": 100.0,
+     "warm_rel": 100.0,
+     "index_rel": 85.67589723741555,
+     "platform_score": 94.97724191230783,
+     "rss_mb": 575.28,
+     "verification": "size+files+zones",
+     "acc_pct": 0.58,
+     "rank": 2
+    },
+    "windirstat": {
+     "status": "ok",
+     "cold_s": 5.21896,
+     "warm_s": 5.41765,
+     "cold_rel": 95.69703542468233,
+     "warm_rel": 91.22202430943307,
+     "index_rel": 100.0,
+     "platform_score": 95.57245232200019,
+     "rss_mb": 536.47,
+     "verification": "size+files+zones",
+     "acc_pct": 0.58,
+     "rank": 1
+    },
+    "spaceknife": {
+     "status": "invalid",
+     "reason": "❌ INVALID: Incomplete traversal (top-level folder zone_deep missing from the output)"
+    }
+   }
+  }
+ }
+}
