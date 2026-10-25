@@ -83,6 +83,62 @@ def defender_rows(raw_results: List[Dict[str, Any]]) -> List[str]:
     return [f"| **Windows Defender (scans)** | `real-time on` | {scope}{tamper} |"]
 
 
+LAYOUT_ROWS = [
+    (
+        "同目录记录聚集度（中位数）",
+        lambda m: m.get("density", {}).get("p50"),
+        "{:.4g}",
+        "子项记录号的密集程度，1 = 连成一片；用了多年的盘远小于 1",
+    ),
+    (
+        "按名字相邻、记录也相邻的比例（中位数）",
+        lambda m: m.get("adjacency", {}).get("p50"),
+        "{:.3f}",
+        "新建的盘按目录顺序写入，接近 1",
+    ),
+    (
+        "子项离目录记录不超过 256 条的比例",
+        lambda m: m.get("parent_gap_within_256"),
+        "{:.3f}",
+        "目录和它的文件挨在一起的程度",
+    ),
+    (
+        "目录索引段数（≥ 64 项的目录，中位数）",
+        lambda m: m.get("index_extents", {}).get("p50"),
+        "{:.0f}",
+        "索引一次长成 = 1 段；逐步增长会分成多段",
+    ),
+    ("目录索引段数（p90）", lambda m: m.get("index_extents", {}).get("p90"), "{:.0f}", ""),
+]
+
+
+def layout_section(
+    layout: Optional[Dict[str, Any]], reference: Optional[List[Dict[str, Any]]], aged: Optional[bool]
+) -> List[str]:
+    """How aged the generated volume's layout looks, next to real drives measured the same way."""
+    if not layout:
+        return []
+    refs = reference or []
+    head = ["指标", f"本卷（{'老化' if aged else '未老化'}）"] + [str(r.get("name", "真实盘")) for r in refs] + ["说明"]
+    lines = [
+        "",
+        "### 磁盘布局（老化程度，越接近真实盘越好）",
+        "",
+        "由 `scripts/profile/layout_probe.py` 在生成后、任何扫描之前测得，只看文件记录和目录索引在磁盘上的分布，"
+        "与扫描器无关。",
+        "",
+        "| " + " | ".join(head) + " |",
+        "| :--- | " + " | ".join("---:" for _ in head[1:-1]) + " | :--- |",
+    ]
+    for label, get, fmt, note in LAYOUT_ROWS:
+        cells = []
+        for m in [layout] + [r.get("layout", {}) for r in refs]:
+            v = get(m)
+            cells.append(f"`{fmt.format(v)}`" if v is not None else "-")
+        lines.append(f"| {label} | " + " | ".join(cells) + f" | {note} |")
+    return lines
+
+
 def fmt_acc(value: Optional[float]) -> str:
     return "未核验" if value is None else f"{value:+.2f}%"
 
@@ -108,6 +164,8 @@ def generate_report(
     raw_results: List[Dict[str, Any]],
     title_suffix: str = "",
     cross_fs_checked: bool = False,
+    layout: Optional[Dict[str, Any]] = None,
+    layout_reference: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     b_meta = float(baseline.get("b_meta_files_per_sec", 1.0)) or 1.0
     b_seq = float(baseline.get("b_seq_mb_per_sec", 1.0)) or 1.0
@@ -256,6 +314,8 @@ def generate_report(
             z_dirs = int(z_data.get("dirs", 0))
             z_bytes = int(z_data.get("apparent_size_bytes", 0))
             lines.append(f"| `{z_name}` | {desc} | `{z_files:,}` | `{z_dirs:,}` | `{format_bytes_gib(z_bytes)}` |")
+
+    lines.extend(layout_section(layout, layout_reference, gt.get("aged_timeline")))
 
     lines.extend(
         [
@@ -456,7 +516,14 @@ def main() -> int:
     with open(args.raw_results, "r", encoding="utf-8") as f:
         raw_results = json.load(f)
 
-    md_text, norm_rows = generate_report(gt, baseline, raw_results, args.title_suffix, args.cross_fs_checked)
+    # layout.json (scripts/profile/layout_probe.py) sits next to raw_results.json when the workflow measured it
+    layout_path = Path(args.raw_results).with_name("layout.json")
+    layout = json.loads(layout_path.read_text(encoding="utf-8")) if layout_path.exists() else None
+    ref_path = Path(__file__).resolve().parent.parent / "docs" / "layout_reference.json"
+    layout_reference = json.loads(ref_path.read_text(encoding="utf-8")) if ref_path.exists() else None
+    md_text, norm_rows = generate_report(
+        gt, baseline, raw_results, args.title_suffix, args.cross_fs_checked, layout, layout_reference
+    )
 
     out_md = Path(args.out)
     out_md.parent.mkdir(parents=True, exist_ok=True)

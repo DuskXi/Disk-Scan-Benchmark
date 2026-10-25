@@ -209,6 +209,10 @@ jobs:
             --manifest-out "results/${{ matrix.target_label }}/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
 
+      - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
+        shell: bash
+        run: python ./scripts/profile/layout_probe.py "${{ matrix.mount_path }}" --json-out "results/${{ matrix.target_label }}/layout.json" > /dev/null || true
+
       - name: Measure Hardware Ceiling Baseline (hw-probe)
         shell: bash
         run: |
@@ -406,6 +410,10 @@ jobs:
             --manifest-out "results/$LABEL/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
 
+      - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
+        shell: bash
+        run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
+
       - name: Measure Hardware Ceiling Baseline on NTFS (hw-probe)
         shell: bash
         run: |
@@ -534,6 +542,10 @@ jobs:
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
             --manifest-out "results/$LABEL/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
+
+      - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
+        shell: bash
+        run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
 
       - name: Measure Hardware Ceiling Baseline on NTFS (hw-probe)
         shell: bash
@@ -673,6 +685,10 @@ jobs:
             --manifest-out "results/$LABEL/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
           powershell -NoProfile -Command '$p = (Get-Content (Join-Path $env:TEMP "disk_scanner_bench_X.vhdpath") -Raw).Trim(); $v = Get-Volume -DriveLetter X; "ReFS after generation: VHDX {0:N1} GB physical | X: used {1:N1} of {2:N0} GB | D: free {3:N1} GB" -f ((Get-Item $p).Length / 1GB), (($v.Size - $v.SizeRemaining) / 1GB), ($v.Size / 1GB), ((Get-PSDrive D).Free / 1GB)' || true
+
+      - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
+        shell: bash
+        run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
 
       - name: Measure Hardware Ceiling Baseline on ReFS (hw-probe)
         shell: bash
