@@ -8,7 +8,7 @@ run-name: >-
   inputs.preset == 'mid' && '3M files / 1TB' ||
   inputs.preset == 'high' && '5M files / 2TB' ||
   inputs.preset == 'very-high' && '9M files / 3TB' ||
-  inputs.preset == 'before-death' && '14M files / 3.7TB' ||
+  inputs.preset == 'before-death' && '14M files / 3.6TB' ||
   format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }}${{
   inputs.defender_scan && ' · Defender on' || '' }}
 
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       preset:
-        description: "Scale preset tier (very-lite: 100k/100GB, lite: 400k/350GB, low: 1M/500GB, mid: 3M/1TB, high: 5M/2TB, very-high: 9M/3TB, before-death: 14M/3.7TB, custom)"
+        description: "Scale preset tier (very-lite: 100k/100GB, lite: 400k/350GB, low: 1M/500GB, mid: 3M/1TB, high: 5M/2TB, very-high: 9M/3TB, before-death: 14M/3.6TB, custom)"
         required: true
         default: "very-lite"
         type: choice

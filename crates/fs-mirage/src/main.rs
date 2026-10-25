@@ -31,8 +31,8 @@ enum CliPreset {
     /// 9,000,000 items (900万项), 3 TB (3072 GB) logical size
     #[value(name = "very-high")]
     VeryHigh,
-    /// 14,000,000 items (1400万项), 3.70 TB (3788.8 GB) logical size: a 4 TB NVMe drive (about 3.72 TB as the OS
-    /// shows it) about 99.5% full
+    /// 14,000,000 items (1400万项), 3.60 TB (3686.4 GB) logical size: a mainstream 4 TB NVMe drive (about 3.63 TB
+    /// as the OS shows it) about 99% full
     #[value(name = "before-death")]
     BeforeDeath,
     /// Custom scale via --files and --logical-gb

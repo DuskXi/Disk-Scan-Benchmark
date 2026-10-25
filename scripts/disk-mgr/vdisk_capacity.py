@@ -18,7 +18,7 @@ PRESET_GB = {
     "mid": 1024,
     "high": 2048,
     "very-high": 3072,
-    "before-death": 3788.8,
+    "before-death": 3686.4,
 }
 PRESET_FILES = {
     "very-lite": 100_000,
