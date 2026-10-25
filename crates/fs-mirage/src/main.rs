@@ -7,6 +7,8 @@ use clap::{Parser, ValueEnum};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
+#[cfg(unix)]
+use topology::GroundTruthManifest;
 use topology::{EntryKind, ScalePreset, TopologyConfig, TopologyPlan};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -91,6 +93,12 @@ struct Args {
     #[arg(long)]
     plan_only: bool,
 
+    /// Unix: re-read the allocation of an already generated tree (same --root, --preset/--profile, --seed and size
+    /// options) and update the allocation fields of the existing --manifest-out. Used after a remount on Btrfs, XFS
+    /// and ZFS, whose block counts settle only after the data is flushed.
+    #[arg(long)]
+    recount_alloc: bool,
+
     /// Generate a tree with the shape and name style of a real tree, from a profile written by scripts/profile/fs_profile.py.
     #[arg(long)]
     profile: Option<PathBuf>,
@@ -116,6 +124,39 @@ struct Args {
 }
 
 /// Ballast plan: the same generator as the benchmark tree (other seed), optionally with every file emptied.
+#[cfg(unix)]
+fn recount(args: &Args, plan: &TopologyPlan) -> Result<()> {
+    let text = fs::read_to_string(&args.manifest_out).with_context(|| {
+        format!(
+            "--recount-alloc needs the manifest of the generated tree at {}",
+            args.manifest_out.display()
+        )
+    })?;
+    let mut manifest: GroundTruthManifest =
+        serde_json::from_str(&text).context("parsing the existing manifest")?;
+    let before = manifest.allocated_size_bytes;
+    let counts = materializer::recount_allocation(&args.root, plan);
+    manifest.allocated_size_bytes = counts.total;
+    manifest.allocated_files_only_bytes = counts.files_only;
+    manifest.allocated_size_with_hardlinks_bytes = counts.total + counts.hardlink_extra;
+    for (name, zone) in manifest.zones.iter_mut() {
+        zone.allocated_size_bytes = counts.zones.get(name).copied().unwrap_or(0);
+    }
+    fs::write(&args.manifest_out, serde_json::to_string_pretty(&manifest)?)?;
+    println!(
+        "[fs-mirage] Allocation recounted: {:.2} MiB -> {:.2} MiB ({})",
+        before as f64 / (1024.0 * 1024.0),
+        counts.total as f64 / (1024.0 * 1024.0),
+        args.manifest_out.display()
+    );
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn recount(_args: &Args, _plan: &TopologyPlan) -> Result<()> {
+    anyhow::bail!("--recount-alloc is only needed (and supported) on Unix filesystems")
+}
+
 fn ballast_plan(
     args: &Args,
     cfg: &TopologyConfig,
@@ -223,6 +264,10 @@ fn main() -> Result<()> {
             m.apparent_size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
         );
         return Ok(());
+    }
+
+    if args.recount_alloc {
+        return recount(&args, &plan);
     }
 
     if args.ballast_files > 0 {

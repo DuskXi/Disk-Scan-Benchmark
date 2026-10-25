@@ -229,7 +229,8 @@ def probe(root: str, max_dirs: int, extent_samples: int, seed: int) -> Dict[str,
             big_dirs.append(d)
     rng = random.Random(seed)
     sample = big_dirs if len(big_dirs) <= extent_samples else rng.sample(big_dirs, extent_samples)
-    extents = [e for e in (index_extents(d) for d in sample) if e is not None]
+    # 0 = the filesystem keeps directories outside data extents (btrfs); None = no FIEMAP / not readable (zfs)
+    extents = [e for e in (index_extents(d) for d in sample) if e]
     total_gaps = sum(gap_bins.values()) or 1
     return {
         "schema": "dsb-layout-1",

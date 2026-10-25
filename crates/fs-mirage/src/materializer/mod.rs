@@ -675,6 +675,58 @@ fn create_platform_symlink(target: &Path, link: &Path, is_dir: bool) -> Result<(
     windows::create_symlink(target, link, is_dir)
 }
 
+/// Allocation of an already materialized tree, counted the way `materialize_tree` counts it.
+#[cfg(unix)]
+pub struct AllocCounts {
+    pub total: u64,
+    pub files_only: u64,
+    pub hardlink_extra: u64,
+    pub zones: HashMap<String, u64>,
+}
+
+/// Re-reads the allocation of every planned path. Btrfs, XFS and ZFS settle a file's block count only after the
+/// data is flushed (delayed allocation, speculative preallocation, transaction groups), so on those filesystems the
+/// ground truth is recounted after a remount instead of trusting the numbers seen while writing.
+#[cfg(unix)]
+pub fn recount_allocation(root: &Path, plan: &TopologyPlan) -> AllocCounts {
+    use std::os::unix::fs::MetadataExt;
+    let blocks = |p: &Path| {
+        fs::symlink_metadata(p)
+            .map(|m| m.blocks().saturating_mul(512))
+            .unwrap_or(0)
+    };
+    let zone_alloc: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
+    let files_only: u64 = plan
+        .regular_files
+        .par_iter()
+        .map(|e| {
+            let b = blocks(&to_os_path(root, &e.rel_path));
+            add_zone_alloc(&zone_alloc, &e.rel_path, b);
+            b
+        })
+        .sum();
+    let hardlink_extra: u64 = plan
+        .hardlinks
+        .par_iter()
+        .map(|e| blocks(&to_os_path(root, &e.rel_path)))
+        .sum();
+    let dirs: u64 = plan
+        .directories
+        .par_iter()
+        .map(|d| {
+            let b = blocks(&to_os_path(root, d));
+            add_zone_alloc(&zone_alloc, d, b);
+            b
+        })
+        .sum();
+    AllocCounts {
+        total: files_only + dirs + blocks(root),
+        files_only,
+        hardlink_extra,
+        zones: zone_alloc.into_inner().unwrap_or_default(),
+    }
+}
+
 #[allow(dead_code)]
 pub fn verify_entry_count(entries: &[FileEntry]) -> usize {
     entries.len()

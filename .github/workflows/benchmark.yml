@@ -91,12 +91,14 @@ jobs:
             platform: linux
             arch: x86_64
             target_label: linux-x86_64
+            fs: ext4
             fs_label: ext4
             mount_path: /mnt/bench
           - os: ubuntu-24.04-arm
             platform: linux
             arch: aarch64
             target_label: linux-arm64
+            fs: ext4
             fs_label: ext4
             mount_path: /mnt/bench
 
@@ -105,14 +107,60 @@ jobs:
             platform: macos
             arch: x86_64
             target_label: macos-x86_64
+            fs: apfs
             fs_label: APFS
             mount_path: /tmp/BenchVol
           - os: macos-15
             platform: macos
             arch: aarch64
             target_label: macos-arm64
+            fs: apfs
             fs_label: APFS
             mount_path: /tmp/BenchVol
+
+          # Linux filesystems beyond ext4 (same loop device, same tree)
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x86_64
+            target_label: linux-x86_64-btrfs
+            fs: btrfs
+            fs_label: Btrfs
+            mount_path: /mnt/bench
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x86_64
+            target_label: linux-x86_64-xfs
+            fs: xfs
+            fs_label: XFS
+            mount_path: /mnt/bench
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x86_64
+            target_label: linux-x86_64-zfs
+            fs: zfs
+            fs_label: ZFS
+            mount_path: /mnt/bench
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: aarch64
+            target_label: linux-arm64-btrfs
+            fs: btrfs
+            fs_label: Btrfs
+            mount_path: /mnt/bench
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: aarch64
+            target_label: linux-arm64-xfs
+            fs: xfs
+            fs_label: XFS
+            mount_path: /mnt/bench
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: aarch64
+            target_label: linux-arm64-zfs
+            fs: zfs
+            fs_label: ZFS
+            mount_path: /mnt/bench
 
           # TODO (Windows ARM64):
           # Once GitHub Actions public windows-11-arm runners support elevated VHDX loop mounting
@@ -165,6 +213,21 @@ jobs:
           echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
           echo "Virtual disk capacity: ${VDISK_GB} GiB"
 
+      - name: Install Filesystem Tools (Btrfs / XFS / ZFS)
+        if: matrix.platform == 'linux' && matrix.fs != 'ext4'
+        shell: bash
+        run: |
+          case "${{ matrix.fs }}" in
+            btrfs) pkg=btrfs-progs; mod=btrfs ;;
+            xfs)   pkg=xfsprogs; mod=xfs ;;
+            zfs)   pkg=zfsutils-linux; mod=zfs ;;
+          esac
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "$pkg"
+          sudo modprobe "$mod" || { sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" && sudo modprobe "$mod"; }
+          echo "kernel $(uname -r)"
+          if [ "$mod" = "zfs" ]; then zfs version; fi
+
       - name: Create & Mount Virtual Disk Container (Linux / macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -180,7 +243,7 @@ jobs:
             *)         INODES=4000000 ;;
           esac
           if [ "${{ matrix.platform }}" = "linux" ]; then
-            ./scripts/disk-mgr/linux_loop.sh create "$VDISK_GB" "${{ matrix.mount_path }}" --inodes "$INODES"
+            ./scripts/disk-mgr/linux_loop.sh create "$VDISK_GB" "${{ matrix.mount_path }}" --inodes "$INODES" --fs "${{ matrix.fs }}"
           else
             ./scripts/disk-mgr/macos_dmg.sh create "$VDISK_GB" "${{ matrix.mount_path }}"
           fi
@@ -201,13 +264,20 @@ jobs:
               EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
             fi
           fi
-          ./target/release/fs-mirage \
-            --root "${{ matrix.mount_path }}" \
-            --preset "${{ inputs.preset }}" \
-            --seed "${{ inputs.seed }}" \
-            --max-physical-mb "${{ inputs.max_physical_mb }}" \
-            --manifest-out "results/${{ matrix.target_label }}/ground_truth.json" \
+          GEN_ARGS=(
+            --root "${{ matrix.mount_path }}"
+            --preset "${{ inputs.preset }}"
+            --seed "${{ inputs.seed }}"
+            --max-physical-mb "${{ inputs.max_physical_mb }}"
+            --manifest-out "results/${{ matrix.target_label }}/ground_truth.json"
             "${EXTRA_ARGS[@]}"
+          )
+          ./target/release/fs-mirage "${GEN_ARGS[@]}"
+          # Btrfs, XFS and ZFS settle block counts only after the data is flushed: recount after a remount
+          if [ "${{ matrix.platform }}" = "linux" ] && [ "${{ matrix.fs }}" != "ext4" ]; then
+            ./scripts/disk-mgr/linux_loop.sh purge-cache "${{ matrix.mount_path }}"
+            ./target/release/fs-mirage "${GEN_ARGS[@]}" --recount-alloc
+          fi
 
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
         shell: bash
@@ -224,9 +294,12 @@ jobs:
             powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "${{ matrix.mount_path }}"
           fi
 
+          # ZFS caches data in its ARC whatever O_DIRECT asks for; cache only metadata while the probe reads its file
+          if [ "${{ matrix.fs }}" = "zfs" ]; then sudo zfs set primarycache=metadata benchpool; fi
           ./target/release/hw-probe \
             --root "${{ matrix.mount_path }}" \
             --out "results/${{ matrix.target_label }}/baseline.json"
+          if [ "${{ matrix.fs }}" = "zfs" ]; then sudo zfs set primarycache=all benchpool; fi
 
       - name: Run All Platform Scanners Sequentially on Same Instance
         shell: bash
@@ -263,7 +336,7 @@ jobs:
           fi
 
       - name: Optional Linux /dev/shm RAMDisk High-IOPS Comparison Pass
-        if: matrix.platform == 'linux' && inputs.enable_ramdisk == true
+        if: matrix.platform == 'linux' && matrix.fs == 'ext4' && inputs.enable_ramdisk == true
         shell: bash
         env:
           FSM_AGING: ${{ inputs.aging && '1' || '0' }}
@@ -654,11 +727,10 @@ jobs:
         shell: pwsh
         run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" refs
 
-      # Preallocated like on NTFS: with --no-prealloc the media and the >=256 KiB files were sparse on ReFS only, and
-      # scanners that size sparse files exactly (SpaceKnife, WinDirStat) paid for it on ReFS alone, which skews the
-      # NTFS-vs-ReFS cross-check. A plain SetEndOfFile on ReFS reserves clusters without writing zeros (verified on a
-      # local ReFS 3.14 volume and on the runner: very-lite allocated 102 GB with a 1.5 GB VHDX). ReFS generation grows
-      # much faster than linearly on the runner (low ~2.5 min, mid ~35 min, high ~1.6 h before this change), so the
+      # Preallocated like on NTFS, so both filesystems hold the same tree: with --no-prealloc the media and the
+      # >=256 KiB files were sparse on ReFS only, and the NTFS-vs-ReFS cross-check compared two different trees. A plain
+      # SetEndOfFile on ReFS reserves clusters without writing zeros (verified locally and on the runner: very-lite
+      # allocated 102 GB with a 1.5 GB VHDX). ReFS generation grows much faster than linearly on the runner, so the
       # timeout only guards against a real hang.
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
@@ -722,6 +794,143 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-windows-x86_64-refs-${{ inputs.preset }}
+          path: results/
+          retention-days: 30
+
+  benchmark-btrfs-win:
+    name: "Bench (windows-x86_64-btrfs | ${{ inputs.preset }})"
+    runs-on: windows-latest
+    # Experimental: WinBtrfs is a third-party driver, not WHQL-signed, with known hangs under heavy writes; a
+    # failure here must not hold up or fail the rest of the run
+    continue-on-error: true
+    timeout-minutes: 300
+    env:
+      LABEL: windows-x86_64-btrfs
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build Core Engines (fs-mirage & hw-probe)
+        shell: bash
+        run: cargo build --release --workspace
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: Resolve Virtual Disk Capacity
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
+          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          echo "Virtual disk capacity: ${VDISK_GB} GiB"
+
+      - name: Install WinBtrfs Driver (experimental)
+        shell: pwsh
+        run: ./scripts/disk-mgr/install_winbtrfs.ps1
+
+      - name: "Create & Mount Dynamic Btrfs VHDX (WinBtrfs)"
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" btrfs
+
+      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
+        shell: bash
+        env:
+          # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
+        timeout-minutes: 300
+        run: |
+          mkdir -p "results/$LABEL"
+          EXTRA_ARGS=()
+          if [ "${{ inputs.preset }}" = "custom" ]; then
+            if [ -n "${{ inputs.files }}" ]; then
+              EXTRA_ARGS+=(--files "${{ inputs.files }}")
+            fi
+            if [ -n "${{ inputs.logical_gb }}" ]; then
+              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
+            fi
+          fi
+          ./target/release/fs-mirage \
+            --root "X:/bench" \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "results/$LABEL/ground_truth.json" \
+            "${EXTRA_ARGS[@]}"
+          powershell -NoProfile -Command '$p = (Get-Content (Join-Path $env:TEMP "disk_scanner_bench_X.vhdpath") -Raw).Trim(); $v = Get-Volume -DriveLetter X; "Btrfs after generation: VHDX {0:N1} GB physical | X: used {1:N1} of {2:N0} GB | D: free {3:N1} GB" -f ((Get-Item $p).Length / 1GB), (($v.Size - $v.SizeRemaining) / 1GB), ($v.Size / 1GB), ((Get-PSDrive D).Free / 1GB)' || true
+
+      - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
+        shell: bash
+        run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
+
+      - name: Measure Hardware Ceiling Baseline on Btrfs (hw-probe)
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "X:/bench"
+          ./target/release/hw-probe \
+            --root "X:/bench" \
+            --out "results/$LABEL/baseline.json"
+
+      - name: Defender On For Scans
+        if: ${{ inputs.defender_scan }}
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 defender-on "X:/bench"
+
+      - name: Run All Windows Scanners on Btrfs
+        shell: bash
+        run: |
+          python ./scripts/wrappers/run_cli_scanners.py \
+            --path "X:/bench" \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --out "results/$LABEL/raw_results.json" \
+            --bin-dir "./bin"
+
+      - name: Teardown Btrfs Virtual Disk
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+      - name: Windows Btrfs Report
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "results/$LABEL/raw_results.json" ]; then
+            python ./scripts/report_gen.py \
+              --ground-truth "results/$LABEL/ground_truth.json" \
+              --baseline "results/$LABEL/baseline.json" \
+              --raw-results "results/$LABEL/raw_results.json" \
+              --out "results/$LABEL/benchmark_report.md" \
+              --json-out "results/$LABEL/normalized_results.json" \
+              --title-suffix "(windows-x86_64 Btrfs | ${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }})"
+            cat "results/$LABEL/benchmark_report.md"
+          fi
+
+      - name: Upload Btrfs Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-windows-x86_64-btrfs-${{ inputs.preset }}
           path: results/
           retention-days: 30
 
@@ -805,7 +1014,7 @@ jobs:
   # The platform jobs print their own report into their job log instead.
   leaderboard:
     name: "Overall Leaderboard (${{ inputs.preset }})"
-    needs: [benchmark, benchmark-ntfs-arm64, windows-summary]
+    needs: [benchmark, benchmark-ntfs-arm64, windows-summary, benchmark-btrfs-win]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:

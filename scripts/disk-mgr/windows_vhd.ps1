@@ -20,7 +20,7 @@ param(
     [string]$Arg2 = "X:\",
 
     [Parameter(Position=3)]
-    [ValidateSet("ntfs", "refs")]
+    [ValidateSet("ntfs", "refs", "btrfs")]
     [string]$FsType = "ntfs"
 )
 
@@ -139,6 +139,22 @@ public static class BenchVhd {
 
 $HasHyperVCmdlets = [bool](Get-Command New-VHD -ErrorAction SilentlyContinue)
 
+function Wait-BenchVolume([string]$Letter, [string]$FileSystem) {
+    # After attach the letter comes back within a second on NTFS/ReFS; WinBtrfs mounts its own volume device and can
+    # take longer, or (rarely) come back without the letter, in which case it is mounted at the letter again.
+    for ($i = 0; $i -lt 60; $i++) {
+        if (Test-Path "${Letter}:\") {
+            if (-not $FileSystem -or ((fsutil fsinfo volumeinfo "${Letter}:" | Out-String) -match $FileSystem)) { return }
+        }
+        if ($i -eq 20 -and $FileSystem) {
+            $vol = Get-CimInstance Win32_Volume -Filter "FileSystem='$FileSystem'" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($vol) { mountvol "${Letter}:" $vol.DeviceID | Out-Null }
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (-not (Test-Path "${Letter}:\")) { throw "Volume ${Letter}: did not come back" }
+}
+
 switch ($Action) {
     "create" {
         $SizeGb = [int64]$Arg1
@@ -165,17 +181,24 @@ switch ($Action) {
             $disk = Mount-VHD -Path $VhdPath -Passthru | Get-Disk
             Initialize-Disk -Number $disk.Number -PartitionStyle GPT -ErrorAction SilentlyContinue
             $part = New-Partition -DiskNumber $disk.Number -UseMaximumSize -DriveLetter $DriveLetter
-            Format-Volume -DriveLetter $DriveLetter -FileSystem $FsName -NewFileSystemLabel "BenchVol" -Confirm:$false | Out-Null
+            if ($FsType -ne "btrfs") {
+                Format-Volume -DriveLetter $DriveLetter -FileSystem $FsName -NewFileSystemLabel "BenchVol" -Confirm:$false | Out-Null
+            }
         } else {
             $dp = @"
 select vdisk file="$VhdPath"
 attach vdisk
 convert gpt
 create partition primary
-format fs=$FsType label="BenchVol" quick
 assign letter=$DriveLetter
 "@
+            if ($FsType -ne "btrfs") { $dp = $dp -replace "create partition primary", "create partition primary`r`nformat fs=$FsType label=`"BenchVol`" quick" }
             Invoke-DiskpartScript $dp
+        }
+        if ($FsType -eq "btrfs") {
+            # WinBtrfs (scripts/disk-mgr/install_winbtrfs.ps1) formats the raw partition and mounts it itself
+            & (Join-Path $env:WINBTRFS_DIR "mkbtrfs.exe") "${DriveLetter}:" BenchVol
+            Wait-BenchVolume $DriveLetter "Btrfs"
         }
         New-Item -ItemType Directory -Path "${DriveLetter}:\bench" -Force | Out-Null
 
@@ -233,7 +256,7 @@ attach vdisk
 "@
             Invoke-DiskpartScript $dp
         }
-        Start-Sleep -Milliseconds 1000
+        Wait-BenchVolume $DriveLetter ""
         Write-Host "[windows_vhd] Cold cache state restored for ${DriveLetter}:\"
     }
 
