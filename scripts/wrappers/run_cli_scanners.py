@@ -1884,7 +1884,12 @@ def main() -> int:
                     break
         verification = "+".join(checked) if checked else ("io-only" if is_gui else "none")
         if run_outputs:
-            save_scanner_output(Path(args.out).parent, scanner_id, run_outputs[0])
+            saved = run_outputs[0]
+            if len(run_outputs) > 1 and all(len(o) <= 20_000 for o in run_outputs):
+                # short outputs: every run, so a result that differs between runs shows which one
+                labels = ["cold"] + [f"warm #{i}" for i in range(1, len(run_outputs))]
+                saved = "\n".join(f"===== {lbl} =====\n{out}" for lbl, out in zip(labels, run_outputs))
+            save_scanner_output(Path(args.out).parent, scanner_id, saved)
 
         results.append(
             {

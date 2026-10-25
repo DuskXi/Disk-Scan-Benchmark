@@ -35,6 +35,10 @@
       "architectures": ["x86_64", "aarch64"],
       "size_metric": "allocated",
       "command_template": ["{bin}", "-n", "-p", "{path}"],
+      "command_template_by_os": {
+        "linux": ["{bin}", "-n", "-p", "-l", "/dev/stderr", "{path}"],
+        "macos": ["{bin}", "-n", "-p", "-l", "/dev/stderr", "{path}"]
+      },
       "excludes_dir_blocks": ["linux"],
       "output_parser": "human_last_line",
       "install": {
