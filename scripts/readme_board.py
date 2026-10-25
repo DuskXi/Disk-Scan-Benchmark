@@ -20,7 +20,7 @@ import math
 import sys
 import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from leaderboard import (
     MEDALS,
@@ -101,6 +101,62 @@ def cross_size(standard: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
     for pos, row in enumerate(ordered, start=1):
         row["rank"] = pos
     return ordered
+
+
+def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
+    """
+    The MFT column ranked across sizes like the main board (combined = geometric mean of the sizes >= low). Each
+    cell: rank and score in that size, then cold / warm seconds in small print. Scanners without any valid MFT
+    result follow at the bottom with their status.
+    """
+    present = [p for p in PRESETS if p in mft]
+    ranked = cross_size(mft)
+    rows: List[Tuple[str, str, str, str]] = [
+        (
+            MEDALS.get(r["rank"], str(r["rank"])),
+            r["id"],
+            r["name"],
+            fmt_score(r["combined"]) + ("\\*" if r["combined_from_small_only"] else ""),
+        )
+        for r in ranked
+    ]
+    seen = {r["id"] for r in ranked}
+    for rec in mft.values():  # no valid MFT result in any size: listed last, with the status of each size
+        for sid in rec["payload"]["unranked"]:
+            if sid not in seen:
+                seen.add(sid)
+                rows.append(("—", sid, rec["payload"]["scanners"][sid]["name"], "—"))
+    status_icon = {"cannot_run": "⛔", "disqualified": "❌", "invalid": "⚠️"}
+    heads = ["#", head("扫描器", "Scanner", True), head("**综合分**", "**Score**", True)]
+    lines = [
+        "| " + " | ".join(heads + [preset_head(p) for p in present]) + " |",
+        "| " + " | ".join([":---:", ":---", "---:"] + [":---:" for _ in present]) + " |",
+    ]
+    for rank, sid, name, combined in rows:
+        cells = []
+        for p in present:
+            payload = mft[p]["payload"]
+            o = next((x for x in payload["overall"] if x["id"] == sid), None)
+            plats: List[Dict[str, Any]] = list(payload["per_platform"].values())
+            plat = plats[0].get(sid) if plats else None
+            if o and plat and plat.get("status") == "ok":
+                times = f"{fmt_s(plat['cold_s'])}{NB}/{NB}{fmt_s(plat['warm_s'])}{NB}s"
+                cells.append(f"{score_cell(o['rank'], o['overall'])}<br><sub>{times}</sub>")
+            elif plat:
+                cells.append(status_icon.get(str(plat.get("status")), "?"))
+            else:
+                cells.append("—")
+        lines.append(f"| {rank} | **{nobreak(name)}** | **{combined}** | " + " | ".join(cells) + " |")
+    lines += [
+        "",
+        "<sub>综合分 = `low` 及以上各体量 MFT 分数的几何平均，\\* 为仅供参考的小体量；每格是该体量的名次和分数，"
+        "下一行小字是冷扫 / 热扫秒数。⛔ 无法运行 · ❌ 违规 · ⚠️ 无效 · — 未参加。<br><br>"
+        "Score = geometric mean of the MFT scores from `low` up; \\* marks the reference-only small sizes. Each cell: "
+        "rank and score in that size, then cold / warm seconds in small print. ⛔ cannot run · ❌ disqualified · "
+        "⚠️ invalid · — not run.</sub>",
+        "",
+    ]
+    return lines
 
 
 def preset_head(preset: str) -> str:
@@ -204,40 +260,7 @@ def render_section(
             "their cold and warm times should be close, since every scan reads the whole MFT.",
             "",
         ]
-        mft_present = [p for p in PRESETS if p in mft]
-        ids: Dict[str, str] = {}
-        for rec in mft.values():
-            for o in rec["payload"]["overall"]:
-                ids.setdefault(o["id"], o["scanner"])
-        for rec in mft.values():  # scanners with no valid MFT result still get a row, with their status
-            for sid in rec["payload"]["unranked"]:
-                ids.setdefault(sid, rec["payload"]["scanners"][sid]["name"])
-        status_icon = {"cannot_run": "⛔", "disqualified": "❌", "invalid": "⚠️"}
-        lines += [
-            f"| {head('扫描器', 'Scanner', True)} | " + " | ".join(preset_head(p) for p in mft_present) + " |",
-            "| :--- | " + " | ".join(":---:" for _ in mft_present) + " |",
-        ]
-        for sid, name in ids.items():
-            cells = []
-            for p in mft_present:
-                payload = mft[p]["payload"]
-                o = next((x for x in payload["overall"] if x["id"] == sid), None)
-                mft_plats: List[Dict[str, Any]] = list(payload["per_platform"].values())
-                plat = mft_plats[0].get(sid) if mft_plats else None
-                if o and plat and plat.get("status") == "ok":
-                    medal = MEDALS.get(o["rank"], f"#{o['rank']}")
-                    cells.append(f"{medal}<br>{fmt_s(plat['cold_s'])}{NB}/{NB}{fmt_s(plat['warm_s'])}{NB}s")
-                elif plat:
-                    cells.append(status_icon.get(str(plat.get("status")), "?"))
-                else:
-                    cells.append("—")
-            lines.append(f"| **{nobreak(name)}** | " + " | ".join(cells) + " |")
-        lines += [
-            "",
-            "<sub>名次，下一行 冷扫 / 热扫 秒 · rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 "
-            "disqualified · ⚠️ 无效 invalid · — 未参加 not run.</sub>",
-            "",
-        ]
+        lines += render_mft_table(mft)
 
     # Badge snippets for other READMEs
     board_url = f"https://github.com/{repo}#-排行榜--leaderboard"
@@ -256,11 +279,13 @@ def render_section(
     lines += [
         "```",
         "",
-        "单个体量：文件名换成 `<扫描器>-<体量>.json`（例如 `gdu-low.json`）；MFT 专栏用 `<扫描器>-mft-<体量>.json`；"
-        "也可以运行 `python scripts/readme_board.py --snippet <扫描器> [--preset low]` 生成。",
+        "单个体量：文件名换成 `<扫描器>-<体量>.json`（例如 `gdu-low.json`）；MFT 专栏综合排名用 `<扫描器>-mft.json`，"
+        "单个体量用 `<扫描器>-mft-<体量>.json`；也可以运行 "
+        "`python scripts/readme_board.py --snippet <扫描器> [--preset low]` 生成。",
         "",
-        "One size only: use `<scanner>-<size>.json` (e.g. `gdu-low.json`), or `<scanner>-mft-<size>.json` for the "
-        "MFT column; `python scripts/readme_board.py --snippet <scanner> [--preset low]` prints the line.",
+        "One size only: use `<scanner>-<size>.json` (e.g. `gdu-low.json`). For the MFT column use "
+        "`<scanner>-mft.json` (across sizes) or `<scanner>-mft-<size>.json`; "
+        "`python scripts/readme_board.py --snippet <scanner> [--preset low]` prints the line.",
         "",
         END,
     ]
@@ -272,6 +297,9 @@ def write_badges(standard: Dict[str, Dict[str, Any]], mft: Dict[str, Dict[str, A
     for row in cross_size(standard):
         payload = badge_json(f"{row['name']} · disk-scan-bench", row["rank"], row["combined"])
         (badge_dir / f"{row['id']}.json").write_text(json.dumps(payload), encoding="utf-8")
+    for row in cross_size(mft):
+        payload = badge_json(f"{row['name']} · disk-scan-bench MFT", row["rank"], row["combined"])
+        (badge_dir / f"{row['id']}-mft.json").write_text(json.dumps(payload), encoding="utf-8")
     for kind, data in (("", standard), ("mft-", mft)):
         for preset, rec in data.items():
             for o in rec["payload"]["overall"]:

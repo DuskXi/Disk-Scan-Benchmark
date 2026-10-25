@@ -304,13 +304,13 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 Scanners that read the NTFS `$MFT` directly are ranked here, apart from the directory-walking board above; their cold and warm times should be close, since every scan reads the whole MFT.
 
-| 扫⁠描⁠器<br>Scanner | very‑lite\* | lite\* | low |
-| :--- | :---: | :---: | :---: |
-| **WinDirStat** | 🥇<br>0.56&nbsp;/&nbsp;0.55&nbsp;s | 🥉<br>3.07&nbsp;/&nbsp;2.95&nbsp;s | 🥉<br>7.90&nbsp;/&nbsp;7.82&nbsp;s |
-| **WizTree** | 🥈<br>0.66&nbsp;/&nbsp;0.67&nbsp;s | 🥈<br>2.66&nbsp;/&nbsp;2.85&nbsp;s | 🥈<br>7.25&nbsp;/&nbsp;6.78&nbsp;s |
-| **SpaceKnife** | 🥉<br>0.79&nbsp;/&nbsp;0.75&nbsp;s | 🥇<br>1.84&nbsp;/&nbsp;1.79&nbsp;s | 🥇<br>3.84&nbsp;/&nbsp;3.72&nbsp;s |
+| # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | very‑lite\* | lite\* | low |
+| :---: | :--- | ---: | :---: | :---: | :---: |
+| 🥇 | **SpaceKnife** | **100.0** | 🥉&nbsp;72.3<br><sub>0.79&nbsp;/&nbsp;0.75&nbsp;s</sub> | 🥇&nbsp;100.0<br><sub>1.84&nbsp;/&nbsp;1.79&nbsp;s</sub> | 🥇&nbsp;100.0<br><sub>3.84&nbsp;/&nbsp;3.72&nbsp;s</sub> |
+| 🥈 | **WizTree** | **45.7** | 🥈&nbsp;78.7<br><sub>0.66&nbsp;/&nbsp;0.67&nbsp;s</sub> | 🥈&nbsp;59.2<br><sub>2.66&nbsp;/&nbsp;2.85&nbsp;s</sub> | 🥈&nbsp;45.7<br><sub>7.25&nbsp;/&nbsp;6.78&nbsp;s</sub> |
+| 🥉 | **WinDirStat** | **43.8** | 🥇&nbsp;100.0<br><sub>0.56&nbsp;/&nbsp;0.55&nbsp;s</sub> | 🥉&nbsp;57.5<br><sub>3.07&nbsp;/&nbsp;2.95&nbsp;s</sub> | 🥉&nbsp;43.8<br><sub>7.90&nbsp;/&nbsp;7.82&nbsp;s</sub> |
 
-<sub>名次，下一行 冷扫 / 热扫 秒 · rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 未参加 not run.</sub>
+<sub>综合分 = `low` 及以上各体量 MFT 分数的几何平均，\* 为仅供参考的小体量；每格是该体量的名次和分数，下一行小字是冷扫 / 热扫秒数。⛔ 无法运行 · ❌ 违规 · ⚠️ 无效 · — 未参加。<br><br>Score = geometric mean of the MFT scores from `low` up; \* marks the reference-only small sizes. Each cell: rank and score in that size, then cold / warm seconds in small print. ⛔ cannot run · ❌ disqualified · ⚠️ invalid · — not run.</sub>
 
 ### 在你的 README 里显示成绩 · Show a score in your README
 
@@ -336,9 +336,9 @@ Badges are refreshed on every publish with the scanner's current rank and score.
 [![Sysinternals du](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FDuskXi%2FDisk-Scan-Benchmark%2Fmain%2Fleaderboard%2Fbadges%2Fsysinternals-du.json)](https://github.com/DuskXi/Disk-Scan-Benchmark#-排行榜--leaderboard)
 ```
 
-单个体量：文件名换成 `<扫描器>-<体量>.json`（例如 `gdu-low.json`）；MFT 专栏用 `<扫描器>-mft-<体量>.json`；也可以运行 `python scripts/readme_board.py --snippet <扫描器> [--preset low]` 生成。
+单个体量：文件名换成 `<扫描器>-<体量>.json`（例如 `gdu-low.json`）；MFT 专栏综合排名用 `<扫描器>-mft.json`，单个体量用 `<扫描器>-mft-<体量>.json`；也可以运行 `python scripts/readme_board.py --snippet <扫描器> [--preset low]` 生成。
 
-One size only: use `<scanner>-<size>.json` (e.g. `gdu-low.json`), or `<scanner>-mft-<size>.json` for the MFT column; `python scripts/readme_board.py --snippet <scanner> [--preset low]` prints the line.
+One size only: use `<scanner>-<size>.json` (e.g. `gdu-low.json`). For the MFT column use `<scanner>-mft.json` (across sizes) or `<scanner>-mft-<size>.json`; `python scripts/readme_board.py --snippet <scanner> [--preset low]` prints the line.
 
 <!-- LEADERBOARD:END -->
 
