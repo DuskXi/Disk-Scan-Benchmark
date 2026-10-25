@@ -449,7 +449,7 @@ Add an object to the `scanners` array of [`scanners_registry.json`](scripts/wrap
 - **Linux**：测试盘是直接 I/O 的 loop 设备；ZFS 在冷扫前导出再导入存储池。<br>The test volume is a direct-I/O loop device; the ZFS pool is exported and imported before each cold scan.
 - **macOS**：APFS 磁盘镜像。<br>An APFS disk image.
 - **Windows**：动态 VHDX。同一份数据在 NTFS 和 ReFS 上各跑一次，用来核查有没有偷读 MFT。<br>A dynamic VHDX. The same tree runs on NTFS and on ReFS to catch scanners that read the MFT.
-- **\* WinBtrfs**：通过第三方 WinBtrfs 驱动挂载，是实验项，只跑 `very-lite` 和 `lite`：在它上面建文件的速度随目录树变大急剧下降（10 万文件 15 秒，40 万文件 13 分钟，100 万文件 100 分钟还没建完），更大的体量在任务时限内跑不完。这两档本来就只供参考、不计入综合分。<br>Mounted through the third-party WinBtrfs driver; experimental and run at `very-lite` and `lite` only. Creating files on it slows down sharply as the tree grows (100k files: 15 s, 400k: 13 min, 1M: unfinished after 100 min), so larger sizes cannot finish within the job's time limit. Those two sizes are reference-only and stay out of the overall score anyway.
+- **\* WinBtrfs**：第三方 WinBtrfs 驱动，实验项，单独的工作流 `benchmark-winbtrfs.yml`。测试树由 Linux 内核在 Btrfs 上生成（带老化），整块盘打包成动态 VHDX 交给 Windows，再由 WinBtrfs 挂载扫描：直接通过 WinBtrfs 建文件的速度随目录树变大急剧下降（10 万文件 15 秒，40 万文件 13 分钟，100 万文件 100 分钟还没建完），而读取 Linux 写的 Btrfs 盘正是它的主要用途。`very-lite` / `lite` 随主测试一起跑；`low` 及以上单独触发，因为在 WinBtrfs 上光扫描就要几个小时。成绩单独存放，渲染时合并进对应体量的榜单。<br>The third-party WinBtrfs driver; experimental, in its own workflow, `benchmark-winbtrfs.yml`. The Linux kernel builds the aged tree on Btrfs, the disk travels to Windows as a dynamic VHDX and WinBtrfs mounts it for the scans: creating files through WinBtrfs slows down sharply as the tree grows (100k files: 15 s, 400k: 13 min, 1M: unfinished after 100 min), while reading a Btrfs disk written by Linux is what it is for. `very-lite` / `lite` run with the main benchmark; `low` and up are started on their own, since the scans alone take hours on WinBtrfs. The result is stored separately and merged into that size's board when the README is rendered.
 - **Windows ARM64**：只跑有原生 ARM64 版本的扫描器；Defender 受篡改防护保护，无法关闭。<br>Only scanners with a native ARM64 build run here; Defender stays on because of tamper protection.
 - **MFT 专栏 · MFT column**：单独的工作流 `benchmark-mft.yml`，只比较直接读 `$MFT` 的扫描模式。<br>A separate workflow, `benchmark-mft.yml`, compares only the scan modes that read `$MFT` directly.
 
@@ -483,6 +483,10 @@ gh workflow run benchmark.yml -f preset=low
 
 ```bash
 gh workflow run benchmark-mft.yml -f preset=low
+```
+
+```bash
+gh workflow run benchmark-winbtrfs.yml -f preset=low
 ```
 
 **在自己的硬盘上 · On your own drives**
@@ -519,5 +523,11 @@ scripts/
 leaderboard/        已发布的成绩与徽章 · published results and badges
 community/          社区提交 · community submissions
 docs/               方法说明、本地套件 · methodology, local suite
-.github/workflows/  benchmark.yml · benchmark-mft.yml · community.yml
+.github/workflows/  benchmark.yml · benchmark-mft.yml · benchmark-winbtrfs.yml · community.yml
 ```
+
+---
+
+## 许可 · License
+
+[MIT](LICENSE) © 2026 DuskXi

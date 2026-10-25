@@ -805,147 +805,20 @@ jobs:
           path: results/
           retention-days: 30
 
-  benchmark-btrfs-win:
-    name: "Bench (windows-x86_64-btrfs | ${{ inputs.preset }})"
-    # Small presets only: creating files on WinBtrfs slows down far faster than the tree grows (100k files: 15 s,
-    # 400k: 13 min, 1M: still running after 100 min), so from low up it cannot finish within the job's time limit
-    if: ${{ inputs.preset == 'very-lite' || inputs.preset == 'lite' }}
-    runs-on: windows-latest
-    # Experimental: WinBtrfs is a third-party driver, not WHQL-signed, with known hangs under heavy writes; a
-    # failure here must not hold up or fail the rest of the run
-    continue-on-error: true
-    timeout-minutes: 300
-    env:
-      LABEL: windows-x86_64-btrfs
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install Rust Toolchain (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Cache Cargo Registry & Build Artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ runner.os }}-${{ runner.arch }}
-
-      - name: Build Core Engines (fs-mirage & hw-probe)
-        shell: bash
-        run: cargo build --release --workspace
-
-      - name: Cache Pinned Scanner Binaries
-        uses: actions/cache@v4
-        with:
-          path: bin
-          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
-
-      - name: Install Pinned Target Scanners
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
-
-      - name: Resolve Virtual Disk Capacity
-        shell: bash
-        run: |
-          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
-          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
-          echo "Virtual disk capacity: ${VDISK_GB} GiB"
-
-      - name: Install WinBtrfs Driver (experimental)
-        shell: pwsh
-        run: ./scripts/disk-mgr/install_winbtrfs.ps1
-
-      - name: "Create & Mount Dynamic Btrfs VHDX (WinBtrfs)"
-        shell: pwsh
-        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" btrfs
-
-      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
-        shell: bash
-        env:
-          # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
-          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
-        timeout-minutes: 300
-        run: |
-          mkdir -p "results/$LABEL"
-          EXTRA_ARGS=()
-          if [ "${{ inputs.preset }}" = "custom" ]; then
-            if [ -n "${{ inputs.files }}" ]; then
-              EXTRA_ARGS+=(--files "${{ inputs.files }}")
-            fi
-            if [ -n "${{ inputs.logical_gb }}" ]; then
-              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
-            fi
-          fi
-          ./target/release/fs-mirage \
-            --root "X:/bench" \
-            --preset "${{ inputs.preset }}" \
-            --seed "${{ inputs.seed }}" \
-            --max-physical-mb "${{ inputs.max_physical_mb }}" \
-            --manifest-out "results/$LABEL/ground_truth.json" \
-            "${EXTRA_ARGS[@]}"
-          powershell -NoProfile -Command '$p = (Get-Content (Join-Path $env:TEMP "disk_scanner_bench_X.vhdpath") -Raw).Trim(); $v = Get-Volume -DriveLetter X; "Btrfs after generation: VHDX {0:N1} GB physical | X: used {1:N1} of {2:N0} GB | D: free {3:N1} GB" -f ((Get-Item $p).Length / 1GB), (($v.Size - $v.SizeRemaining) / 1GB), ($v.Size / 1GB), ((Get-PSDrive D).Free / 1GB)' || true
-
-      - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
-        shell: bash
-        timeout-minutes: 10
-        continue-on-error: true
-        run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
-
-      - name: Measure Hardware Ceiling Baseline on Btrfs (hw-probe)
-        shell: bash
-        run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "X:/bench"
-          ./target/release/hw-probe \
-            --root "X:/bench" \
-            --out "results/$LABEL/baseline.json"
-
-      - name: Defender On For Scans
-        if: ${{ inputs.defender_scan }}
-        shell: pwsh
-        run: ./scripts/disk-mgr/windows_vhd.ps1 defender-on "X:/bench"
-
-      - name: Run All Windows Scanners on Btrfs
-        shell: bash
-        run: |
-          python ./scripts/wrappers/run_cli_scanners.py \
-            --path "X:/bench" \
-            --ground-truth "results/$LABEL/ground_truth.json" \
-            --out "results/$LABEL/raw_results.json" \
-            --bin-dir "./bin"
-
-      - name: Teardown Btrfs Virtual Disk
-        if: always()
-        shell: bash
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
-
-      - name: Windows Btrfs Report
-        if: always()
-        shell: bash
-        run: |
-          if [ -f "results/$LABEL/raw_results.json" ]; then
-            python ./scripts/report_gen.py \
-              --ground-truth "results/$LABEL/ground_truth.json" \
-              --baseline "results/$LABEL/baseline.json" \
-              --raw-results "results/$LABEL/raw_results.json" \
-              --out "results/$LABEL/benchmark_report.md" \
-              --json-out "results/$LABEL/normalized_results.json" \
-              --title-suffix "(windows-x86_64 Btrfs | ${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }})"
-            cat "results/$LABEL/benchmark_report.md"
-          fi
-
-      - name: Upload Btrfs Results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results-windows-x86_64-btrfs-${{ inputs.preset }}
-          path: results/
-          retention-days: 30
+  # Btrfs on Windows (WinBtrfs, experimental) lives in its own workflow: Linux builds the Btrfs disk, Windows scans it,
+  # and the result is published as a supplement merged into this preset's board. Called here for the small presets
+  # only; low and up are run from benchmark-winbtrfs.yml on their own, since the WinBtrfs scans take hours there.
+  winbtrfs:
+    name: WinBtrfs (experimental)
+    if: ${{ (inputs.preset == 'very-lite' || inputs.preset == 'lite') && !inputs.defender_scan }}
+    permissions:
+      contents: write  # its publish job writes the supplement to main
+    uses: ./.github/workflows/benchmark-winbtrfs.yml
+    with:
+      preset: ${{ inputs.preset }}
+      seed: ${{ inputs.seed }}
+      max_physical_mb: ${{ inputs.max_physical_mb }}
+      aging: ${{ inputs.aging }}
 
   windows-summary:
     name: "Windows NTFS+ReFS Summary (${{ inputs.preset }})"
@@ -1027,8 +900,7 @@ jobs:
   # The platform jobs print their own report into their job log instead.
   leaderboard:
     name: "Overall Leaderboard (${{ inputs.preset }})"
-    # Not waiting for the experimental WinBtrfs job, which takes far longer than the rest: the board is published
-    # without it, and leaderboard-btrfs publishes the same run again once WinBtrfs has finished
+    # WinBtrfs is not waited for: it publishes its own supplement (see the winbtrfs job)
     needs: [benchmark, benchmark-ntfs-arm64, windows-summary]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
@@ -1078,67 +950,3 @@ jobs:
           !inputs.defender_scan && inputs.aging
         shell: bash
         run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json standard "${{ inputs.preset }}"
-
-  leaderboard-btrfs:
-    name: "Overall Leaderboard + WinBtrfs (${{ inputs.preset }})"
-    needs: [leaderboard, benchmark-btrfs-win]
-    if: ${{ !cancelled() && needs.leaderboard.result == 'success' && needs.benchmark-btrfs-win.result != 'skipped' }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write  # re-publishes the README leaderboard and badge files to main
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Download All Platform Results
-        uses: actions/download-artifact@v4
-        with:
-          pattern: benchmark-results-*-${{ inputs.preset }}
-          path: artifacts/
-
-      - name: Check For WinBtrfs Results
-        id: btrfs
-        shell: bash
-        run: |
-          if ls artifacts/benchmark-results-windows-x86_64-btrfs-*/*/normalized_results.json >/dev/null 2>&1; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "WinBtrfs produced no results; the published board stays as it is" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Build Leaderboard With WinBtrfs
-        if: steps.btrfs.outputs.found == 'true'
-        shell: bash
-        run: |
-          mkdir -p lb-out
-          python ./scripts/leaderboard.py \
-            --artifacts artifacts \
-            --preset "${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }}" \
-            --sha "${{ github.sha }}" \
-            --out lb-out/leaderboard.md \
-            --json-out lb-out/leaderboard.json \
-            --summary-out lb-out/summary.md
-          cat lb-out/summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload Leaderboard
-        if: steps.btrfs.outputs.found == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-leaderboard-with-btrfs-${{ inputs.preset }}
-          path: lb-out/
-          retention-days: 30
-
-      # Same conditions as the first publish; --only-if-current replaces this run's record only, never a newer run
-      - name: Publish Leaderboard To README
-        if: >-
-          steps.btrfs.outputs.found == 'true' &&
-          github.ref == 'refs/heads/main' && inputs.preset != 'custom' &&
-          !inputs.defender_scan && inputs.aging
-        shell: bash
-        run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json standard "${{ inputs.preset }}" --only-if-current

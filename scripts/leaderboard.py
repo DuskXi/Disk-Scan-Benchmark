@@ -229,9 +229,47 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
             "fastest_warm": min(ok_ids, key=lambda s: plat[s]["warm_s"]) if ok_ids else None,
         }
 
+    payload = {
+        "schema": PAYLOAD_SCHEMA,
+        "preset": str(gt.get("preset") or preset),
+        "sha": sha,
+        "files": int(gt.get("total_files", 0)),
+        "dirs": int(gt.get("total_dirs", 0)),
+        "aged_timeline": gt.get("aged_timeline"),
+        "platforms": labels,
+        "platform_info": platform_info,
+        "missing_platforms": missing,
+        "scanners": scanners,
+        "per_platform": per_platform,
+    }
+    aggregate_overall(payload)
+    return apply_display_names(payload, display_names())
+
+
+def merge_platforms(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A copy of `base` with the platforms of `extra` (a payload built from other artifacts of the same preset, e.g. the
+    separate WinBtrfs run) added and the overall ranking recomputed. Per-platform scores are relative inside their own
+    platform, so the platforms already in `base` keep their entries unchanged.
+    """
+    merged = json.loads(json.dumps(base))
+    for label in extra.get("platforms", []):
+        merged["per_platform"][label] = extra["per_platform"][label]
+        merged["platform_info"][label] = extra["platform_info"][label]
+    for sid, meta in extra.get("scanners", {}).items():
+        merged["scanners"].setdefault(sid, meta)
+    merged["platforms"] = sorted(set(merged["platforms"]) | set(extra.get("platforms", [])), key=platform_sort_key)
+    aggregate_overall(merged)
+    return merged
+
+
+def aggregate_overall(payload: Dict[str, Any]) -> None:
+    """Fills payload['overall'] and payload['unranked'] from its per-platform entries (geometric means across them)."""
+    labels: List[str] = payload["platforms"]
+    per_platform: Dict[str, Dict[str, Dict[str, Any]]] = payload["per_platform"]
     overall: List[Dict[str, Any]] = []
     unranked: List[str] = []
-    for sid, meta in scanners.items():
+    for sid, meta in payload["scanners"].items():
         entries = [per_platform[lbl][sid] for lbl in labels if sid in per_platform[lbl]]
         ok = [e for e in entries if e["status"] == "ok"]
         if not ok:
@@ -262,23 +300,8 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
     overall.sort(key=lambda o: (-(o["overall"] or 0), -o["valid_platforms"]))
     for pos, o in enumerate(overall, start=1):
         o["rank"] = pos
-
-    payload = {
-        "schema": PAYLOAD_SCHEMA,
-        "preset": str(gt.get("preset") or preset),
-        "sha": sha,
-        "files": int(gt.get("total_files", 0)),
-        "dirs": int(gt.get("total_dirs", 0)),
-        "aged_timeline": gt.get("aged_timeline"),
-        "platforms": labels,
-        "platform_info": platform_info,
-        "missing_platforms": missing,
-        "scanners": scanners,
-        "overall": overall,
-        "unranked": unranked,
-        "per_platform": per_platform,
-    }
-    return apply_display_names(payload, display_names())
+    payload["overall"] = overall
+    payload["unranked"] = unranked
 
 
 # --- Markdown rendering (shared with scripts/readme_board.py) ---

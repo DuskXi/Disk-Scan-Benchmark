@@ -1,0 +1,267 @@
+name: WinBtrfs Benchmark (experimental)
+
+run-name: >-
+  WinBtrfs ${{ inputs.preset }} | ${{
+  inputs.preset == 'very-lite' && '100k files / 100GB' ||
+  inputs.preset == 'lite' && '400k files / 350GB' ||
+  inputs.preset == 'low' && '1M files / 500GB' ||
+  inputs.preset == 'mid' && '3M files / 1TB' ||
+  inputs.preset == 'high' && '5M files / 2TB' || inputs.preset }}
+
+# Btrfs on Windows through the third-party WinBtrfs driver, kept apart from the main benchmark:
+#   - Linux builds the tree: creating files through WinBtrfs slows down far faster than the tree grows (100k files:
+#     15 s, 400k: 13 min, 1M: over 100 min), while the Linux kernel builds the same aged Btrfs tree in seconds. The
+#     disk travels to Windows as a dynamic VHDX (scripts/disk-mgr/btrfs_image.sh) - reading a Linux-written Btrfs
+#     disk is what WinBtrfs is for.
+#   - the main benchmark calls this workflow for very-lite and lite; low and up run only from here, on their own,
+#     because the scans on WinBtrfs alone take hours at those sizes.
+#   - the result is published as a supplement of the preset (leaderboard/data/standard-<preset>+windows-x86_64-btrfs.json)
+#     and merged into its board when the README is rendered, so it neither waits for nor overwrites the main runs.
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Scale preset (very-lite: 100k, lite: 400k, low: 1M, mid: 3M, high: 5M files)"
+        required: true
+        default: "low"
+        type: choice
+        options:
+          - very-lite
+          - lite
+          - low
+          - mid
+          - high
+      seed:
+        description: "Deterministic PRNG seed (ChaCha8Rng)"
+        required: true
+        default: "42"
+        type: string
+      max_physical_mb:
+        description: "Maximum physical dirty-extent allocation in MiB (default: 1500)"
+        required: true
+        default: "1500"
+        type: string
+      aging:
+        description: "Generate the tree on the aged timeline (off = FSM_AGING=0; not published)"
+        required: false
+        default: true
+        type: boolean
+  workflow_call:
+    inputs:
+      preset:
+        required: true
+        type: string
+      seed:
+        required: false
+        default: "42"
+        type: string
+      max_physical_mb:
+        required: false
+        default: "1500"
+        type: string
+      aging:
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  produce:
+    name: "Build Btrfs Image on Linux (${{ inputs.preset }})"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build fs-mirage
+        run: cargo build --release -p fs-mirage
+
+      - name: Install Btrfs, GPT and Image Tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq btrfs-progs gdisk qemu-utils
+          sudo modprobe btrfs || { sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)" && sudo modprobe btrfs; }
+          echo "kernel $(uname -r) | $(qemu-img --version | head -1)"
+
+      - name: Build The Aged Tree On Btrfs And Pack It As VHDX
+        env:
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
+        run: |
+          VDISK_GB=$(python3 ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb 60)
+          echo "Btrfs volume: ${VDISK_GB} GiB"
+          bash ./scripts/disk-mgr/btrfs_image.sh "$VDISK_GB" image/bench.vhdx image/ground_truth.json \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}"
+
+      - name: Upload Btrfs Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: winbtrfs-image-${{ inputs.preset }}
+          path: image/
+          compression-level: 1
+          retention-days: 1
+
+  bench:
+    name: "Bench (windows-x86_64-btrfs | ${{ inputs.preset }})"
+    needs: produce
+    runs-on: windows-latest
+    timeout-minutes: 355
+    env:
+      LABEL: windows-x86_64-btrfs
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build hw-probe
+        shell: bash
+        run: cargo build --release -p hw-probe
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: Install WinBtrfs Driver (experimental)
+        shell: pwsh
+        run: ./scripts/disk-mgr/install_winbtrfs.ps1
+
+      - name: Download Btrfs Image
+        uses: actions/download-artifact@v4
+        with:
+          name: winbtrfs-image-${{ inputs.preset }}
+          path: ${{ runner.temp }}/winbtrfs-image
+
+      - name: Attach The Image Through WinBtrfs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "results/$env:LABEL" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/winbtrfs-image/ground_truth.json" "results/$env:LABEL/ground_truth.json"
+          ./scripts/disk-mgr/windows_vhd.ps1 attach "$env:RUNNER_TEMP/winbtrfs-image/bench.vhdx" "X:/bench" btrfs
+          Get-ChildItem X:\bench | Select-Object -First 10 | Format-Table Name, Length -AutoSize | Out-String | Write-Host
+
+      - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
+        shell: bash
+        timeout-minutes: 10
+        continue-on-error: true
+        run: python ./scripts/profile/layout_probe.py "X:/bench" --json-out "results/$LABEL/layout.json" > /dev/null || true
+
+      - name: Measure Hardware Ceiling Baseline on Btrfs (hw-probe)
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "X:/bench"
+          ./target/release/hw-probe --root "X:/bench" --out "results/$LABEL/baseline.json"
+
+      - name: Run All Windows Scanners on Btrfs
+        shell: bash
+        run: |
+          python ./scripts/wrappers/run_cli_scanners.py \
+            --path "X:/bench" \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --out "results/$LABEL/raw_results.json" \
+            --bin-dir "./bin"
+
+      - name: Teardown Btrfs Virtual Disk
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+      - name: Windows Btrfs Report
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "results/$LABEL/raw_results.json" ]; then
+            python ./scripts/report_gen.py \
+              --ground-truth "results/$LABEL/ground_truth.json" \
+              --baseline "results/$LABEL/baseline.json" \
+              --raw-results "results/$LABEL/raw_results.json" \
+              --out "results/$LABEL/benchmark_report.md" \
+              --json-out "results/$LABEL/normalized_results.json" \
+              --title-suffix "(windows-x86_64 Btrfs, tree built on Linux | ${{ inputs.preset }})"
+            cat "results/$LABEL/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload Btrfs Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          # not "benchmark-results-*": the main benchmark's leaderboard must not pick this up
+          name: winbtrfs-results-${{ inputs.preset }}
+          path: results/
+          retention-days: 30
+
+  publish:
+    name: "Publish WinBtrfs Result (${{ inputs.preset }})"
+    needs: bench
+    if: ${{ !cancelled() && needs.bench.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # publishes the README leaderboard and badge files to main
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download WinBtrfs Results
+        uses: actions/download-artifact@v4
+        with:
+          name: winbtrfs-results-${{ inputs.preset }}
+          path: artifacts/
+
+      - name: Build WinBtrfs Platform Result
+        id: board
+        shell: bash
+        run: |
+          mkdir -p lb-out
+          if python ./scripts/leaderboard.py \
+              --artifacts artifacts \
+              --preset "${{ inputs.preset }} · WinBtrfs" \
+              --sha "${{ github.sha }}" \
+              --out lb-out/leaderboard.md \
+              --json-out lb-out/leaderboard.json; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            echo "WinBtrfs produced no results; nothing to publish" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Default runs on main only; stored next to the preset's board and merged into it when the README is rendered
+      - name: Publish To README As A Supplement
+        if: ${{ steps.board.outputs.built == 'true' && github.ref == 'refs/heads/main' && inputs.aging }}
+        shell: bash
+        run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json standard "${{ inputs.preset }}" --supplement

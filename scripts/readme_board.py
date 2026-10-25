@@ -30,6 +30,7 @@ from leaderboard import (
     fmt_s,
     fmt_score,
     head,
+    merge_platforms,
     nobreak,
     render_kings,
     render_matrix,
@@ -59,12 +60,20 @@ def geomean(values: List[float]) -> Optional[float]:
 def load_data(data_dir: Path, kind: str) -> Dict[str, Dict[str, Any]]:
     """preset -> stored record ({'meta', 'payload'}) for one kind, in preset order."""
     found = {}
+    names = display_names()
     for preset in PRESETS:
         path = data_dir / f"{kind}-{preset}.json"
-        if path.exists():
-            record = json.loads(path.read_text(encoding="utf-8"))
-            apply_display_names(record["payload"], display_names())
-            found[preset] = record
+        if not path.exists():
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        # platforms published by a separate workflow (e.g. WinBtrfs): <kind>-<preset>+<label>.json, merged in here
+        record["supplements"] = []
+        for sup_path in sorted(data_dir.glob(f"{kind}-{preset}+*.json")):
+            sup = json.loads(sup_path.read_text(encoding="utf-8"))
+            record["payload"] = merge_platforms(record["payload"], sup["payload"])
+            record["supplements"].append(dict(sup["meta"], platforms=sup["payload"]["platforms"]))
+        apply_display_names(record["payload"], names)
+        found[preset] = record
     return found
 
 
@@ -239,6 +248,10 @@ def render_section(
         run = f"<a href=\"{meta['run_url']}\">run {meta.get('run_id', '')}</a>" if meta.get("run_url") else ""
         sha = f" · <code>{meta['sha'][:7]}</code>" if meta.get("sha") else ""
         note = " · 仅供参考 reference only" if p in SMALL else ""
+        for sup in rec.get("supplements", []):
+            titles = ", ".join(payload["platform_info"][lbl]["title"] for lbl in sup["platforms"])
+            sup_run = f"<a href=\"{sup['run_url']}\">run {sup.get('run_id', '')}</a>" if sup.get("run_url") else ""
+            sha += f" · {titles}: {sup_run} {sup.get('date', '')}"
         lines += [
             f"<details{' open' if p == open_preset else ''}>",
             f"<summary><b>{p}</b> · {PRESET_SIZE.get(p, '')} · {meta.get('date', '')} · {run}{sha}{note}</summary>",
@@ -396,6 +409,12 @@ def main() -> int:
         action="store_true",
         help="Replace the stored preset only if it holds this same run (a later publish of the same run)",
     )
+    ap.add_argument(
+        "--supplement",
+        action="store_true",
+        help="The payload holds extra platforms from a separate workflow (e.g. WinBtrfs): stored on their own and "
+        "merged into the preset's board when rendering",
+    )
     ap.add_argument("--registry", default="scripts/wrappers/scanners_registry.json", help="Source of the scanner list")
     args = ap.parse_args()
 
@@ -412,14 +431,21 @@ def main() -> int:
         if preset not in PRESETS:
             print(f"[readme_board] preset {preset!r} is not a standard preset; nothing published", file=sys.stderr)
             return 1
-        if payload.get("missing_platforms") and not args.allow_partial:
+        if args.supplement:
+            # platforms from a separate workflow, kept in their own file and merged into the preset when rendering
+            if not payload.get("platforms"):
+                print("[readme_board] not publishing: the supplement has no platform results", file=sys.stderr)
+                return 0
+            out = data_dir / f"{args.kind}-{preset}+{'+'.join(payload['platforms'])}.json"
+        elif payload.get("missing_platforms") and not args.allow_partial:
             # A run with failed platforms would replace this preset's complete result with a partial one
             print(
                 f"[readme_board] not publishing: platforms without results {payload['missing_platforms']}",
                 file=sys.stderr,
             )
             return 0
-        out = data_dir / f"{args.kind}-{preset}.json"
+        else:
+            out = data_dir / f"{args.kind}-{preset}.json"
         current = json.loads(out.read_text(encoding="utf-8"))["meta"].get("run_id") if out.exists() else None
         if args.only_if_current and str(current) != str(args.run_id):
             # a supplement to this run's own earlier publish: never replaces another run of the same preset

@@ -3,14 +3,15 @@
     Windows NTFS/ReFS Dynamic VHDX Manager & Cold-Cache Evictor for disk-scanner-bench
 .DESCRIPTION
     Supports three subcommands:
-      .\windows_vhd.ps1 create <size_gb> <mount_path> [ntfs|refs]
+      .\windows_vhd.ps1 create <size_gb> <mount_path> [ntfs|refs|btrfs]
+      .\windows_vhd.ps1 attach <vhdx_path> <mount_path> btrfs   (an image built elsewhere, e.g. btrfs_image.sh)
       .\windows_vhd.ps1 purge-cache <mount_path>
       .\windows_vhd.ps1 teardown <mount_path>
       .\windows_vhd.ps1 defender-on <mount_path>
 #>
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("create", "purge-cache", "teardown", "defender-on")]
+    [ValidateSet("create", "attach", "purge-cache", "teardown", "defender-on")]
     [string]$Action,
 
     [Parameter(Position=1)]
@@ -222,6 +223,35 @@ assign letter=$DriveLetter
             & fsutil behavior set disablelastaccess 1 | Out-Null
         } catch {}
         Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (8.3 names and last-access updates disabled)"
+    }
+
+    "attach" {
+        # A disk image built elsewhere (scripts/disk-mgr/btrfs_image.sh builds the Btrfs tree on Linux): attached as it
+        # is, then purge-cache and teardown work on it like on a created one
+        $VhdPath = (Resolve-Path $Arg1).Path
+        $DriveLetter = Get-DriveLetterFromPath $Arg2
+        Set-Content -Path (Join-Path $env:TEMP "disk_scanner_bench_${DriveLetter}.vhdpath") -Value $VhdPath -Encoding ASCII
+        Set-Content -Path (Join-Path $env:TEMP "disk_scanner_bench_${DriveLetter}.fs") -Value $FsType -Encoding ASCII
+        Write-Host "[windows_vhd] Attaching $VhdPath ($([math]::Round((Get-Item $VhdPath).Length / 1MB)) MB on disk) at ${DriveLetter}:..."
+        Disable-DefenderForBench $DriveLetter $VhdPath
+        if ($HasHyperVCmdlets) {
+            Mount-VHD -Path $VhdPath | Out-Null
+        } else {
+            Invoke-DiskpartScript "select vdisk file=`"$VhdPath`"`r`nattach vdisk`r`n"
+        }
+        $disk = Get-Disk | Where-Object { $_.Location -eq $VhdPath } | Select-Object -First 1
+        if ($disk) {
+            if ($disk.IsOffline) { Set-Disk -Number $disk.Number -IsOffline $false }
+            if ($disk.IsReadOnly) { Set-Disk -Number $disk.Number -IsReadOnly $false }
+            Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue |
+                Format-Table DiskNumber, PartitionNumber, DriveLetter, Size, Type, GptType -AutoSize | Out-String | Write-Host
+        } else {
+            Write-Warning "[windows_vhd] no disk found for $VhdPath after attaching"
+        }
+        $FsName = if ($FsType -eq "btrfs") { "Btrfs" } else { $FsType.ToUpper() }
+        Wait-BenchVolume $DriveLetter $FsName
+        try { & fsutil behavior set disablelastaccess 1 | Out-Null } catch {}
+        Write-Host "[windows_vhd] $FsName volume from $VhdPath mounted at ${DriveLetter}:\"
     }
 
     "purge-cache" {
