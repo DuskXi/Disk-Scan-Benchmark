@@ -1,0 +1,124 @@
+name: Community Submissions
+
+# Real-drive results from the local suite (scripts/local_suite). Issues are checked automatically; a maintainer
+# adds the `accepted` label to store a valid one under community/submissions/ and refresh the README board.
+# The issue body is only read by Python from the event file and parsed as JSON; it never reaches a shell.
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+  pull_request:
+    paths: ["community/submissions/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  check-issue:
+    if: >-
+      github.event_name == 'issues' && github.event.action != 'labeled' &&
+      (contains(github.event.issue.labels.*.name, 'submission') ||
+       contains(github.event.issue.body, 'dsb-local-submission'))
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check The Submission
+        id: check
+        shell: bash
+        run: |
+          if python scripts/local_suite/community.py check-issue --event "$GITHUB_EVENT_PATH" --comment-out comment.md; then
+            echo "verdict=valid" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict=invalid" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report On The Issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          VERDICT: ${{ steps.check.outputs.verdict }}
+        run: |
+          for spec in "submission:0e8a16" "submission-valid:2ea44f" "submission-invalid:d73a4a" "accepted:5319e7"; do
+            gh label create "${spec%%:*}" --color "${spec##*:}" -R "$GITHUB_REPOSITORY" 2>/dev/null || true
+          done
+          gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body-file comment.md
+          if [ "$VERDICT" = "valid" ]; then add=submission-valid; drop=submission-invalid; else add=submission-invalid; drop=submission-valid; fi
+          gh issue edit "$ISSUE" -R "$GITHUB_REPOSITORY" --add-label submission --add-label "$add" --remove-label "$drop" || true
+
+  accept:
+    # Only people with triage access can add labels, so this is the maintainer's decision
+    if: >-
+      github.event_name == 'issues' && github.event.action == 'labeled' &&
+      github.event.label.name == 'accepted'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Store The Submission And Refresh The Boards
+        shell: bash
+        env:
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          bash scripts/ci/commit_retry.sh "chore(community): accept submission #${ISSUE}" "README.md community" \
+            python scripts/local_suite/community.py accept --event "$GITHUB_EVENT_PATH" --repo "$GITHUB_REPOSITORY"
+
+      - name: Close The Issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE" -R "$GITHUB_REPOSITORY" --body "已收录到社区真实盘榜单，感谢提交！"
+          gh issue close "$ISSUE" -R "$GITHUB_REPOSITORY"
+
+  check-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout The Pull Request
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pr
+
+      # The validator comes from the base branch, so a pull request cannot loosen its own check
+      - name: Checkout The Base Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check The Submitted Files
+        shell: bash
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          cd pr
+          git diff -z --name-only --diff-filter=AM "origin/${BASE_REF}...HEAD" -- 'community/submissions/*.json' \
+            | xargs -0 -r python ../base/scripts/local_suite/community.py check-files

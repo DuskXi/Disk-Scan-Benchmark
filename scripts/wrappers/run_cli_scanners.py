@@ -858,9 +858,68 @@ def run_monitored_cli(cmd: List[str], os_key: str, timeout_sec: int = 900) -> Tu
     return round(elapsed_ms, 2), round(peak_rss_mb, 2), stdout_text, cpu_seconds
 
 
-def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge: bool) -> None:
-    if skip_purge:
-        return
+def _windows_purge_standby() -> bool:
+    """Flush modified pages and empty the standby list (what RAMMap's "Empty Standby List" does); needs admin."""
+    try:
+        from ctypes import wintypes
+
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)  # type: ignore[attr-defined]
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        ntdll = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined]
+
+        class LUID(ctypes.Structure):
+            _fields_ = [("LowPart", wintypes.DWORD), ("HighPart", wintypes.LONG)]
+
+        class TOKEN_PRIVILEGES(ctypes.Structure):
+            _fields_ = [("PrivilegeCount", wintypes.DWORD), ("Luid", LUID), ("Attributes", wintypes.DWORD)]
+
+        token = wintypes.HANDLE()
+        # TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY
+        if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x20 | 0x8, ctypes.byref(token)):
+            return False
+        luid = LUID()
+        if not advapi32.LookupPrivilegeValueW(None, "SeProfileSingleProcessPrivilege", ctypes.byref(luid)):
+            return False
+        tp = TOKEN_PRIVILEGES(1, luid, 0x2)  # SE_PRIVILEGE_ENABLED
+        advapi32.AdjustTokenPrivileges(token, False, ctypes.byref(tp), 0, None, None)
+        if ctypes.get_last_error() != 0:  # ERROR_NOT_ALL_ASSIGNED: not elevated
+            return False
+        ok = True
+        for command in (3, 4):  # MemoryFlushModifiedList, MemoryPurgeStandbyList
+            cmd = ctypes.c_int(command)
+            # SystemMemoryListInformation = 80
+            ok = ntdll.NtSetSystemInformation(80, ctypes.byref(cmd), ctypes.sizeof(cmd)) == 0 and ok
+        return ok
+    except (AttributeError, OSError):
+        return False
+
+
+def purge_system_cache(os_key: str) -> bool:
+    """OS-wide file cache purge for scans of real drives, which cannot be remounted. False without privileges."""
+    if os_key == "windows":
+        return _windows_purge_standby()
+    subprocess.run(["sync"], check=False)
+    if os_key == "linux":
+        if hasattr(os, "geteuid") and os.geteuid() == 0:  # type: ignore[attr-defined]
+            try:
+                Path("/proc/sys/vm/drop_caches").write_text("3\n")
+                return True
+            except OSError:
+                return False
+        cmd = ["sudo", "-n", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"]
+    elif os_key == "macos":
+        cmd = ["purge"] if hasattr(os, "geteuid") and os.geteuid() == 0 else ["sudo", "-n", "purge"]  # type: ignore
+    else:
+        return False
+    return subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge: bool, mode: str = "vdisk") -> bool:
+    """Makes the next scan cold; returns whether that worked. vdisk remounts the benchmark volume (CI)."""
+    if skip_purge or mode == "none":
+        return False
+    if mode == "system":
+        return purge_system_cache(os_key)
     disk_mgr_dir = repo_root / "scripts" / "disk-mgr"
     if os_key == "linux":
         script = disk_mgr_dir / "linux_loop.sh"
@@ -874,6 +933,7 @@ def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "purge-cache", mount_path],
             check=True,
         )
+    return True
 
 
 def extract_zip_keep_modes(archive: Path, dest: Path) -> None:
@@ -1317,6 +1377,13 @@ def main() -> int:
         "--skip-purge", action="store_true", help="Skip OS disk-mgr purge-cache (for local folder runs)"
     )
     parser.add_argument(
+        "--purge-mode",
+        choices=["vdisk", "system", "none"],
+        default="vdisk",
+        help="How to make cold scans cold: remount the benchmark volume (CI), purge the OS file cache (real drives)",
+    )
+    parser.add_argument("--timeout", type=int, default=0, help="Seconds allowed per scan (default: scaled to the tree)")
+    parser.add_argument(
         "--warm-runs", type=int, default=3, help="Number of consecutive Warm Cache runs to average (default: 3)"
     )
     parser.add_argument("--scanners", default=None, help="Optional comma-separated filter of scanner IDs to run")
@@ -1505,7 +1572,7 @@ def main() -> int:
 
             cmd_tokens = build_cmd()
             # Large presets (millions of files) need far more than the 15 minute default per scan run
-            cli_timeout = max(900, int(gt_data.get("total_files", 0)) // 1000)
+            cli_timeout = args.timeout or max(900, int(gt_data.get("total_files", 0)) // 1000)
             elapsed, rss, stdout_text, cpu_s = run_monitored_cli(cmd_tokens, os_key, cli_timeout)
             run_cpu.append(cpu_s)
             parser_kind = scanner.get("output_parser", "human_last_line")
@@ -1592,7 +1659,7 @@ def main() -> int:
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
         # 1. Cold Cache Run
-        invoke_purge_cache(os_key, scan_path, repo_root, args.skip_purge)
+        cold_purged = invoke_purge_cache(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
         cold_ms, cold_rss, scanned_bytes, scanned_files, last_zones = execute_once()
         accumulated_zones = dict(last_zones)
         print(f"  [Cold Cache] {cold_ms:.2f} ms | Peak RSS: {cold_rss:.2f} MB | Scanned: {scanned_bytes} B")
@@ -1691,6 +1758,7 @@ def main() -> int:
                 "reference_bytes": ref_bytes,
                 "accuracy_diff_pct": accuracy_diff_pct,
                 "mode": "mft" if args.mft_mode else "api",
+                "cold_purged": cold_purged,
                 "cpu_seconds_runs": [None if c is None else round(c, 3) for c in run_cpu],
                 "device_reads_runs": run_reads,
                 "valid": valid,

@@ -1,0 +1,37 @@
+name: 提交真实盘成绩
+description: 用本地基准套件在自己的硬盘上跑出的成绩
+title: "[成绩] "
+labels: ["submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先在自己的电脑上运行本地基准套件（说明见 `docs/LOCAL_SUITE.md`）：
+
+        ```
+        python scripts/local_suite/run_local.py --target <盘或文件夹>
+        ```
+
+        检查生成的 `local-results/submission.json`，再把它的**全部内容**粘贴到下面。
+        数据里只应有数字、扫描器名、系统和文件系统类型、CPU 与硬盘型号；工作流会自动校验，
+        出现路径、盘符、卷标、主机名、用户名或其他未知字段的提交会被拒绝。
+  - type: textarea
+    id: submission
+    attributes:
+      label: submission.json
+      description: 粘贴 local-results/submission.json 的全部内容
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: 补充说明（可选）
+      description: 例如这块盘的大致用途。请不要写任何个人信息。
+  - type: checkboxes
+    id: consent
+    attributes:
+      label: 确认
+      options:
+        - label: 我检查过这份数据，同意它公开发布在本仓库中
+          required: true

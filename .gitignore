@@ -12,3 +12,5 @@ benchmark_report.md
 *.sparseimage
 __pycache__/
 *.pyc
+/local-results/
+/lb-out/
