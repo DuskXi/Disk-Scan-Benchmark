@@ -2,15 +2,15 @@
  "meta": {
   "kind": "mft",
   "preset": "lite",
-  "run_id": "40219491310",
-  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40219491310",
-  "sha": "96b7d6ac8e7632a41015a1f378550e44ca199bd3",
+  "run_id": "40221757998",
+  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40221757998",
+  "sha": "305ef033ec6c00e67a08d8418c81320a9fa66fb4",
   "date": "2026-10-25"
  },
  "payload": {
   "schema": 2,
   "preset": "lite",
-  "sha": "96b7d6ac8e7632a41015a1f378550e44ca199bd3",
+  "sha": "305ef033ec6c00e67a08d8418c81320a9fa66fb4",
   "files": 400006,
   "dirs": 48659,
   "aged_timeline": true,
@@ -21,12 +21,12 @@
    "windows-x86_64-mft": {
     "title": "Win x64 (NTFS · MFT)",
     "cores": 4,
-    "iops": 10274.775024656166,
-    "cpu_ms": 88.33409999999999,
-    "ok": 2,
+    "iops": 5547.371632321498,
+    "cpu_ms": 96.5487,
+    "ok": 3,
     "tried": 3,
-    "fastest_cold": "wiztree",
-    "fastest_warm": "wiztree"
+    "fastest_cold": "spaceknife",
+    "fastest_warm": "spaceknife"
    }
   },
   "missing_platforms": [],
@@ -46,15 +46,15 @@
   },
   "overall": [
    {
-    "id": "wiztree",
-    "scanner": "WizTree",
-    "version": "4.33",
-    "overall": 96.7307868726535,
+    "id": "spaceknife",
+    "scanner": "SpaceKnife",
+    "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)",
+    "overall": 100.00000000000004,
     "cold": 100.00000000000004,
     "warm": 100.00000000000004,
-    "index": 90.50949919739877,
-    "rss_mb": 261.17,
-    "abs_acc_pct": 0.41,
+    "index": 100.00000000000004,
+    "rss_mb": 159.09,
+    "abs_acc_pct": 0.08,
     "verification": "size+files+zones",
     "valid_platforms": 1,
     "entered_platforms": 1,
@@ -62,56 +62,79 @@
     "rank": 1
    },
    {
-    "id": "windirstat",
-    "scanner": "WinDirStat",
-    "version": "2.9.3",
-    "overall": 94.29928497104768,
-    "cold": 93.94876008008234,
-    "warm": 89.2553271875472,
-    "index": 100.00000000000004,
-    "rss_mb": 231.09,
+    "id": "wiztree",
+    "scanner": "WizTree",
+    "version": "4.33",
+    "overall": 59.153990609141985,
+    "cold": 69.21774275489123,
+    "warm": 63.06650691982558,
+    "index": 47.41720318702607,
+    "rss_mb": 259.91,
     "abs_acc_pct": 0.41,
     "verification": "size+files+zones",
     "valid_platforms": 1,
     "entered_platforms": 1,
     "wins": 0,
     "rank": 2
+   },
+   {
+    "id": "windirstat",
+    "scanner": "WinDirStat",
+    "version": "2.9.3",
+    "overall": 57.4940719664373,
+    "cold": 59.89742086752635,
+    "warm": 60.81894726142277,
+    "index": 52.17016182213124,
+    "rss_mb": 231.56,
+    "abs_acc_pct": 0.41,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 3
    }
   ],
-  "unranked": [
-   "spaceknife"
-  ],
+  "unranked": [],
   "per_platform": {
    "windows-x86_64-mft": {
-    "wiztree": {
+    "spaceknife": {
      "status": "ok",
-     "cold_s": 2.35569,
-     "warm_s": 2.3624099999999997,
+     "cold_s": 1.83933,
+     "warm_s": 1.79498,
      "cold_rel": 100.0,
      "warm_rel": 100.0,
-     "index_rel": 90.50949919739874,
-     "platform_score": 96.7307868726535,
-     "rss_mb": 261.17,
+     "index_rel": 100.0,
+     "platform_score": 100.00000000000004,
+     "rss_mb": 159.09,
      "verification": "size+files+zones",
-     "acc_pct": 0.41,
+     "acc_pct": -0.08,
      "rank": 1
     },
-    "windirstat": {
+    "wiztree": {
      "status": "ok",
-     "cold_s": 2.50742,
-     "warm_s": 2.6468000000000003,
-     "cold_rel": 93.94876008008232,
-     "warm_rel": 89.25532718754722,
-     "index_rel": 100.0,
-     "platform_score": 94.29928497104768,
-     "rss_mb": 231.09,
+     "cold_s": 2.65731,
+     "warm_s": 2.84617,
+     "cold_rel": 69.21774275489122,
+     "warm_rel": 63.06650691982559,
+     "index_rel": 47.41720318702606,
+     "platform_score": 59.153990609141985,
+     "rss_mb": 259.91,
      "verification": "size+files+zones",
      "acc_pct": 0.41,
      "rank": 2
     },
-    "spaceknife": {
-     "status": "invalid",
-     "reason": "❌ INVALID: Incomplete traversal (no size reported for top-level folder zone_deep)"
+    "windirstat": {
+     "status": "ok",
+     "cold_s": 3.0708,
+     "warm_s": 2.9513499999999997,
+     "cold_rel": 59.89742086752637,
+     "warm_rel": 60.81894726142274,
+     "index_rel": 52.170161822131234,
+     "platform_score": 57.4940719664373,
+     "rss_mb": 231.56,
+     "verification": "size+files+zones",
+     "acc_pct": 0.41,
+     "rank": 3
     }
    }
   }
