@@ -177,10 +177,10 @@
     {
       "id": "spaceknife",
       "name": "spaceknife-backend",
-      "version": "0.3.3 dev-38c3b73 (run-40188287823)",
+      "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)",
       "enabled": true,
       "runner_type": "cli",
-      "platforms": ["linux", "windows"],
+      "platforms": ["linux", "macos", "windows"],
       "architectures": ["x86_64", "aarch64"],
       "size_metric": "allocated",
       "command_template": ["{bin}", "scan", "{path}", "--no-snapshot", "--top", "5", "--depth", "1"],
@@ -192,7 +192,9 @@
         "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-linux-x64",
         "linux_aarch64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-linux-arm64",
         "windows_x86_64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-win-x64",
-        "windows_aarch64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-win-arm64"
+        "windows_aarch64": "gh-artifact:DuskXi/SpaceKnife:40188287823:SpaceKnife-portable-win-arm64",
+        "macos_x86_64": "gh-artifact:DuskXi/SpaceKnife:40188287831:SpaceKnife-mac-x64",
+        "macos_aarch64": "gh-artifact:DuskXi/SpaceKnife:40188287831:SpaceKnife-mac-arm64"
       }
     },
     {

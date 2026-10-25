@@ -590,6 +590,23 @@ def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge
         )
 
 
+def extract_zip_keep_modes(archive: Path, dest: Path) -> None:
+    """
+    zipfile.extractall drops Unix permission bits, so a macOS / Linux portable bundle came out with no executable
+    files besides the one binary chmod-ed afterwards. Restores the mode stored in each entry (symlinks stay files).
+    """
+    with zipfile.ZipFile(archive, "r") as zf:
+        zf.extractall(dest)
+        if os.name == "nt":
+            return
+        for info in zf.infolist():
+            mode = (info.external_attr >> 16) & 0o777
+            if mode and not info.is_dir():
+                target = dest / info.filename
+                if target.is_file():
+                    target.chmod(mode)
+
+
 def install_runtime_packages(scanner: Dict[str, Any], os_key: str) -> None:
     """
     Shared libraries a prebuilt binary links against but a CI image may lack ("runtime_packages": {"linux": [...]}).
@@ -671,8 +688,7 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
                     with tarfile.open(item, "r:gz") as tf:
                         tf.extractall(portable_bundle_dir)
                 elif item.name.endswith(".zip"):
-                    with zipfile.ZipFile(item, "r") as zf:
-                        zf.extractall(portable_bundle_dir)
+                    extract_zip_keep_modes(item, portable_bundle_dir)
 
         target_exe_name = (scanner["name"] + exe_suffix).lower()
         for root, _, files in os.walk(portable_bundle_dir):
@@ -747,8 +763,7 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
             with tarfile.open(archive_path, "r:gz") as tf:
                 tf.extractall(extract_dir)
         elif archive_name.endswith(".zip"):
-            with zipfile.ZipFile(archive_path, "r") as zf:
-                zf.extractall(extract_dir)
+            extract_zip_keep_modes(archive_path, extract_dir)
 
         if scanner_id == "treesize":
             for root, _, files in os.walk(extract_dir):
