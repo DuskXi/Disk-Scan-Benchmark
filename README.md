@@ -216,8 +216,8 @@ Scanners that read the NTFS `$MFT` directly are ranked here, apart from the dire
 
 | 扫⁠描⁠器<br>Scanner | very‑lite\* | lite\* | low |
 | :--- | :---: | :---: | :---: |
-| **WinDirStat** | 🥇<br>0.81&nbsp;/&nbsp;0.79&nbsp;s | 🥈<br>2.95&nbsp;/&nbsp;2.88&nbsp;s | 🥇<br>5.22&nbsp;/&nbsp;5.42&nbsp;s |
-| **WizTree** | 🥈<br>0.94&nbsp;/&nbsp;0.95&nbsp;s | 🥇<br>2.55&nbsp;/&nbsp;2.74&nbsp;s | 🥈<br>4.99&nbsp;/&nbsp;4.94&nbsp;s |
+| **WinDirStat** | 🥇<br>0.81&nbsp;/&nbsp;0.79&nbsp;s | 🥈<br>2.51&nbsp;/&nbsp;2.65&nbsp;s | 🥇<br>5.22&nbsp;/&nbsp;5.42&nbsp;s |
+| **WizTree** | 🥈<br>0.94&nbsp;/&nbsp;0.95&nbsp;s | 🥇<br>2.36&nbsp;/&nbsp;2.36&nbsp;s | 🥈<br>4.99&nbsp;/&nbsp;4.94&nbsp;s |
 | **SpaceKnife** | 🥉<br>1.08&nbsp;/&nbsp;1.07&nbsp;s | ⚠️ | ⚠️ |
 
 <sub>名次，下一行 冷扫 / 热扫 秒 · rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 未参加 not run.</sub>

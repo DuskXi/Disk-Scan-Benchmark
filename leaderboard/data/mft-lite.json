@@ -2,15 +2,15 @@
  "meta": {
   "kind": "mft",
   "preset": "lite",
-  "run_id": "40218337087",
-  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40218337087",
-  "sha": "6d7ac1cdfe2dcdd5ee71e5db62a8466f56017c24",
+  "run_id": "40219491310",
+  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40219491310",
+  "sha": "96b7d6ac8e7632a41015a1f378550e44ca199bd3",
   "date": "2026-10-25"
  },
  "payload": {
   "schema": 2,
   "preset": "lite",
-  "sha": "6d7ac1cdfe2dcdd5ee71e5db62a8466f56017c24",
+  "sha": "96b7d6ac8e7632a41015a1f378550e44ca199bd3",
   "files": 400006,
   "dirs": 48659,
   "aged_timeline": true,
@@ -21,8 +21,8 @@
    "windows-x86_64-mft": {
     "title": "Win x64 (NTFS · MFT)",
     "cores": 4,
-    "iops": 6762.872498259162,
-    "cpu_ms": 94.371,
+    "iops": 10274.775024656166,
+    "cpu_ms": 88.33409999999999,
     "ok": 2,
     "tried": 3,
     "fastest_cold": "wiztree",
@@ -32,11 +32,11 @@
   "missing_platforms": [],
   "scanners": {
    "spaceknife": {
-    "name": "spaceknife-backend",
+    "name": "SpaceKnife",
     "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)"
    },
    "wiztree": {
-    "name": "WizTree64",
+    "name": "WizTree",
     "version": "4.33"
    },
    "windirstat": {
@@ -47,13 +47,13 @@
   "overall": [
    {
     "id": "wiztree",
-    "scanner": "WizTree64",
+    "scanner": "WizTree",
     "version": "4.33",
-    "overall": 97.11644936005578,
+    "overall": 96.7307868726535,
     "cold": 100.00000000000004,
     "warm": 100.00000000000004,
-    "index": 91.5963963757357,
-    "rss_mb": 259.74,
+    "index": 90.50949919739877,
+    "rss_mb": 261.17,
     "abs_acc_pct": 0.41,
     "verification": "size+files+zones",
     "valid_platforms": 1,
@@ -65,11 +65,11 @@
     "id": "windirstat",
     "scanner": "WinDirStat",
     "version": "2.9.3",
-    "overall": 93.82515979836141,
-    "cold": 86.61275648076483,
-    "warm": 95.36215964432336,
+    "overall": 94.29928497104768,
+    "cold": 93.94876008008234,
+    "warm": 89.2553271875472,
     "index": 100.00000000000004,
-    "rss_mb": 234.94,
+    "rss_mb": 231.09,
     "abs_acc_pct": 0.41,
     "verification": "size+files+zones",
     "valid_platforms": 1,
@@ -85,33 +85,33 @@
    "windows-x86_64-mft": {
     "wiztree": {
      "status": "ok",
-     "cold_s": 2.5513000000000003,
-     "warm_s": 2.74335,
+     "cold_s": 2.35569,
+     "warm_s": 2.3624099999999997,
      "cold_rel": 100.0,
      "warm_rel": 100.0,
-     "index_rel": 91.59639637573572,
-     "platform_score": 97.11644936005578,
-     "rss_mb": 259.74,
+     "index_rel": 90.50949919739874,
+     "platform_score": 96.7307868726535,
+     "rss_mb": 261.17,
      "verification": "size+files+zones",
      "acc_pct": 0.41,
      "rank": 1
     },
     "windirstat": {
      "status": "ok",
-     "cold_s": 2.94564,
-     "warm_s": 2.87677,
-     "cold_rel": 86.6127564807648,
-     "warm_rel": 95.36215964432331,
+     "cold_s": 2.50742,
+     "warm_s": 2.6468000000000003,
+     "cold_rel": 93.94876008008232,
+     "warm_rel": 89.25532718754722,
      "index_rel": 100.0,
-     "platform_score": 93.82515979836141,
-     "rss_mb": 234.94,
+     "platform_score": 94.29928497104768,
+     "rss_mb": 231.09,
      "verification": "size+files+zones",
      "acc_pct": 0.41,
      "rank": 2
     },
     "spaceknife": {
      "status": "invalid",
-     "reason": "❌ INVALID: Incomplete traversal (top-level folder zone_deep missing from the output)"
+     "reason": "❌ INVALID: Incomplete traversal (no size reported for top-level folder zone_deep)"
     }
    }
   }
