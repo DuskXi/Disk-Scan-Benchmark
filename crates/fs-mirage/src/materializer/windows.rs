@@ -353,9 +353,8 @@ fn create_inner(
     let raw_handle = file.as_raw_handle() as HANDLE;
 
     // Clean non-resident files: a plain (non-sparse) SetEndOfFile, like a real file. NTFS and ReFS allocate the clusters
-    // without writing zeros (valid data length stays 0). They used to be marked sparse, but real volumes have almost no
-    // sparse files and scanners that size sparse files exactly open each one, which made them look several times slower
-    // than on real data. A plain SetEndOfFile is also cheaper to create than FSCTL_SET_SPARSE + SetEndOfFile.
+    // without writing zeros (valid data length stays 0). They are not marked sparse because real volumes have almost
+    // no sparse files. A plain SetEndOfFile is also cheaper to create than FSCTL_SET_SPARSE + SetEndOfFile.
     // Files of PREALLOC_MIN_BYTES and more only get here when preallocation is off (--no-prealloc); they stay sparse
     // below, otherwise the mid-size files of a real-drive profile would fill the volume after all.
     if dirty_blocks == 0 && logical_size < PREALLOC_MIN_BYTES {
