@@ -386,13 +386,21 @@ def generate_report(
             "",
         ]
     )
-    if invalid_rows:
+    warned_rows = [r for r in ranked_rows if r.get("warnings")]
+    if invalid_rows or warned_rows:
         lines.extend(
             [
                 "| Status | Scanner | Version | Raw Cold (ms) | Raw Warm (ms) | Accuracy Diff % | Detailed Reason |",
                 "| :---: | :--- | :--- | ---: | ---: | ---: | :--- |",
             ]
         )
+        for r in warned_rows:
+            # reported more than the tree holds: still ranked, only flagged
+            lines.append(
+                f"| `❕ WARNING` | **{r['scanner']}** | `{r.get('version', '-')}` | `{r['cold_time_ms']:,.1f}` "
+                f"| `{r['warm_time_ms']:,.1f}` | `{fmt_acc(r['accuracy_diff_pct'])}` "
+                f"| {'; '.join(r['warnings'])}（成绩照常计入 · still ranked） |"
+            )
         for r in invalid_rows:
             reason = r.get("invalid_reason", "-")
             if "CANNOT RUN" in reason:

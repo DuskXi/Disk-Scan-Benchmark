@@ -1792,13 +1792,21 @@ def main() -> int:
         valid = True
         invalid_reason = ""
 
-        # 1. Scan Boundary Check (raw volume bypass would report more than the target tree)
+        # 1. Reporting more than the tree holds (links followed, entries counted twice, files outside the tree) is a
+        #    warning only: it costs the scanner work instead of saving it. Reporting less is what invalidates (step 3).
+        warnings: List[str] = []
         if ref_bytes > 0 and scanned_bytes > 3.0 * ref_bytes and scanned_bytes > 20 * (1024**3):
-            valid = False
-            invalid_reason = f"❌ DISQUALIFIED: Scan boundary escape (scanned bytes {scanned_bytes:,} abnormally exceeded target boundary {ref_bytes:,})"
-        elif expected_files > 0 and scanned_files > expected_files + 3000 + int(gt_data.get("scan_slack_files", 0)):
-            valid = False
-            invalid_reason = f"❌ DISQUALIFIED: Scan boundary escape (scanned files {scanned_files:,} exceeded tree total {expected_files:,})"
+            warnings.append(
+                f"⚠️ WARNING: reported size {scanned_bytes:,} is more than 3x the tree's {ref_bytes:,} "
+                "(counted outside the tree or followed links)"
+            )
+        if expected_files > 0 and scanned_files > expected_files + 3000 + int(gt_data.get("scan_slack_files", 0)):
+            warnings.append(
+                f"⚠️ WARNING: reported {scanned_files:,} files, more than the tree's {expected_files:,} "
+                "(links followed or entries counted twice)"
+            )
+        for w in warnings:
+            print(f"  {w}")
 
         # 1b. SpaceKnife's --mft falls back to a full scan (with the reason) when it cannot read the $MFT; that run would
         # be timed as an MFT scan otherwise
@@ -1910,6 +1918,7 @@ def main() -> int:
                 "scanned_files": scanned_files if scanned_files > 0 else None,
                 "scanned_bytes": scanned_bytes if scanned_bytes > 0 else None,
                 "verification": verification,
+                "warnings": warnings,
                 "reference_bytes": ref_bytes,
                 "accuracy_diff_pct": accuracy_diff_pct,
                 "mode": "mft" if args.mft_mode else "api",

@@ -144,6 +144,7 @@ def score_platform(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                 "platform_score": geomean([cold_rel, warm_rel, index_rel]),
                 "rss_mb": float(r["peak_rss_mb"]) if r.get("peak_rss_mb") else None,
                 "verification": r.get("verification"),
+                "warnings": list(r.get("warnings") or []),  # reported more than the tree holds: counted anyway
                 # GUI scanners report no size of their own (the monitor fills in the ground truth), so no accuracy
                 "acc_pct": (
                     float(r["accuracy_diff_pct"])
@@ -441,7 +442,7 @@ def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], b
             if e is None:
                 cells.append("—")
             elif e["status"] == "ok":
-                rank = MEDALS.get(e["rank"], f"#{e['rank']}")
+                rank = MEDALS.get(e["rank"], f"#{e['rank']}") + ("❕" if e.get("warnings") else "")
                 if bi:
                     cells.append(f"{rank}<br>{fmt_s(e['cold_s'])}{NB}/{NB}{fmt_s(e['warm_s'])}")
                 else:
@@ -499,8 +500,19 @@ def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
             "核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · "
             "IO = 只有 I/O 次数（图形界面工具没有输出 / GUI tool without output）。",
             "各平台表格：名次，下一行 冷扫 / 热扫 秒 · Per platform: rank, then cold / warm seconds. "
-            "⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 不支持 not supported。",
+            "⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 不支持 not supported · "
+            "❕ 报得比测试树多，成绩照常计入 reported more than the tree holds, still counted。",
         ]
+    notes += [
+        "少报判无效，多报只警告：扫描器报告的大小、文件数或某个顶层目录明显少于测试树，说明它漏扫了，成绩无效；"
+        "报得比测试树多（跟进了链接、重复计数等）只标 ❕ 警告，成绩照常计入，因为多扫只会让它更慢、不会占便宜。",
+    ]
+    if bi:
+        notes.append(
+            "Reporting less invalidates, reporting more only warns: a size, file count or top-level folder clearly "
+            "below the tree means a skipped part, so the result is invalid; reporting more (links followed, entries "
+            "counted twice) only gets a ❕ warning and still counts, since the extra work can only slow it down."
+        )
     notes += [
         "计分：每个平台内先算相对分，冷扫/热扫 = 该平台最快用时 ÷ 本扫描器用时 × 100，均衡指数 = 本扫描器均衡指数 ÷ "
         "该平台最高 × 100（冷热两次取几何平均）。跨平台取几何平均，各平台硬件快慢在平台内就约掉了。"

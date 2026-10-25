@@ -141,7 +141,8 @@ def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
             plat = plats[0].get(sid) if plats else None
             if o and plat and plat.get("status") == "ok":
                 times = f"{fmt_s(plat['cold_s'])}{NB}/{NB}{fmt_s(plat['warm_s'])}{NB}s"
-                cells.append(f"{score_cell(o['rank'], o['overall'])}<br><sub>{times}</sub>")
+                warn = "❕" if plat.get("warnings") else ""
+                cells.append(f"{score_cell(o['rank'], o['overall'])}{warn}<br><sub>{times}</sub>")
             elif plat:
                 cells.append(status_icon.get(str(plat.get("status")), "?"))
             else:
