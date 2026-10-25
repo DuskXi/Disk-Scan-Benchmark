@@ -212,10 +212,11 @@ pub fn materialize_tree(
     fs::create_dir_all(root)
         .with_context(|| format!("Failed to create root directory: {}", root.display()))?;
 
-    // FSM_AGING=1 creates the tree on an aged timeline (see `aging_tasks`). Off by default: it makes cold scans issue
-    // as many reads per item as a real volume, but it also made SpaceKnife's hot scan 2-3x slower than on the real
-    // drives, so the scanner ranking moved further away from them (W-style 3.2M files, NTFS and ReFS, 2026-10).
-    let aging = realism && std::env::var("FSM_AGING").is_ok_and(|v| v == "1");
+    // The tree is created on an aged timeline (see `aging_tasks`) unless FSM_AGING=0: a volume that grew over years
+    // has its directory and file records scattered and its directory indexes grown in pieces, while a tree created
+    // directory by directory lays everything out contiguously, which no real drive does. Whether to age is decided
+    // by that layout alone, never by how any particular scanner happens to perform on it.
+    let aging = realism && std::env::var("FSM_AGING").map_or(true, |v| v != "0");
 
     let t_dirs = Instant::now();
     // 1. Group directories by depth so each depth level can be created in parallel with a single mkdir syscall

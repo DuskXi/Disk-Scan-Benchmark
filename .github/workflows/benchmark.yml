@@ -63,8 +63,8 @@ on:
         required: false
         default: false
         type: boolean
-      windows_aging:
-        description: "Generate the Windows volumes on the aged timeline (FSM_AGING=1: years-of-use creation order)"
+      aging:
+        description: "Generate every volume on the aged timeline (years-of-use creation order; off = FSM_AGING=0)"
         required: false
         default: true
         type: boolean
@@ -187,6 +187,9 @@ jobs:
 
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
+        env:
+          # aged creation timeline (scattered records, directory indexes grown in pieces); same final tree
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
         run: |
           mkdir -p results/${{ matrix.target_label }}
           EXTRA_ARGS=()
@@ -258,6 +261,8 @@ jobs:
       - name: Optional Linux /dev/shm RAMDisk High-IOPS Comparison Pass
         if: matrix.platform == 'linux' && inputs.enable_ramdisk == true
         shell: bash
+        env:
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
         run: |
           RAM_LABEL="${{ matrix.target_label }}-ramdisk"
           mkdir -p "results/${RAM_LABEL}"
@@ -381,7 +386,7 @@ jobs:
         shell: bash
         env:
           # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
-          FSM_AGING: ${{ inputs.windows_aging && '1' || '0' }}
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
         run: |
           mkdir -p "results/$LABEL"
           EXTRA_ARGS=()
@@ -510,7 +515,7 @@ jobs:
         shell: bash
         env:
           # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
-          FSM_AGING: ${{ inputs.windows_aging && '1' || '0' }}
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
         run: |
           mkdir -p "results/$LABEL"
           EXTRA_ARGS=()
@@ -647,7 +652,7 @@ jobs:
         shell: bash
         env:
           # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
-          FSM_AGING: ${{ inputs.windows_aging && '1' || '0' }}
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
         timeout-minutes: 300
         run: |
           mkdir -p "results/$LABEL"
@@ -830,6 +835,6 @@ jobs:
       - name: Publish Leaderboard To README
         if: >-
           github.ref == 'refs/heads/main' && inputs.preset != 'custom' &&
-          !inputs.defender_scan && inputs.windows_aging
+          !inputs.defender_scan && inputs.aging
         shell: bash
         run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json standard "${{ inputs.preset }}"

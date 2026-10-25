@@ -101,8 +101,8 @@ struct Args {
 
     /// Also create this many "ballast" files on the same volume, outside --root, before the benchmark tree. They are
     /// never scanned and not in the manifest. A real tree is scanned inside a volume that holds millions of other
-    /// files, and that makes directory enumeration several times more expensive for some scanners (gdu, SpaceKnife)
-    /// than on a volume that holds nothing but the benchmark tree.
+    /// files, and that can make directory enumeration more expensive than on a volume that holds nothing but the
+    /// benchmark tree.
     #[arg(long, default_value_t = 0)]
     ballast_files: usize,
 

@@ -62,8 +62,8 @@ pub fn open_dir_handle(dir: &Path) -> Option<DirHandle> {
 }
 
 /// Allocated bytes of a directory (its `$INDEX_ALLOCATION` runs, roughly 150-500 bytes per entry on NTFS).
-/// Scanners such as SpaceKnife include this in "size on disk"; the Unix materializer adds `st_blocks` of directories
-/// for the same reason.
+/// Some scanners include it in "size on disk", so the ground truth records it; the Unix materializer adds `st_blocks`
+/// of directories for the same reason.
 pub fn dir_allocation_bytes(dir: &Path) -> u64 {
     let mut wide: Vec<u16> = Vec::with_capacity(dir.as_os_str().len() + 1);
     wide.extend(dir.as_os_str().encode_wide());

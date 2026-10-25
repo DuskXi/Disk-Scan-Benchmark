@@ -223,7 +223,7 @@ pub struct GroundTruthManifest {
     /// Ground truth breakdown per top-level zone (zone_deep, zone_flat_cache, zone_sparse_media, zone_edge)
     #[serde(default)]
     pub zones: std::collections::BTreeMap<String, ZoneGroundTruth>,
-    /// True when the tree was created on the aged timeline (FSM_AGING=1): same tree, scattered creation order
+    /// True when the tree was created on the aged timeline (the default; FSM_AGING=0 turns it off)
     #[serde(default)]
     pub aged_timeline: bool,
 }
