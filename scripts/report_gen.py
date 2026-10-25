@@ -24,6 +24,20 @@ def format_bytes_gib(num_bytes: float) -> str:
 
 
 BALANCE_WEIGHT = 0.5  # w: weight of wall time against resource time in the balanced index
+SMALL_PRESETS = ("very-lite", "lite")
+
+
+def small_preset_notice(preset: str) -> List[str]:
+    """Disclaimer under the title of every report and leaderboard of a small preset."""
+    if preset not in SMALL_PRESETS:
+        return []
+    return [
+        "> [!WARNING]",
+        f"> **仅供参考：** `{preset}` 测试体量过小，本榜单不一定具有真正的性能测试效力。"
+        "榜单取的是扫描器进程从启动到退出的总墙钟时间（含启动、初始化等固定开销），"
+        "没有采用软件自己上报的实际扫描时间；体量越小，这部分固定开销的占比越大。",
+        "",
+    ]
 
 
 def balanced_index(
@@ -155,6 +169,7 @@ def generate_report(
     lines = [
         header_title,
         "",
+        *small_preset_notice(preset_name),
         "## 1. Environment & Hardware Ceiling Baseline (`hw-probe`)",
         "",
         "| Metric | Value | Description |",

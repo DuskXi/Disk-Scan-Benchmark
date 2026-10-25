@@ -10,8 +10,10 @@ the ratio  refs_time / ntfs_time  (cold and warm), takes the median ratio over a
 --max-deviation as cheating. Only the slow side is suspicious: a scanner that is relatively FASTER on
 ReFS than the others cannot be using the MFT, so it is never flagged.
 
-Flagged scanners are marked valid=False / DISQUALIFIED in BOTH raw_results files (in place), so
-report_gen.py ranks them nowhere and lists them in its disqualification audit.
+Flagged scanners are marked valid=False / DISQUALIFIED in the NTFS raw_results file only (in place), so
+report_gen.py drops their NTFS ranking and lists it in its disqualification audit. ReFS has no $MFT to take a
+shortcut through, so the ReFS run is an ordinary directory walk and stays ranked as long as its own traversal and
+accuracy checks passed.
 """
 
 import argparse
@@ -89,7 +91,7 @@ def render_md(report: Dict[str, Any], names: Dict[str, str]) -> str:
     lines.append(
         "Median ReFS/NTFS slowdown: "
         + ", ".join(f"`{m}` = {v:.2f}x" for m, v in c.items())
-        + f". Scanners that slow down more than {report['max_deviation']:g}x beyond the median (relatively slower on ReFS) are disqualified; being relatively faster on ReFS is fine."
+        + f". Scanners that slow down more than {report['max_deviation']:g}x beyond the median (relatively slower on ReFS) lose their NTFS result; being relatively faster on ReFS is fine, and the ReFS result itself is never disqualified here (ReFS has no $MFT)."
     )
     lines += [
         "",
@@ -108,7 +110,7 @@ def render_md(report: Dict[str, Any], names: Dict[str, str]) -> str:
                 if d
                 else "-"
             )
-        verdict = "❌ DISQUALIFIED" if sid in report["flagged"] else "✅ Consistent"
+        verdict = "❌ DISQUALIFIED on NTFS" if sid in report["flagged"] else "✅ Consistent"
         lines.append(f"| **{names.get(sid, sid)}** | " + " | ".join(cells) + f" | {verdict} |")
     return "\n".join(lines) + "\n"
 
@@ -134,8 +136,7 @@ def main() -> int:
     refs = json.loads(Path(args.refs_results).read_text(encoding="utf-8"))
 
     report = audit(ntfs, refs, args.max_deviation, args.min_scanners)
-    apply_flags(ntfs, report["flagged"], "NTFS")
-    apply_flags(refs, report["flagged"], "ReFS")
+    apply_flags(ntfs, report["flagged"], "NTFS")  # the ReFS run cannot use the $MFT, so it keeps its own verdict
     Path(args.ntfs_results).write_text(json.dumps(ntfs, indent=2), encoding="utf-8")
     Path(args.refs_results).write_text(json.dumps(refs, indent=2), encoding="utf-8")
 

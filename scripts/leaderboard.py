@@ -21,6 +21,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from report_gen import small_preset_notice
+
 # Display order of the platforms (results directory label -> column title)
 PLATFORMS: List[Tuple[str, str]] = [
     ("linux-x86_64", "Linux x64"),
@@ -174,7 +176,7 @@ def build(artifacts: Path, preset: str, sha: str) -> Tuple[str, Dict[str, Any]]:
 
     files, dirs_n = int(gt.get("total_files", 0)), int(gt.get("total_dirs", 0))
     head = f"# 🏆 Overall Leaderboard 总榜 ({preset})"
-    lines = [head, ""]
+    lines = [head, ""] + small_preset_notice(str(gt.get("preset") or preset))
     info = f"合成数据 `{files:,}` 个文件 + `{dirs_n:,}` 个目录，共 `{len(labels)}` 个平台"
     if sha:
         info += f"，commit `{sha[:7]}`"
