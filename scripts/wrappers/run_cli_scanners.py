@@ -944,7 +944,7 @@ def main() -> int:
 
     if args.install_only:
         for scanner in registry_data.get("scanners", []):
-            if not scanner.get("enabled", True):
+            if not scanner.get("enabled", True) or scanner.get("unavailable"):
                 continue
             if os_key not in scanner.get("platforms", []) or arch_key not in scanner.get("architectures", []):
                 continue
@@ -983,6 +983,32 @@ def main() -> int:
             continue
         if args.mft_mode and not scanner.get("mft"):
             print(f"[runner] Skipping {scanner['name']} (no raw $MFT scanning support)")
+            continue
+        if scanner.get("unavailable"):
+            # Listed as unable to run instead of being timed: its runs measured nothing (e.g. a license dialog)
+            print(f"[runner] {scanner['name']} cannot run here: {scanner['unavailable']}")
+            results.append(
+                {
+                    "id": scanner["id"],
+                    "scanner": scanner["name"],
+                    "version": scanner["version"],
+                    "runner_type": scanner["runner_type"],
+                    "size_metric": scanner.get("size_metric", "allocated"),
+                    "cold_time_ms": 0.0,
+                    "warm_time_ms": 0.0,
+                    "warm_runs_ms": [],
+                    "tool_reported_scan_ms": None,
+                    "peak_rss_mb": 0.0,
+                    "scanned_files": 0,
+                    "scanned_bytes": 0,
+                    "reference_bytes": 0,
+                    "accuracy_diff_pct": 0.0,
+                    "mode": "mft" if args.mft_mode else "api",
+                    "valid": False,
+                    "invalid_reason": f"⛔ CANNOT RUN: {scanner['unavailable']}",
+                    "structure_samples": {},
+                }
+            )
             continue
 
         scanner_id = scanner["id"]

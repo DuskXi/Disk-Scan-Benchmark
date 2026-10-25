@@ -185,6 +185,12 @@ def generate_report(
         )
         for r in invalid_rows:
             reason = r.get("invalid_reason", "-")
+            if "CANNOT RUN" in reason:
+                # never executed (see "unavailable" in scanners_registry.json): no times to show
+                lines.append(
+                    f"| `⛔ CANNOT RUN` | **{r['scanner']}** | `{r.get('version', '-')}` | - | - | - | {reason} |"
+                )
+                continue
             status_badge = "❌ DISQUALIFIED" if "DISQUALIFIED" in reason else "⚠️ INVALID"
             lines.append(
                 f"| `{status_badge}` | **{r['scanner']}** | `{r.get('version', '-')}` | `{r['cold_time_ms']:,.1f}` "
@@ -225,6 +231,8 @@ def generate_report(
     )
 
     for r in normalized_rows:
+        if "CANNOT RUN" in str(r.get("invalid_reason", "")):
+            continue
         samples: Dict[str, Dict[str, Any]] = r.get("structure_samples", {})
 
         if not samples:

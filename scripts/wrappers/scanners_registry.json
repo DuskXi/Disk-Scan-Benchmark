@@ -162,6 +162,7 @@
       "name": "TreeSizeFree",
       "version": "4.7.3",
       "enabled": true,
+      "unavailable": "TreeSize Free is not licensed for Windows Server and does not scan on the GitHub Windows runners",
       "runner_type": "win_gui",
       "platforms": ["windows"],
       "architectures": ["x86_64"],
