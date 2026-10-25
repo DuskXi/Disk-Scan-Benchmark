@@ -335,6 +335,13 @@ def verify_code(value: Optional[str]) -> str:
     return "·".join(VERIFY_CODES.get(part, part) for part in value.split("+"))
 
 
+def seconds_geomean(p: Dict[str, Any], sid: str, key: str) -> str:
+    """'12.3&nbsp;s': geometric mean of a scanner's cold_s or warm_s over the platforms where its result is valid."""
+    secs = [e[key] for lbl in p["platforms"] if (e := p["per_platform"][lbl].get(sid)) and e.get("status") == "ok"]
+    value = geomean(secs)
+    return f"{fmt_s(value)}{NB}s" if value else "—"
+
+
 def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
     # bi (README): short headers spelled out in the notes, "#" for the rank and no platform-wins column (the
     # per-platform tables show the medals), so the table fits GitHub's README width without wrapping or scrolling
@@ -366,9 +373,14 @@ def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
         verified = verify_code(o.get("verification")) if bi else verification_label(o.get("verification"))
         name = nobreak(o["scanner"]) if bi else o["scanner"]
         wins = "" if bi else f" {o['wins'] or '-'} |"
+        cold, warm = fmt_score(o["cold"]), fmt_score(o["warm"])
+        if bi:
+            # the seconds behind the relative scores, in small print: geometric mean over its valid platforms
+            cold += f"<br><sub>{seconds_geomean(p, o['id'], 'cold_s')}</sub>"
+            warm += f"<br><sub>{seconds_geomean(p, o['id'], 'warm_s')}</sub>"
         lines.append(
-            f"| {medal} | **{name}** | **{fmt_score(o['overall'])}** | {fmt_score(o['cold'])} "
-            f"| {fmt_score(o['warm'])} | {fmt_score(o['index'])} | {rss} | {acc} | {verified} "
+            f"| {medal} | **{name}** | **{fmt_score(o['overall'])}** | {cold} "
+            f"| {warm} | {fmt_score(o['index'])} | {rss} | {acc} | {verified} "
             f"| {o['valid_platforms']}/{o['entered_platforms']} |{wins}"
         )
     if p["unranked"]:
@@ -518,6 +530,10 @@ def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
     notes: List[str] = []
     if bi:
         notes += [
+            "冷扫、热扫下方的小字是它在有效平台上用时（秒）的几何平均；各平台硬件不同、每个扫描器参加的平台也不同，"
+            "用时只作参考，名次按相对分 · Small print under Cold / Warm: the geometric mean of its seconds over its "
+            "valid platforms; hardware and the set of platforms differ between scanners, so it is for reference only "
+            "and the ranks follow the relative scores. "
             "表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not "
             "verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · "
             "核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · "
