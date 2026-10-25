@@ -787,6 +787,8 @@ jobs:
     needs: [benchmark, benchmark-ntfs-arm64, windows-summary]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # publishes the README leaderboard and badge files to main
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -805,20 +807,29 @@ jobs:
       - name: Build Leaderboard & Write Run Summary
         shell: bash
         run: |
-          mkdir -p leaderboard
+          mkdir -p lb-out
           python ./scripts/leaderboard.py \
             --artifacts artifacts \
             --preset "${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }}" \
             --sha "${{ github.sha }}" \
-            --out leaderboard/leaderboard.md \
-            --json-out leaderboard/leaderboard.json \
-            --summary-out leaderboard/summary.md
-          cat leaderboard/summary.md >> "$GITHUB_STEP_SUMMARY"
+            --out lb-out/leaderboard.md \
+            --json-out lb-out/leaderboard.json \
+            --summary-out lb-out/summary.md
+          cat lb-out/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Leaderboard
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-leaderboard-${{ inputs.preset }}
-          path: leaderboard/
+          path: lb-out/
           retention-days: 30
+
+      # Only plain runs of a standard preset on main reach the README; experiments (Defender on, fresh timeline,
+      # custom sizes) and runs with failed platforms stay in their own run summary.
+      - name: Publish Leaderboard To README
+        if: >-
+          github.ref == 'refs/heads/main' && inputs.preset != 'custom' &&
+          !inputs.defender_scan && inputs.windows_aging
+        shell: bash
+        run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json standard "${{ inputs.preset }}"

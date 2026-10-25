@@ -63,6 +63,8 @@ jobs:
   mft-benchmark:
     name: "MFT Bench (windows-x86_64 NTFS | ${{ inputs.preset }})"
     runs-on: windows-latest
+    permissions:
+      contents: write  # publishes the README MFT column and badge files to main
     env:
       LABEL: windows-x86_64-mft
     steps:
@@ -172,3 +174,19 @@ jobs:
           name: benchmark-results-windows-x86_64-mft-${{ inputs.preset }}
           path: results/
           retention-days: 30
+
+      - name: Build MFT Leaderboard
+        shell: bash
+        run: |
+          mkdir -p lb-out
+          python ./scripts/leaderboard.py \
+            --artifacts results \
+            --preset "${{ inputs.preset }} · NTFS \$MFT" \
+            --sha "${{ github.sha }}" \
+            --out lb-out/leaderboard.md \
+            --json-out lb-out/leaderboard.json
+
+      - name: Publish MFT Column To README
+        if: github.ref == 'refs/heads/main' && inputs.preset != 'custom'
+        shell: bash
+        run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json mft "${{ inputs.preset }}"

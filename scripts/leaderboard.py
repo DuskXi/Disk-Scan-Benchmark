@@ -12,31 +12,73 @@ result was valid.
   warm  = best warm time / warm time x 100            (per platform)
   index = geomean(cold, warm balanced index / best)   (per platform, x100)
   overall = geomean(cold, warm, index), each first averaged (geometric mean) over the platforms
+
+The JSON payload holds everything the Markdown needs, so scripts/readme_board.py can render the same tables into
+README.md later from the stored payload alone.
 """
 
 import argparse
 import json
 import math
+import statistics
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from report_gen import small_preset_notice
 
-# Display order of the platforms (results directory label -> column title)
-PLATFORMS: List[Tuple[str, str]] = [
-    ("linux-x86_64", "Linux x64 (ext4)"),
-    ("linux-arm64", "Linux ARM64 (ext4)"),
-    ("macos-x86_64", "macOS x64 (APFS)"),
-    ("macos-arm64", "macOS ARM64 (APFS)"),
-    ("windows-x86_64", "Win x64 (NTFS)"),
-    ("windows-x86_64-refs", "Win x64 (ReFS)"),
-    ("windows-arm64", "Win ARM64 (NTFS)"),
-]
+PAYLOAD_SCHEMA = 2
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+# Platforms every standard run is expected to produce; a missing one is called out above the tables
+CORE_PLATFORMS = [
+    "linux-x86_64",
+    "linux-arm64",
+    "macos-x86_64",
+    "macos-arm64",
+    "windows-x86_64",
+    "windows-x86_64-refs",
+    "windows-arm64",
+]
+OS_NAMES = {"linux": "Linux", "macos": "macOS", "windows": "Win"}
+OS_ORDER = {"linux": 0, "macos": 1, "windows": 2}
+DEFAULT_FS = {"linux": "ext4", "macos": "apfs", "windows": "ntfs"}
+FS_NAMES = {
+    "ext4": "ext4",
+    "btrfs": "Btrfs",
+    "xfs": "XFS",
+    "zfs": "ZFS",
+    "apfs": "APFS",
+    "ntfs": "NTFS",
+    "refs": "ReFS",
+    "mft": "NTFS · MFT",
+    "ramdisk": "RAM",
+}
+FS_ORDER = ["ext4", "apfs", "ntfs", "btrfs", "xfs", "zfs", "refs", "mft", "ramdisk"]
+STATUS_TEXT = {"cannot_run": "⛔ 无法运行", "disqualified": "❌ 违规", "invalid": "⚠️ 无效"}
 
 
-def geomean(values: List[float]) -> Optional[float]:
+def parse_label(label: str) -> Tuple[str, str, str]:
+    """'windows-x86_64-refs' -> ('windows', 'x86_64', 'refs'); the filesystem defaults per OS."""
+    parts = label.split("-")
+    os_key = parts[0]
+    arch = parts[1] if len(parts) > 1 else ""
+    fs = parts[2] if len(parts) > 2 else DEFAULT_FS.get(os_key, "")
+    return os_key, arch, fs
+
+
+def platform_title(label: str) -> str:
+    os_key, arch, fs = parse_label(label)
+    arch_name = {"x86_64": "x64", "arm64": "ARM64", "aarch64": "ARM64"}.get(arch, arch)
+    return f"{OS_NAMES.get(os_key, os_key)} {arch_name} ({FS_NAMES.get(fs, fs)})".strip()
+
+
+def platform_sort_key(label: str) -> Tuple[int, int, int, str]:
+    os_key, arch, fs = parse_label(label)
+    fs_rank = FS_ORDER.index(fs) if fs in FS_ORDER else len(FS_ORDER)
+    return OS_ORDER.get(os_key, 9), fs_rank, 0 if arch == "x86_64" else 1, label
+
+
+def geomean(values: List[Optional[float]]) -> Optional[float]:
     vals = [v for v in values if v and v > 0]
     if not vals:
         return None
@@ -91,7 +133,6 @@ def score_platform(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             index_rel = None
             if bc and bw and best_bal_cold and best_bal_warm:
                 index_rel = math.sqrt((bc / best_bal_cold) * (bw / best_bal_warm)) * 100.0
-            parts = [cold_rel, warm_rel] + ([index_rel] if index_rel else [])
             out[r["id"]] = {
                 "status": "ok",
                 "cold_s": float(r["cold_time_ms"]) / 1000.0,
@@ -99,7 +140,14 @@ def score_platform(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                 "cold_rel": cold_rel,
                 "warm_rel": warm_rel,
                 "index_rel": index_rel,
-                "platform_score": geomean(parts),
+                "platform_score": geomean([cold_rel, warm_rel, index_rel]),
+                "rss_mb": float(r["peak_rss_mb"]) if r.get("peak_rss_mb") else None,
+                # GUI scanners report no size of their own (the monitor fills in the ground truth), so no accuracy
+                "acc_pct": (
+                    float(r["accuracy_diff_pct"])
+                    if r.get("accuracy_diff_pct") is not None and r.get("runner_type") != "win_gui"
+                    else None
+                ),
             }
         ranked = sorted(out.values(), key=lambda v: -(v["platform_score"] or 0))
         for pos, v in enumerate(ranked, start=1):
@@ -122,27 +170,42 @@ def fmt_score(value: Optional[float]) -> str:
     return "-" if value is None else f"{value:.1f}"
 
 
-def build(artifacts: Path, preset: str, sha: str) -> Tuple[str, Dict[str, Any]]:
+def _median(values: List[Optional[float]]) -> Optional[float]:
+    vals = [v for v in values if v is not None]
+    return statistics.median(vals) if vals else None
+
+
+def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
     dirs = find_platform_dirs(artifacts)
-    known = [label for label, _ in PLATFORMS]
-    titles = dict(PLATFORMS)
-    # Unlisted labels (a new runner) still show up, after the known ones; the RAM-disk pass is not a real disk
-    extra = sorted(lbl for lbl in dirs if lbl not in known and not lbl.endswith("-ramdisk"))
-    labels = [lbl for lbl in known if lbl in dirs] + extra
-    missing = [titles[lbl] for lbl in known if lbl not in dirs]
+    # The RAM-disk pass is not a real disk and stays out of the ranking
+    labels = sorted((lbl for lbl in dirs if not lbl.endswith("-ramdisk")), key=platform_sort_key)
+    only_mft = bool(labels) and all(parse_label(lbl)[2] == "mft" for lbl in labels)
+    missing = [] if only_mft else [lbl for lbl in CORE_PLATFORMS if lbl not in dirs]
 
     per_platform: Dict[str, Dict[str, Dict[str, Any]]] = {}
-    baselines: Dict[str, Dict[str, Any]] = {}
+    platform_info: Dict[str, Dict[str, Any]] = {}
     scanners: Dict[str, Dict[str, str]] = {}
     gt: Dict[str, Any] = {}
     for label in labels:
         data = json.loads((dirs[label] / "normalized_results.json").read_text(encoding="utf-8"))
         rows = data.get("results", [])
         gt = gt or data.get("ground_truth", {})
-        baselines[label] = data.get("baseline", {})
-        per_platform[label] = score_platform(rows)
+        plat = score_platform(rows)
+        per_platform[label] = plat
         for r in rows:
             scanners.setdefault(r["id"], {"name": r.get("scanner", r["id"]), "version": str(r.get("version", "-"))})
+        b = data.get("baseline", {})
+        ok_ids = [sid for sid, e in plat.items() if e["status"] == "ok"]
+        platform_info[label] = {
+            "title": platform_title(label),
+            "cores": b.get("logical_cores"),
+            "iops": float(b.get("b_rand_read_iops") or 0) or None,
+            "cpu_ms": float(b.get("b_cpu_ms") or 0) or None,
+            "ok": len(ok_ids),
+            "tried": len([sid for sid, e in plat.items() if e["status"] != "cannot_run"]),
+            "fastest_cold": min(ok_ids, key=lambda s: plat[s]["cold_s"]) if ok_ids else None,
+            "fastest_warm": min(ok_ids, key=lambda s: plat[s]["warm_s"]) if ok_ids else None,
+        }
 
     overall: List[Dict[str, Any]] = []
     unranked: List[str] = []
@@ -154,17 +217,19 @@ def build(artifacts: Path, preset: str, sha: str) -> Tuple[str, Dict[str, Any]]:
             continue
         cold = geomean([e["cold_rel"] for e in ok])
         warm = geomean([e["warm_rel"] for e in ok])
-        index = geomean([e["index_rel"] for e in ok if e.get("index_rel")])
-        total = geomean([v for v in (cold, warm, index) if v])
+        index = geomean([e["index_rel"] for e in ok])
+        accs = [abs(e["acc_pct"]) for e in ok if e.get("acc_pct") is not None]
         overall.append(
             {
                 "id": sid,
                 "scanner": meta["name"],
                 "version": meta["version"],
-                "overall": total,
+                "overall": geomean([cold, warm, index]),
                 "cold": cold,
                 "warm": warm,
                 "index": index,
+                "rss_mb": _median([e.get("rss_mb") for e in ok]),
+                "abs_acc_pct": statistics.median(accs) if accs else None,
                 "valid_platforms": len(ok),
                 "entered_platforms": len(entries),
                 "wins": sum(1 for e in ok if e.get("rank") == 1),
@@ -174,113 +239,154 @@ def build(artifacts: Path, preset: str, sha: str) -> Tuple[str, Dict[str, Any]]:
     for pos, o in enumerate(overall, start=1):
         o["rank"] = pos
 
-    files, dirs_n = int(gt.get("total_files", 0)), int(gt.get("total_dirs", 0))
-    head = f"# 🏆 Overall Leaderboard 总榜 ({preset})"
-    lines = [head, ""] + small_preset_notice(str(gt.get("preset") or preset))
-    info = f"合成数据 `{files:,}` 个文件 + `{dirs_n:,}` 个目录，共 `{len(labels)}` 个平台"
-    if sha:
-        info += f"，commit `{sha[:7]}`"
-    lines += [info + "。各平台的完整报告在本总榜下方。", ""]
-    if missing:
-        lines += [f"> [!WARNING]\n> 以下平台没有产出结果，未计入总榜：{'、'.join(missing)}", ""]
+    return {
+        "schema": PAYLOAD_SCHEMA,
+        "preset": str(gt.get("preset") or preset),
+        "sha": sha,
+        "files": int(gt.get("total_files", 0)),
+        "dirs": int(gt.get("total_dirs", 0)),
+        "aged_timeline": gt.get("aged_timeline"),
+        "platforms": labels,
+        "platform_info": platform_info,
+        "missing_platforms": missing,
+        "scanners": scanners,
+        "overall": overall,
+        "unranked": unranked,
+        "per_platform": per_platform,
+    }
 
-    lines += [
-        "| 名次 | 扫描器 | **综合分** | 冷扫 | 热扫 | 均衡指数 | 有效平台 | 平台第一 |",
-        "| :---: | :--- | ---: | ---: | ---: | ---: | :---: | :---: |",
+
+# --- Markdown rendering (shared with scripts/readme_board.py) ---
+
+
+def render_overall_table(p: Dict[str, Any]) -> List[str]:
+    lines = [
+        "| 名次 | 扫描器 | **综合分** | 冷扫 | 热扫 | 均衡指数 | 峰值内存 | 大小误差 | 有效平台 | 平台第一 |",
+        "| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: |",
     ]
-    for o in overall:
+    for o in p["overall"]:
         medal = MEDALS.get(o["rank"], str(o["rank"]))
+        rss = f"{o['rss_mb']:,.0f} MB" if o.get("rss_mb") else "-"
+        acc = f"{o['abs_acc_pct']:.2f}%" if o.get("abs_acc_pct") is not None else "-"
         lines.append(
             f"| {medal} | **{o['scanner']}** | **{fmt_score(o['overall'])}** | {fmt_score(o['cold'])} "
-            f"| {fmt_score(o['warm'])} | {fmt_score(o['index'])} | {o['valid_platforms']}/{o['entered_platforms']} "
-            f"| {o['wins'] or '-'} |"
+            f"| {fmt_score(o['warm'])} | {fmt_score(o['index'])} | {rss} | {acc} "
+            f"| {o['valid_platforms']}/{o['entered_platforms']} | {o['wins'] or '-'} |"
         )
-    if unranked:
-        names = "、".join(scanners[s]["name"] for s in unranked)
+    if p["unranked"]:
+        names = "、".join(p["scanners"][s]["name"] for s in p["unranked"])
         lines += ["", f"未上榜（没有任何平台的有效成绩）：{names}"]
+    return lines
 
-    # Per-platform matrix: rank and raw cold / warm seconds, or why there is no result
-    status_text = {"cannot_run": "⛔ 无法运行", "disqualified": "❌ 违规", "invalid": "⚠️ 无效"}
-    order = [o["id"] for o in overall] + unranked
-    lines += [
-        "",
-        "### 各平台名次（冷扫 / 热扫 秒）",
-        "",
-        "| 扫描器 | " + " | ".join(titles.get(lbl, lbl) for lbl in labels) + " |",
+
+def render_kings(p: Dict[str, Any]) -> List[str]:
+    """One line naming the best scanner of each category."""
+    rows = p["overall"]
+    if not rows:
+        return []
+
+    def best(key: str, low: bool = False) -> Optional[Dict[str, Any]]:
+        cands = [o for o in rows if o.get(key) is not None]
+        if not cands:
+            return None
+        return min(cands, key=lambda o: o[key]) if low else max(cands, key=lambda o: o[key])
+
+    parts = []
+    for title, key, low, fmt in (
+        ("冷扫", "cold", False, lambda v: f"{v:.1f}"),
+        ("热扫", "warm", False, lambda v: f"{v:.1f}"),
+        ("均衡", "index", False, lambda v: f"{v:.1f}"),
+        ("最省内存", "rss_mb", True, lambda v: f"{v:,.0f} MB"),
+        ("最准", "abs_acc_pct", True, lambda v: f"误差 {v:.2f}%"),
+    ):
+        o = best(key, low)
+        if o is not None:
+            parts.append(f"**{title}** {o['scanner']}（{fmt(o[key])}）")
+    return ["单项第一：" + " · ".join(parts)]
+
+
+def render_matrix(p: Dict[str, Any]) -> List[str]:
+    labels = p["platforms"]
+    titles = {lbl: p["platform_info"][lbl]["title"] for lbl in labels}
+    order = [o["id"] for o in p["overall"]] + p["unranked"]
+    lines = [
+        "| 扫描器 | " + " | ".join(titles[lbl] for lbl in labels) + " |",
         "| :--- | " + " | ".join(":---:" for _ in labels) + " |",
     ]
     for sid in order:
         cells = []
         for lbl in labels:
-            e = per_platform[lbl].get(sid)
+            e = p["per_platform"][lbl].get(sid)
             if e is None:
                 cells.append("—")
             elif e["status"] == "ok":
                 rank = MEDALS.get(e["rank"], f"#{e['rank']}")
                 cells.append(f"{rank} {fmt_s(e['cold_s'])} / {fmt_s(e['warm_s'])}")
             else:
-                cells.append(status_text[e["status"]])
-        lines.append(f"| **{scanners[sid]['name']}** | " + " | ".join(cells) + " |")
+                cells.append(STATUS_TEXT.get(e["status"], e["status"]))
+        lines.append(f"| **{p['scanners'][sid]['name']}** | " + " | ".join(cells) + " |")
+    return lines
 
-    # Platform overview: the hardware each column ran on and who won it
-    lines += [
-        "",
-        "### 平台概况",
-        "",
+
+def render_platforms(p: Dict[str, Any]) -> List[str]:
+    lines = [
         "| 平台 | 逻辑核 | $S_{\\text{IOPS}}$ | $B_{\\text{cpu}}$ | 有效/参赛 | 冷扫最快 | 热扫最快 |",
         "| :--- | ---: | ---: | ---: | :---: | :--- | :--- |",
     ]
-    for lbl in labels:
-        b = baselines[lbl]
-        plat = per_platform[lbl]
-        ok_ids = [sid for sid, e in plat.items() if e["status"] == "ok"]
-        tried = [sid for sid, e in plat.items() if e["status"] != "cannot_run"]
+    for lbl in p["platforms"]:
+        info = p["platform_info"][lbl]
+        plat = p["per_platform"][lbl]
 
-        def fastest(key: str) -> str:
-            if not ok_ids:
+        def fastest(sid: Optional[str], key: str) -> str:
+            if not sid:
                 return "-"
-            sid = min(ok_ids, key=lambda s: plat[s][key])
-            return f"{scanners[sid]['name']} {fmt_s(plat[sid][key])} s"
+            return f"{p['scanners'][sid]['name']} {fmt_s(plat[sid][key])} s"
 
-        iops = float(b.get("b_rand_read_iops") or 0)
-        cpu_ms = float(b.get("b_cpu_ms") or 0)
+        iops = f"{info['iops']:,.0f}" if info.get("iops") else "-"
+        cpu = f"{info['cpu_ms']:.0f} ms" if info.get("cpu_ms") else "-"
         lines.append(
-            f"| {titles.get(lbl, lbl)} | {b.get('logical_cores', '-')} | {f'{iops:,.0f}' if iops else '-'} "
-            f"| {f'{cpu_ms:.0f} ms' if cpu_ms else '-'} | {len(ok_ids)}/{len(tried)} "
-            f"| {fastest('cold_s')} | {fastest('warm_s')} |"
+            f"| {info['title']} | {info.get('cores') or '-'} | {iops} | {cpu} | {info['ok']}/{info['tried']} "
+            f"| {fastest(info.get('fastest_cold'), 'cold_s')} | {fastest(info.get('fastest_warm'), 'warm_s')} |"
         )
+    return lines
 
+
+def render_notes(p: Dict[str, Any]) -> List[str]:
     notes = [
-        "",
         "<sub>",
         "计分：每个平台内先算相对分，冷扫/热扫 = 该平台最快用时 ÷ 本扫描器用时 × 100，均衡指数 = 本扫描器均衡指数 ÷ "
         "该平台最高 × 100（冷热两次取几何平均）。跨平台取几何平均，各平台硬件快慢在平台内就约掉了。"
-        "综合分 = 冷扫、热扫、均衡指数三项的几何平均。只计有效成绩：违规、无效、无法运行的平台不计入，"
-        "但在名次表里标出；—表示该平台不支持或没有原生版本。名次表按该平台三项相对分的几何平均排名。"
-        "综合分只按扫描器跑过的平台计算，覆盖面看「有效平台」列。",
+        "综合分 = 冷扫、热扫、均衡指数三项的几何平均。峰值内存和大小误差取各有效平台的中位数（误差取绝对值）。"
+        "只计有效成绩：违规、无效、无法运行的平台不计入，但在名次表里标出；—表示该平台不支持或没有原生版本。"
+        "名次表按该平台三项相对分的几何平均排名。综合分只按扫描器跑过的平台计算，覆盖面看「有效平台」列。",
     ]
-    if "windows-arm64" in labels:
+    if "windows-arm64" in p["platforms"]:
         notes.append("Win ARM64 没有 ReFS 对照任务，那一列的成绩没有经过 NTFS/ReFS 跨文件系统（MFT 逃逸）核查。")
     notes.append("</sub>")
-    lines += notes
+    return notes
 
-    payload = {
-        "preset": preset,
-        "platforms": labels,
-        "missing_platforms": missing,
-        "overall": overall,
-        "unranked": unranked,
-        "per_platform": per_platform,
-    }
-    return "\n".join(lines) + "\n", payload
+
+def render_run_summary(p: Dict[str, Any], title_preset: str) -> str:
+    lines = [f"# 🏆 Overall Leaderboard 总榜 ({title_preset})", ""] + small_preset_notice(p["preset"])
+    info = f"合成数据 `{p['files']:,}` 个文件 + `{p['dirs']:,}` 个目录，共 `{len(p['platforms'])}` 个平台"
+    if p.get("sha"):
+        info += f"，commit `{p['sha'][:7]}`"
+    lines += [info + "。各平台的完整报告在本总榜下方。", ""]
+    if p["missing_platforms"]:
+        names = "、".join(platform_title(lbl) for lbl in p["missing_platforms"])
+        lines += [f"> [!WARNING]\n> 以下平台没有产出结果，未计入总榜：{names}", ""]
+    lines += render_overall_table(p) + [""] + render_kings(p)
+    lines += ["", "### 各平台名次（冷扫 / 热扫 秒）", ""] + render_matrix(p)
+    lines += ["", "### 平台概况", ""] + render_platforms(p)
+    lines += [""] + render_notes(p)
+    return "\n".join(lines) + "\n"
 
 
 def assemble_summary(artifacts: Path, leaderboard_md: str) -> str:
     """The leaderboard first, then every platform's full report (and the NTFS/ReFS audit) in platform order."""
     dirs = find_platform_dirs(artifacts)
-    known = [label for label, _ in PLATFORMS]
     order: List[str] = []
-    for label in known + sorted(lbl for lbl in dirs if lbl not in known and not lbl.endswith("-ramdisk")):
+    for label in sorted((lbl for lbl in dirs if not lbl.endswith("-ramdisk")), key=platform_sort_key):
         order += [label, f"{label}-ramdisk"]
     parts = [leaderboard_md.rstrip()]
     for label in order:
@@ -312,7 +418,8 @@ def main() -> int:
     if not any(artifacts.rglob("normalized_results.json")):
         print(f"[leaderboard] no normalized_results.json under {artifacts}", file=sys.stderr)
         return 1
-    md, payload = build(artifacts, args.preset, args.sha)
+    payload = build_payload(artifacts, args.preset, args.sha)
+    md = render_run_summary(payload, args.preset or payload["preset"])
     Path(args.out).write_text(md, encoding="utf-8")
     Path(args.json_out).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     if args.summary_out:

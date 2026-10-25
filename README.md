@@ -2,7 +2,19 @@
 
 跨平台硬盘空间扫描工具基准测试框架（Cross-Platform Disk Space Scanner Benchmark Framework）。
 
-本框架专为 GitHub Actions 公共免费 Runner（Linux / Windows / macOS，含 x86_64 与 ARM64）设计，在 **实际物理磁盘占用 < 1.5 GB** 的条件下，通过确定性拓扑与 **稀疏文件 + 4KB 脏块锚点算法（Dirty-Extent Anchoring）** 无损拟真出包含 **数百万文件节点、20 TB+ 逻辑体积、真实长尾分布与非驻留碎片运行列表（Non-Resident Runlist）** 的复杂文件系统，并借助 **硬件极限基线探针（`hw-probe`）** 对各工具实测耗时进行科学归一化。
+本框架在 GitHub Actions 的免费 Runner（Linux / macOS / Windows，x86_64 与 ARM64）上，用确定性生成的合成文件树（最多 900 万文件、逻辑上数 TB、物理上只占几 GB）对主流磁盘空间扫描工具做冷扫 / 热扫计时，核对扫描结果是否正确，并按平台归一化后排出跨平台、跨体量的总榜。合成数据会模拟多年使用后的磁盘布局（老化），设计理由与公平性说明见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)。
+
+<!-- LEADERBOARD:START -->
+
+## 🏆 排行榜 Leaderboard
+
+![最近更新](https://img.shields.io/badge/%E6%9C%80%E8%BF%91%E6%9B%B4%E6%96%B0-%E2%80%94-4c8eda) ![已测体量](https://img.shields.io/badge/%E5%B7%B2%E6%B5%8B%E4%BD%93%E9%87%8F-0%2F6-dbab09) ![扫描器](https://img.shields.io/badge/%E6%89%AB%E6%8F%8F%E5%99%A8-0-6f42c1) ![平台](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-0-0969da) ![MFT 专栏](https://img.shields.io/badge/MFT%20%E4%B8%93%E6%A0%8F-0%20%E4%B8%AA%E4%BD%93%E9%87%8F-8250df)
+
+> 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。`very-lite` / `lite` 体量过小，计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。评分方法与数据生成原理见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)。
+
+_还没有已发布的运行结果。_
+
+<!-- LEADERBOARD:END -->
 
 ---
 
@@ -83,16 +95,34 @@ cargo run --release --bin fs-mirage -- \
 
 所有待测软件均在 [`scripts/wrappers/scanners_registry.json`](scripts/wrappers/scanners_registry.json) 中通过声明式规则管理，无需修改核心调度代码即可扩展新软件并锁定版本。
 
-### 3.1 当前内置软件列表（已锁定近期稳定版 / 多线程版）
-| ID | 名称 | 锁定版本 | 支持平台 | 支持架构 | 运行模式 | 校验口径 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `gdu` | `gdu` | `5.38.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
-| `dua` | `dua-cli` | `2.46.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
-| `dust` | `dust` | `1.2.6` | Linux, macOS, Windows | `x86_64`, `aarch64` | CLI | `allocated` |
-| `ncdu` | `ncdu` | `2.9.2` | Linux, macOS | `x86_64`, `aarch64` | CLI | `allocated` |
-| `wiztree` | `WizTree64` | `4.33` | Windows | `x86_64` | CLI (`/export`) | `apparent` |
-| `spacesniffer` | `SpaceSniffer` | `2.2.0.27` | Windows | `x86_64` | `win_gui` (原生 x64) | `apparent` |
-| `windirstat` | `WinDirStat` | `2.9.3` | Windows | `x86_64` | `win_gui` (2.x 多线程引擎) | `apparent` |
+### 3.1 当前参加测试的扫描器
+
+下表由 CI 根据 [`scanners_registry.json`](scripts/wrappers/scanners_registry.json) 自动生成。
+
+<!-- SCANNERS:START -->
+
+| 扫描器 | 锁定版本 | 平台 | 架构 | 大小口径 | 说明 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **gdu** | `5.38.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | allocated（Windows 上为 apparent） | 命令行 |
+| **dua-cli** | `2.46.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | allocated | 命令行 |
+| **dust** | `1.2.6` | Linux, macOS, Windows | `x86_64`, `aarch64` | allocated（Windows 上为 apparent） | 命令行 |
+| **ncdu** | `2.9.2` | Linux, macOS | `x86_64`, `aarch64` | allocated | 命令行 |
+| **WizTree64** | `4.33` | Windows | `x86_64` | apparent | 命令行，参加 MFT 专栏 |
+| **SpaceSniffer** | `2.2.0.27` | Windows | `x86_64` | apparent | 图形界面 |
+| **WinDirStat** | `2.9.3` | Windows | `x86_64`, `aarch64` | apparent | 命令行，参加 MFT 专栏 |
+| **spaceknife-backend** | `0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)` | Linux, macOS, Windows | `x86_64`, `aarch64` | allocated | 命令行，参加 MFT 专栏 |
+| **squirreldisk** | `2.6.1` | Linux, macOS, Windows | `x86_64`, `aarch64` | allocated | 命令行 |
+| **GNU du** | `coreutils 9.4 (ubuntu-24.04 image)` | Linux | `x86_64`, `aarch64` | allocated | 命令行；系统基线：单线程，硬链接只算一次，计入目录块 |
+| **BSD du** | `macOS system /usr/bin/du` | macOS | `x86_64`, `aarch64` | allocated | 命令行；系统基线：单线程，硬链接只算一次，精度为 KiB |
+| **Sysinternals du** | `1.62` | Windows | `x86_64`, `aarch64` | allocated | 命令行；微软 Sysinternals 出品；单线程；CSV 同时给出大小和实际占用 |
+| **pdu** | `0.24.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | allocated（Windows 上为 apparent） | 命令行；parallel-disk-usage；用 --threads=max，因为默认的 auto 把虚拟盘误判成机械盘时会降到 1 线程；硬链接去重（-H）和块大小只在 Unix 上有 |
+| **diskus** | `0.9.0` | Linux, macOS, Windows | `x86_64`, `aarch64` | allocated（Windows 上为 apparent） | 命令行；只输出总大小；默认线程数为核数 × 3；Windows 版只报逻辑大小 |
+| **erdtree** | `3.1.2` | Linux, macOS, Windows | `x86_64`, `aarch64` | allocated | 命令行；加 -. 和 -i 才会计入隐藏文件和被 .gitignore 忽略的文件；整棵树常驻内存 |
+
+<sub>未参加：TreeSizeFree（原因见注册表）。</sub>
+
+<!-- SCANNERS:END -->
+
 
 ### 3.2 新增待测程序规范
 在 [`scripts/wrappers/scanners_registry.json`](scripts/wrappers/scanners_registry.json) 的 `"scanners"` 数组中添加如下结构的对象即可自动纳入安装与评测流水线：
@@ -131,12 +161,14 @@ cargo run --release --bin fs-mirage -- \
 
 ---
 
-## 5. 跨平台与架构支持矩阵（含 TODO）
+## 5. 平台与文件系统
 
-- [x] **Linux `x86_64`** (`ubuntu-24.04`)
-- [x] **Linux `aarch64` (ARM64)** (`ubuntu-24.04-arm`)
-- [x] **macOS `x86_64` (Intel)** (`macos-13`)
-- [x] **macOS `aarch64` (Apple Silicon ARM64)** (`macos-14`)
-- [x] **Windows `x86_64`** (`windows-latest`)
-- [ ] **TODO: Windows `aarch64` (ARM64 Windows)**
-  - 待 GitHub Actions 公共 `windows-11-arm` Runner 稳定支持管理员态动态 VHDX 挂载，且 `WizTree` / `SpaceSniffer` / `WinDirStat` 提供统一 ARM64 原生可固定版本分发包后，在 `.github/workflows/benchmark.yml` 与 `scripts/wrappers/scanners_registry.json` 中启用 `windows_aarch64`。
+| 平台 | Runner | 文件系统 | 说明 |
+| :--- | :--- | :--- | :--- |
+| Linux x64 | `ubuntu-24.04` | ext4 | 直接 I/O 的 loop 设备 |
+| Linux ARM64 | `ubuntu-24.04-arm` | ext4 | 同上 |
+| macOS x64 | `macos-15-intel` | APFS | 磁盘镜像 |
+| macOS ARM64 | `macos-15` | APFS | 磁盘镜像 |
+| Windows x64 | `windows-latest` | NTFS、ReFS | 动态 VHDX；NTFS/ReFS 交叉核查 MFT 逃逸 |
+| Windows ARM64 | `windows-11-arm` | NTFS | 只跑有原生 ARM64 版本的扫描器；Defender 因篡改防护无法关闭 |
+| Windows x64（MFT 专栏） | `windows-latest` | NTFS | 单独的工作流 `benchmark-mft.yml`，只比较直接读 `$MFT` 的模式 |
