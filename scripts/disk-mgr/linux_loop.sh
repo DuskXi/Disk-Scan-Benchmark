@@ -58,21 +58,28 @@ case "$CMD" in
         mkfs.ext4 -F -N "$INODES" -b 4096 -E lazy_itable_init=0,lazy_journal_init=0 "$IMG_PATH" >/dev/null
 
         sudo mkdir -p "$MOUNT_PATH"
-        sudo mount -o loop,noatime "$IMG_PATH" "$MOUNT_PATH"
+        # Direct I/O loop device: reads go to the runner's disk instead of being served (and read ahead in large
+        # chunks) by the host page cache that also holds the image file. Through the cached loop a cold scan cost
+        # few real reads, which hid how poorly a scanner with few threads keeps a real disk busy. tmpfs (RAMDisk)
+        # has no O_DIRECT, so it falls back to a buffered loop device.
+        LOOP_DEV=$(sudo losetup --find --show --direct-io=on --sector-size 4096 "$IMG_PATH" 2>/dev/null || sudo losetup --find --show "$IMG_PATH")
+        sudo mount -o noatime "$LOOP_DEV" "$MOUNT_PATH"
         sudo chmod 777 "$MOUNT_PATH"
 
-        echo "${IMG_PATH}|${MOUNT_PATH}|${USE_RAMDISK}" > "$STATE_FILE"
-        echo "[linux_loop] Mounted ${IMG_PATH} at ${MOUNT_PATH}"
+        echo "${IMG_PATH}|${MOUNT_PATH}|${USE_RAMDISK}|${LOOP_DEV}" > "$STATE_FILE"
+        echo "[linux_loop] Mounted ${IMG_PATH} via ${LOOP_DEV} (direct I/O: $(cat /sys/block/${LOOP_DEV#/dev/}/loop/dio 2>/dev/null || echo ?)) at ${MOUNT_PATH}"
         ;;
 
     purge-cache)
         MOUNT_PATH="${1:-/mnt/bench}"
         IMG_PATH="/tmp/bench.ext4"
+        LOOP_DEV=""
         if [[ -f "$STATE_FILE" ]]; then
-            IFS='|' read -r SAVED_IMG SAVED_MNT _ < "$STATE_FILE" || true
+            IFS='|' read -r SAVED_IMG SAVED_MNT _ SAVED_LOOP < "$STATE_FILE" || true
             if [[ -n "${SAVED_IMG:-}" ]]; then
                 IMG_PATH="$SAVED_IMG"
             fi
+            LOOP_DEV="${SAVED_LOOP:-}"
         fi
 
         echo "[linux_loop] Purging OS page/dentry/inode caches and remounting ${MOUNT_PATH}..."
@@ -81,23 +88,33 @@ case "$CMD" in
             sudo umount "$MOUNT_PATH"
         fi
         echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
-        sudo mount -o loop,noatime "$IMG_PATH" "$MOUNT_PATH"
+        # remount through the same (direct I/O) loop device when there is one
+        if [[ -n "$LOOP_DEV" && -b "$LOOP_DEV" ]]; then
+            sudo mount -o noatime "$LOOP_DEV" "$MOUNT_PATH"
+        else
+            sudo mount -o loop,noatime "$IMG_PATH" "$MOUNT_PATH"
+        fi
         sudo chmod 777 "$MOUNT_PATH"
         ;;
 
     teardown)
         MOUNT_PATH="${1:-/mnt/bench}"
         IMG_PATH="/tmp/bench.ext4"
+        LOOP_DEV=""
         if [[ -f "$STATE_FILE" ]]; then
-            IFS='|' read -r SAVED_IMG _ _ < "$STATE_FILE" || true
+            IFS='|' read -r SAVED_IMG _ _ SAVED_LOOP < "$STATE_FILE" || true
             if [[ -n "${SAVED_IMG:-}" ]]; then
                 IMG_PATH="$SAVED_IMG"
             fi
+            LOOP_DEV="${SAVED_LOOP:-}"
         fi
 
         echo "[linux_loop] Tearing down ${MOUNT_PATH} and removing ${IMG_PATH}..."
         if mountpoint -q "$MOUNT_PATH" 2>/dev/null; then
             sudo umount -l "$MOUNT_PATH" || true
+        fi
+        if [[ -n "$LOOP_DEV" ]]; then
+            sudo losetup -d "$LOOP_DEV" 2>/dev/null || true
         fi
         rm -f "$IMG_PATH" "$STATE_FILE"
         ;;

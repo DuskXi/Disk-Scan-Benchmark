@@ -208,64 +208,64 @@ def generate_report(
             "",
             "## 5. Directory Structure Sampling & Ground Truth Verification (目录结构采样对比与完整性核对)",
             "",
-            "采样对比各扫描器对顶层分区（`zone_deep`, `zone_flat_cache`, `zone_sparse_media`, `zone_edge`）的识别情况：",
+            "每个分区统一写成「大小 · 文件数」。扫描器按自己的口径（逻辑大小或磁盘占用）与同口径的真值比较，"
+            "括号里是相对真值的偏差；只报大小、不报文件数的扫描器只显示大小。",
             "",
-            "| Scanner | `zone_deep` | `zone_flat_cache` | `zone_sparse_media` | `zone_edge` |",
-            "| :--- | :--- | :--- | :--- | :--- |",
+            "| Scanner | 口径 | `zone_deep` | `zone_flat_cache` | `zone_sparse_media` | `zone_edge` |",
+            "| :--- | :--- | ---: | ---: | ---: | ---: |",
         ]
     )
+    zone_names = ("zone_deep", "zone_flat_cache", "zone_sparse_media", "zone_edge")
+    metric_label = {"apparent": "逻辑大小", "allocated": "磁盘占用"}
+    gt_key = {"apparent": "apparent_size_bytes", "allocated": "allocated_size_bytes"}
 
-    # Format Ground Truth reference row
-    gt_deep_str = f"{gt_zones.get('zone_deep', {}).get('files', 0):,} files" if gt_zones else "-"
-    gt_flat_str = f"{gt_zones.get('zone_flat_cache', {}).get('files', 0):,} files" if gt_zones else "-"
-    gt_media_bytes = (
-        int(gt_zones.get("zone_sparse_media", {}).get("apparent_size_bytes", apparent_bytes))
-        if gt_zones
-        else apparent_bytes
-    )
-    gt_media_str = format_bytes_gib(gt_media_bytes)
-    gt_edge_str = f"{gt_zones.get('zone_edge', {}).get('files', 0):,} files" if gt_zones else "-"
+    def _gt_cell(z_name: str, metric: str) -> str:
+        z = gt_zones.get(z_name, {})
+        return f"{format_bytes_gib(int(z.get(gt_key[metric], 0)))} · {int(z.get('files', 0)):,} files"
 
-    lines.append(
-        f"| **Ground Truth (基准真值)** | `{gt_deep_str}` | `{gt_flat_str}` | `{gt_media_str}` | `{gt_edge_str}` |"
-    )
+    if gt_zones:
+        # the on-disk truth per zone exists only in manifests written since fs-mirage measured it
+        gt_metrics = ["apparent"] + (
+            ["allocated"] if any(z.get("allocated_size_bytes", 0) for z in gt_zones.values()) else []
+        )
+        for metric in gt_metrics:
+            cells = " | ".join(f"`{_gt_cell(z, metric)}`" for z in zone_names)
+            lines.append(f"| **Ground Truth (基准真值)** | {metric_label[metric]} | {cells} |")
 
     for r in normalized_rows:
         if "CANNOT RUN" in str(r.get("invalid_reason", "")):
             continue
         samples: Dict[str, Dict[str, Any]] = r.get("structure_samples", {})
+        metric = "apparent" if r.get("size_metric") == "apparent" else "allocated"
 
         if not samples:
-            if r.get("runner_type") == "win_gui":
-                note = "N/A (GUI Monitor)"
-            else:
-                note = "N/A (Summary-only)"
-            lines.append(f"| **{r['scanner']}** | `{note}` | `{note}` | `{note}` | `{note}` |")
+            note = "N/A (GUI Monitor)" if r.get("runner_type") == "win_gui" else "N/A (Summary-only)"
+            cells = " | ".join(f"`{note}`" for _ in zone_names)
+            lines.append(f"| **{r['scanner']}** | {metric_label[metric]} | {cells} |")
             continue
 
-        def _fmt_zone(z_name: str) -> str:
+        def _fmt_zone(z_name: str, metric: str = metric) -> str:
             if z_name not in samples:
                 return "❌ Missing"
             data = samples[z_name]
-            if z_name == "zone_sparse_media":
-                if "apparent_bytes" in data and data["apparent_bytes"] > 0:
-                    return format_bytes_gib(data["apparent_bytes"])
-                if "allocated_bytes" in data and data["allocated_bytes"] > 0:
-                    return format_bytes_gib(data["allocated_bytes"])
-            if "files" in data and data["files"] > 0:
-                return f"{data['files']:,} files"
-            if "apparent_bytes" in data and data["apparent_bytes"] > 0:
-                return format_bytes_gib(data["apparent_bytes"])
-            if "allocated_bytes" in data and data["allocated_bytes"] > 0:
-                return format_bytes_gib(data["allocated_bytes"])
-            if data.get("detected"):
-                return "✅ Detected"
-            return "✅ Matched"
+            size = int(data.get("allocated_bytes") or data.get("apparent_bytes") or 0)
+            if size <= 0:
+                return "✅ Detected" if data.get("detected") else "✅ Matched"
+            truth = gt_zones.get(z_name, {})
+            cell = format_bytes_gib(size)
+            ref = int(truth.get(gt_key[metric], 0))
+            if ref > 0:
+                cell += f" ({(size - ref) / ref * 100:+.1f}%)"
+            files = int(data.get("files", 0))
+            if files > 0:
+                cell += f" · {files:,} files"
+                missing = files - int(truth.get("files", files))
+                if missing:
+                    cell += f" ({missing:+,})"
+            return cell
 
-        lines.append(
-            f"| **{r['scanner']}** | `{_fmt_zone('zone_deep')}` | `{_fmt_zone('zone_flat_cache')}` "
-            f"| `{_fmt_zone('zone_sparse_media')}` | `{_fmt_zone('zone_edge')}` |"
-        )
+        cells = " | ".join(f"`{_fmt_zone(z)}`" for z in zone_names)
+        lines.append(f"| **{r['scanner']}** | {metric_label[metric]} | {cells} |")
 
     lines.extend(
         [

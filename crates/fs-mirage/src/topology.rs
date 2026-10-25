@@ -191,6 +191,9 @@ pub struct ZoneGroundTruth {
     pub files: usize,
     pub dirs: usize,
     pub apparent_size_bytes: u64,
+    /// Bytes the zone's files and folders really occupy on the volume, measured while materializing (0 in a plan)
+    #[serde(default)]
+    pub allocated_size_bytes: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -644,6 +647,7 @@ impl TopologyPlan {
                 files: 0,
                 dirs: 0,
                 apparent_size_bytes: 0,
+                allocated_size_bytes: 0,
             });
             entry.dirs += 1;
         }
@@ -662,6 +666,7 @@ impl TopologyPlan {
                 files: 0,
                 dirs: 0,
                 apparent_size_bytes: 0,
+                allocated_size_bytes: 0,
             });
             entry.files += 1;
             entry.apparent_size_bytes += sz;

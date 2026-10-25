@@ -113,6 +113,17 @@ fn unit(text: &str, salt: u64) -> f64 {
     (z >> 11) as f64 / (1u64 << 53) as f64
 }
 
+/// Adds `bytes` to the zone (top-level folder) that `rel_path` lies in.
+fn add_zone_alloc(zone_alloc: &Mutex<HashMap<String, u64>>, rel_path: &str, bytes: u64) {
+    let zone = rel_path.split('/').next().unwrap_or("");
+    if bytes == 0 || zone.is_empty() {
+        return;
+    }
+    if let Ok(mut guard) = zone_alloc.lock() {
+        *guard.entry(zone.to_string()).or_default() += bytes;
+    }
+}
+
 fn create_dir_one(root: &Path, rel_dir: &str) -> Result<()> {
     let full_dir = to_os_path(root, rel_dir);
     match fs::create_dir(&full_dir) {
@@ -257,6 +268,8 @@ pub fn materialize_tree(
         .collect();
     let hl_alloc_map: Mutex<HashMap<&str, u64>> =
         Mutex::new(HashMap::with_capacity(hardlink_targets.len().min(65536)));
+    // Allocated bytes per top-level folder (zone), for the per-zone ground truth
+    let zone_alloc: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
 
     // 2. Group regular files by parent directory to minimize per-directory B-Tree lock contention on NTFS / APFS
     let mut dir_groups: HashMap<&str, Vec<&FileEntry>> =
@@ -446,6 +459,7 @@ pub fn materialize_tree(
 
         if local_alloc_sum > 0 {
             total_allocated.fetch_add(local_alloc_sum, Ordering::Relaxed);
+            add_zone_alloc(&zone_alloc, parent_rel, local_alloc_sum);
         }
         if !local_hl_hits.is_empty() {
             if let Ok(mut guard) = hl_alloc_map.lock() {
@@ -602,9 +616,11 @@ pub fn materialize_tree(
             .par_iter()
             .map(|rel_dir| {
                 let p = to_os_path(root, rel_dir);
-                fs::symlink_metadata(&p)
+                let bytes = fs::symlink_metadata(&p)
                     .map(|m| m.blocks().saturating_mul(512))
-                    .unwrap_or(0)
+                    .unwrap_or(0);
+                add_zone_alloc(&zone_alloc, rel_dir, bytes);
+                bytes
             })
             .sum();
         let root_blocks_bytes = fs::symlink_metadata(root)
@@ -619,7 +635,11 @@ pub fn materialize_tree(
         let dir_alloc_bytes: u64 = plan
             .directories
             .par_iter()
-            .map(|rel_dir| windows::dir_allocation_bytes(&to_os_path(root, rel_dir)))
+            .map(|rel_dir| {
+                let bytes = windows::dir_allocation_bytes(&to_os_path(root, rel_dir));
+                add_zone_alloc(&zone_alloc, rel_dir, bytes);
+                bytes
+            })
             .sum();
         total_allocated.fetch_add(
             dir_alloc_bytes + windows::dir_allocation_bytes(root),
@@ -634,6 +654,11 @@ pub fn materialize_tree(
     plan.manifest.allocated_size_bytes = allocated_bytes;
     plan.manifest.allocated_files_only_bytes = files_only_bytes;
     plan.manifest.allocated_size_with_hardlinks_bytes = allocated_bytes + extra_hl_alloc;
+    for (zone, bytes) in zone_alloc.into_inner().unwrap_or_default() {
+        if let Some(z) = plan.manifest.zones.get_mut(&zone) {
+            z.allocated_size_bytes = bytes;
+        }
+    }
 
     Ok(plan.manifest)
 }

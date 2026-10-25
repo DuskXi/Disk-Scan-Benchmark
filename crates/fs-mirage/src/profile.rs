@@ -443,6 +443,7 @@ pub fn generate_from_profile(cfg: &TopologyConfig, prof: &Profile) -> TopologyPl
                 files: 0,
                 dirs: 0,
                 apparent_size_bytes: 0,
+                allocated_size_bytes: 0,
             })
             .dirs += 1;
     }
@@ -456,6 +457,7 @@ pub fn generate_from_profile(cfg: &TopologyConfig, prof: &Profile) -> TopologyPl
             files: 0,
             dirs: 0,
             apparent_size_bytes: 0,
+            allocated_size_bytes: 0,
         });
         z.files += 1;
         z.apparent_size_bytes += sz;

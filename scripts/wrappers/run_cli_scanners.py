@@ -1187,6 +1187,11 @@ def main() -> int:
                     if sub_b > 0:
                         scanned_b, sk_files = sub_b, sub_f
                 sampled_zones = parse_cli_structure_samples(stdout_text, "spaceknife")
+                for zone in list(sampled_zones):
+                    # each zone's row of the summary table carries its size on disk and file count
+                    zone_b, zone_f = parse_spaceknife_subtree(stdout_text, zone, os_key)
+                    if zone_b > 0:
+                        sampled_zones[zone] = {"allocated_bytes": zone_b, "files": zone_f}
                 if scanned_b == 0:
                     scanned_b = fallback_b
                 if sk_files > 0:
