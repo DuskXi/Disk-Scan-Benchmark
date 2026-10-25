@@ -91,11 +91,13 @@ jobs:
             platform: linux
             arch: x86_64
             target_label: linux-x86_64
+            fs_label: ext4
             mount_path: /mnt/bench
           - os: ubuntu-24.04-arm
             platform: linux
             arch: aarch64
             target_label: linux-arm64
+            fs_label: ext4
             mount_path: /mnt/bench
 
           # macOS x86_64 (Intel) & ARM64 (Apple Silicon)
@@ -103,11 +105,13 @@ jobs:
             platform: macos
             arch: x86_64
             target_label: macos-x86_64
+            fs_label: APFS
             mount_path: /tmp/BenchVol
           - os: macos-15
             platform: macos
             arch: aarch64
             target_label: macos-arm64
+            fs_label: APFS
             mount_path: /tmp/BenchVol
 
           # TODO (Windows ARM64):
@@ -235,7 +239,7 @@ jobs:
             --raw-results "results/${{ matrix.target_label }}/raw_results.json" \
             --out "results/${{ matrix.target_label }}/benchmark_report.md" \
             --json-out "results/${{ matrix.target_label }}/normalized_results.json" \
-            --title-suffix "(${{ matrix.target_label }} | ${{ inputs.preset }})"
+            --title-suffix "(${{ matrix.target_label }} · ${{ matrix.fs_label }} | ${{ inputs.preset }})"
 
           cat "results/${{ matrix.target_label }}/benchmark_report.md"
 

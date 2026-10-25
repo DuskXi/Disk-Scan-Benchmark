@@ -25,13 +25,13 @@ from report_gen import small_preset_notice
 
 # Display order of the platforms (results directory label -> column title)
 PLATFORMS: List[Tuple[str, str]] = [
-    ("linux-x86_64", "Linux x64"),
-    ("linux-arm64", "Linux ARM64"),
-    ("macos-x86_64", "macOS x64"),
-    ("macos-arm64", "macOS ARM64"),
-    ("windows-x86_64", "Win x64 NTFS"),
-    ("windows-x86_64-refs", "Win x64 ReFS"),
-    ("windows-arm64", "Win ARM64 NTFS"),
+    ("linux-x86_64", "Linux x64 (ext4)"),
+    ("linux-arm64", "Linux ARM64 (ext4)"),
+    ("macos-x86_64", "macOS x64 (APFS)"),
+    ("macos-arm64", "macOS ARM64 (APFS)"),
+    ("windows-x86_64", "Win x64 (NTFS)"),
+    ("windows-x86_64-refs", "Win x64 (ReFS)"),
+    ("windows-arm64", "Win ARM64 (NTFS)"),
 ]
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
