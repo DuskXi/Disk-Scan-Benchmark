@@ -391,6 +391,11 @@ def main() -> int:
     ap.add_argument("--branch", default="main", help="Branch the badge JSON is served from")
     ap.add_argument("--snippet", default="", help="Print the Markdown badge for this scanner id and exit")
     ap.add_argument("--allow-partial", action="store_true", help="Publish even if some core platforms are missing")
+    ap.add_argument(
+        "--only-if-current",
+        action="store_true",
+        help="Replace the stored preset only if it holds this same run (a later publish of the same run)",
+    )
     ap.add_argument("--registry", default="scripts/wrappers/scanners_registry.json", help="Source of the scanner list")
     args = ap.parse_args()
 
@@ -414,6 +419,13 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 0
+        out = data_dir / f"{args.kind}-{preset}.json"
+        if args.only_if_current:
+            # a supplement to this run's own earlier publish: never replaces a newer run of the same preset
+            current = json.loads(out.read_text(encoding="utf-8"))["meta"].get("run_id") if out.exists() else None
+            if str(current) != str(args.run_id):
+                print(f"[readme_board] not publishing: {out.name} holds run {current}, not this run {args.run_id}")
+                return 0
         data_dir.mkdir(parents=True, exist_ok=True)
         record = {
             "meta": {
@@ -426,7 +438,6 @@ def main() -> int:
             },
             "payload": payload,
         }
-        out = data_dir / f"{args.kind}-{preset}.json"
         out.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
         print(f"[readme_board] stored {out}")
 
