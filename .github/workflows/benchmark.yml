@@ -422,6 +422,142 @@ jobs:
           path: results/
           retention-days: 30
 
+  # Windows on ARM (native arm64 builds of gdu, dua, dust, SpaceKnife and WinDirStat; x64-only scanners are skipped
+  # rather than timed under emulation). A job of its own so the x64 NTFS+ReFS summary never waits for it.
+  benchmark-ntfs-arm64:
+    name: "Bench (windows-arm64 | ${{ inputs.preset }})"
+    runs-on: windows-11-arm
+    env:
+      LABEL: windows-arm64
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.12 (native arm64)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: arm64
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build Core Engines (fs-mirage & hw-probe)
+        shell: bash
+        run: |
+          rustc -vV | grep host
+          cargo build --release --workspace
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -c "import platform, sys; print('python', sys.version, platform.machine())"
+          python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: Resolve Virtual Disk Capacity
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --logical-gb "${{ inputs.logical_gb }}" --min-gb "${{ inputs.disk_size_gb }}")
+          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          echo "Virtual disk capacity: ${VDISK_GB} GiB"
+
+      - name: "Create & Mount Dynamic NTFS VHDX (Windows)"
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" ntfs
+
+      - name: Start Disk Space Monitor
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "results/$env:LABEL" | Out-Null
+          Start-Process -FilePath powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','scripts/ci/disk_monitor.ps1','-Out',"results/$env:LABEL/disk_monitor.csv"
+
+      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
+        shell: bash
+        run: |
+          mkdir -p "results/$LABEL"
+          EXTRA_ARGS=()
+          if [ "${{ inputs.preset }}" = "custom" ]; then
+            if [ -n "${{ inputs.files }}" ]; then
+              EXTRA_ARGS+=(--files "${{ inputs.files }}")
+            fi
+            if [ -n "${{ inputs.logical_gb }}" ]; then
+              EXTRA_ARGS+=(--logical-gb "${{ inputs.logical_gb }}")
+            fi
+          fi
+          ./target/release/fs-mirage \
+            --root "X:/bench" \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "results/$LABEL/ground_truth.json" \
+            "${EXTRA_ARGS[@]}"
+
+      - name: Measure Hardware Ceiling Baseline on NTFS (hw-probe)
+        shell: bash
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "X:/bench"
+          ./target/release/hw-probe \
+            --root "X:/bench" \
+            --out "results/$LABEL/baseline.json"
+
+      - name: Run All Windows Scanners on NTFS
+        shell: bash
+        run: |
+          python ./scripts/wrappers/run_cli_scanners.py \
+            --path "X:/bench" \
+            --ground-truth "results/$LABEL/ground_truth.json" \
+            --out "results/$LABEL/raw_results.json" \
+            --bin-dir "./bin"
+
+      - name: Disk Space Monitor Report
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "time, C free GB, D free GB, X free GB, VHDX GB (tail of the monitor log)"
+          Get-Content "results/$env:LABEL/disk_monitor.csv" -Tail 40 -ErrorAction SilentlyContinue
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}, @{n='UsedGB';e={[math]::Round($_.Used/1GB,1)}} -AutoSize
+
+      - name: Teardown NTFS Virtual Disk
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+      - name: Windows ARM64 Report
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "results/$LABEL/raw_results.json" ]; then
+            python ./scripts/report_gen.py \
+              --ground-truth "results/$LABEL/ground_truth.json" \
+              --baseline "results/$LABEL/baseline.json" \
+              --raw-results "results/$LABEL/raw_results.json" \
+              --out "results/$LABEL/benchmark_report.md" \
+              --json-out "results/$LABEL/normalized_results.json" \
+              --title-suffix "(windows-arm64 NTFS | ${{ inputs.preset }})"
+            cat "results/$LABEL/benchmark_report.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload NTFS Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-windows-arm64-${{ inputs.preset }}
+          path: results/
+          retention-days: 30
+
   benchmark-refs:
     name: "Bench (windows-x86_64-refs | ${{ inputs.preset }})"
     runs-on: windows-latest

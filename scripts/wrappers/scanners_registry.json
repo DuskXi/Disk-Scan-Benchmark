@@ -29,9 +29,7 @@
     }
   },
   "mft_field_comment": "Optional 'mft' object (command_template using {volume} = volume root) marks scanners that can scan the raw NTFS $MFT; only those run in the MFT-only benchmark (benchmark-mft.yml).",
-  "todo_platforms": [
-    "windows-arm64 (TODO: Enable Windows ARM64 runner matrix once GitHub Actions public windows-11-arm VHDX mounting and SpaceSniffer ARM64 support are available)"
-  ],
+  "arm64_windows_comment": "The windows-11-arm job runs only scanners with a windows_aarch64 build (gdu, dua, dust, WinDirStat, SpaceKnife); x64-only tools (WizTree, SpaceSniffer, TreeSize, SquirrelDisk) are skipped instead of being timed under emulation.",
   "scanners": [
     {
       "id": "gdu",
@@ -50,7 +48,8 @@
         "linux_aarch64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_linux_arm64.tgz",
         "macos_x86_64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_darwin_amd64.tgz",
         "macos_aarch64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_darwin_arm64.tgz",
-        "windows_x86_64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_windows_amd64.exe.zip"
+        "windows_x86_64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_windows_amd64.exe.zip",
+        "windows_aarch64": "https://github.com/dundee/gdu/releases/download/v5.38.0/gdu_windows_arm64.exe.zip"
       }
     },
     {
@@ -70,7 +69,8 @@
         "linux_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-aarch64-unknown-linux-musl.tar.gz",
         "macos_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-x86_64-apple-darwin.tar.gz",
         "macos_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-aarch64-apple-darwin.tar.gz",
-        "windows_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-x86_64-pc-windows-msvc.zip"
+        "windows_x86_64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-x86_64-pc-windows-msvc.zip",
+        "windows_aarch64": "https://github.com/Byron/dua-cli/releases/download/v2.46.0/dua-v2.46.0-aarch64-pc-windows-msvc.zip"
       }
     },
     {
@@ -89,7 +89,8 @@
         "linux_aarch64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-aarch64-unknown-linux-musl.tar.gz",
         "macos_x86_64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-x86_64-apple-darwin.tar.gz",
         "macos_aarch64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-aarch64-apple-darwin.tar.gz",
-        "windows_x86_64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-x86_64-pc-windows-msvc.zip"
+        "windows_x86_64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-x86_64-pc-windows-msvc.zip",
+        "windows_aarch64": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-aarch64-pc-windows-msvc.zip"
       }
     },
     {
@@ -148,13 +149,14 @@
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["windows"],
-      "architectures": ["x86_64"],
+      "architectures": ["x86_64", "aarch64"],
       "size_metric": "apparent",
       "command_template": ["{bin}", "/SaveTo", "{export_file}", "{path}"],
       "mft": {"command_template": ["{bin}", "/SaveTo", "{export_file}", "{volume}"]},
       "output_parser": "windirstat_csv",
       "install": {
-        "windows_x86_64": "https://github.com/windirstat/windirstat/releases/download/release%2Fv2.9.3/WinDirStat.zip"
+        "windows_x86_64": "https://github.com/windirstat/windirstat/releases/download/release%2Fv2.9.3/WinDirStat.zip",
+        "windows_aarch64": "https://github.com/windirstat/windirstat/releases/download/release%2Fv2.9.3/WinDirStat.zip"
       }
     },
     {

@@ -27,6 +27,22 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def windows_native_machine() -> Optional[str]:
+    """Native CPU of a Windows host, which an x64 Python emulated on Windows on ARM would report as AMD64."""
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        process_machine = ctypes.c_ushort(0)
+        native_machine = ctypes.c_ushort(0)
+        ok = kernel32.IsWow64Process2(
+            ctypes.c_void_p(kernel32.GetCurrentProcess()), ctypes.byref(process_machine), ctypes.byref(native_machine)
+        )
+    except (AttributeError, OSError):
+        return None
+    if not ok:
+        return None
+    return {0xAA64: "arm64", 0x8664: "amd64"}.get(native_machine.value)
+
+
 def detect_os_arch() -> Tuple[str, str]:
     sys_name = platform.system().lower()
     if sys_name.startswith("linux"):
@@ -39,6 +55,8 @@ def detect_os_arch() -> Tuple[str, str]:
         os_key = sys_name
 
     machine = platform.machine().lower()
+    if os_key == "windows":
+        machine = windows_native_machine() or machine
     if machine in ("x86_64", "amd64"):
         arch_key = "x86_64"
     elif machine in ("aarch64", "arm64"):
@@ -761,7 +779,14 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
     ]
     if scanner_id == "gdu":
         candidates.extend(
-            ["gdu_linux_amd64", "gdu_linux_arm64", "gdu_darwin_amd64", "gdu_darwin_arm64", "gdu_windows_amd64.exe"]
+            [
+                "gdu_linux_amd64",
+                "gdu_linux_arm64",
+                "gdu_darwin_amd64",
+                "gdu_darwin_arm64",
+                "gdu_windows_amd64.exe",
+                "gdu_windows_arm64.exe",
+            ]
         )
 
     # Check portable bundle directories first for bundled tools (WizTree, TreeSize, SpaceKnife)
@@ -1164,6 +1189,7 @@ def main() -> int:
         if os_key not in scanner.get("platforms", []):
             continue
         if arch_key not in scanner.get("architectures", []):
+            print(f"[runner] Skipping {scanner['name']} (no native {os_key} {arch_key} build)")
             continue
         if allowed_ids and scanner["id"] not in allowed_ids:
             continue
