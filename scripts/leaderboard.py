@@ -182,8 +182,9 @@ def best_flags(values: Sequence[Optional[float]], fmt: Callable[[float], str], l
     return [v is not None and fmt(v) == best for v in values]
 
 
-def bold_if(text: str, on: bool) -> str:
-    return f"**{text}**" if on else text
+def mark_best(text: str, on: bool) -> str:
+    """The best value of a column: bold on a highlighted background (bold alone barely shows in GitHub tables)."""
+    return f"<mark>**{text}**</mark>" if on else text
 
 
 def _median(values: List[Optional[float]]) -> Optional[float]:
@@ -385,20 +386,20 @@ def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
     for i, o in enumerate(rows):
         medal = MEDALS.get(o["rank"], str(o["rank"]))
         sep = NB if bi else " "
-        rss = bold_if(f"{o['rss_mb']:,.0f}{sep}MB", best["rss_mb"][i]) if o.get("rss_mb") else "-"
+        rss = mark_best(f"{o['rss_mb']:,.0f}{sep}MB", best["rss_mb"][i]) if o.get("rss_mb") else "-"
         unverified = "n/a" if bi else "未核验"
         acc = (
-            bold_if(f"{o['abs_acc_pct']:.2f}%", best["abs_acc_pct"][i])
+            mark_best(f"{o['abs_acc_pct']:.2f}%", best["abs_acc_pct"][i])
             if o.get("abs_acc_pct") is not None
             else unverified
         )
         verified = verify_code(o.get("verification")) if bi else verification_label(o.get("verification"))
         name = nobreak(o["scanner"]) if bi else o["scanner"]
         wins = "" if bi else f" {o['wins'] or '-'} |"
-        score, index = bold_if(fmt_score(o["overall"]), best["overall"][i]), bold_if(
+        score, index = mark_best(fmt_score(o["overall"]), best["overall"][i]), mark_best(
             fmt_score(o["index"]), best["index"][i]
         )
-        cold, warm = bold_if(fmt_score(o["cold"]), best["cold"][i]), bold_if(fmt_score(o["warm"]), best["warm"][i])
+        cold, warm = mark_best(fmt_score(o["cold"]), best["cold"][i]), mark_best(fmt_score(o["warm"]), best["warm"][i])
         if bi:
             # the seconds behind the relative scores, in small print: geometric mean over its valid platforms
             cold += f"<br><sub>{seconds_geomean(p, o['id'], 'cold_s')}</sub>"
@@ -508,8 +509,8 @@ def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], b
             elif e["status"] == "ok":
                 rank = MEDALS.get(e["rank"], f"#{e['rank']}") + ("❕" if e.get("warnings") else "")
                 cold_t, warm_t = fmt_s(e["cold_s"]), fmt_s(e["warm_s"])
-                cold_t = bold_if(cold_t, cold_t == fastest[lbl].get("cold_s"))
-                warm_t = bold_if(warm_t, warm_t == fastest[lbl].get("warm_s"))
+                cold_t = mark_best(cold_t, cold_t == fastest[lbl].get("cold_s"))
+                warm_t = mark_best(warm_t, warm_t == fastest[lbl].get("warm_s"))
                 if bi:
                     cells.append(f"{rank}<br>{cold_t}{NB}/{NB}{warm_t}")
                 else:
@@ -566,6 +567,9 @@ def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
             "用时只作参考，名次按相对分 · Small print under Cold / Warm: the geometric mean of its seconds over its "
             "valid platforms; hardware and the set of platforms differ between scanners, so it is for reference only "
             "and the ranks follow the relative scores. "
+            "<mark>**高亮**</mark> = 该列最好（分数取最高，内存、误差取最低；各平台表格里是该平台最快的冷扫、热扫用时）· "
+            "<mark>**Highlighted**</mark> = best in its column (highest score, least RAM and error; in the per-platform "
+            "tables the platform's fastest cold and warm time). "
             "表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not "
             "verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · "
             "核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · "

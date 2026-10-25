@@ -137,12 +137,13 @@ def render_board(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> List[str]
     n_vols = sum(len(s["volumes"]) for _, s in subs)
     lines += [
         f"来自 {len(subs)} 份提交、{n_vols} 块真实硬盘。每块盘内先算相对分（该盘最快 ÷ 自己 × 100），再在所有盘上取几何平均；"
-        "没能清缓存的盘只计热扫。提交方法见 [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md)，每块盘的明细见 "
-        "[community/README.md](community/README.md)。",
+        "没能清缓存的盘只计热扫；<mark>**高亮**</mark> 为该列最高分。提交方法见 [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md)，"
+        "每块盘的明细见 [community/README.md](community/README.md)。",
         "",
         f"From {len(subs)} submissions on {n_vols} real drives. Each drive is scored relative to its own fastest scanner "
         "(fastest / own x 100), then averaged geometrically over all drives; drives whose cache could not be purged count "
-        "for warm scans only. How to submit: [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md); per-drive details: "
+        "for warm scans only; <mark>**highlighted**</mark> = best in its column. How to submit: "
+        "[docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md); per-drive details: "
         "[community/README.md](community/README.md).",
         "",
         "| 名次<br>Rank | 扫描器<br>Scanner | **综合分**<br>**Score** | 冷扫<br>Cold | 热扫<br>Warm | 测过的盘<br>Drives |",
@@ -160,7 +161,7 @@ def render_board(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> List[str]
 
     def cell(r: Dict[str, Any], key: str) -> str:
         text = fmt(r[key])
-        return f"**{text}**" if r[key] is not None and text == best[key] else text
+        return f"<mark>**{text}**</mark>" if r[key] is not None and text == best[key] else text
 
     for r in rows:
         lines.append(

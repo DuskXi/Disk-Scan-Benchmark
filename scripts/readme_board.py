@@ -29,7 +29,7 @@ from leaderboard import (
     display_names,
     fmt_s,
     best_flags,
-    bold_if,
+    mark_best,
     fmt_score,
     head,
     merge_platforms,
@@ -129,7 +129,7 @@ def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
             MEDALS.get(r["rank"], str(r["rank"])),
             r["id"],
             r["name"],
-            bold_if(
+            mark_best(
                 fmt_score(r["combined"]) + ("\\*" if r["combined_from_small_only"] else ""),
                 best_combined.get(r["id"], False),
             ),
@@ -167,7 +167,8 @@ def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
         lines.append(f"| {rank} | **{nobreak(name)}** | {combined} | " + " | ".join(cells) + " |")
     lines += [
         "",
-        "<sub>综合分 = `low` 及以上各体量 MFT 分数的几何平均，\\* 为仅供参考的小体量；每格是该体量的名次和分数，"
+        "<sub><mark>**高亮**</mark> = 该列最高分 · <mark>**highlighted**</mark> = best in its column.<br><br>"
+        "综合分 = `low` 及以上各体量 MFT 分数的几何平均，\\* 为仅供参考的小体量；每格是该体量的名次和分数，"
         "下一行小字是冷扫 / 热扫秒数。⛔ 无法运行 · ❌ 违规 · ⚠️ 无效 · — 未参加。<br><br>"
         "Score = geometric mean of the MFT scores from `low` up; \\* marks the reference-only small sizes. Each cell: "
         "rank and score in that size, then cold / warm seconds in small print. ⛔ cannot run · ❌ disqualified · "
@@ -182,7 +183,7 @@ def preset_head(preset: str) -> str:
 
 
 def score_cell(rank: int, score: Optional[float], best: bool = False) -> str:
-    return f"{MEDALS.get(rank, '#' + str(rank))}{NB}{bold_if(fmt_score(score), best)}"
+    return f"{MEDALS.get(rank, '#' + str(rank))}{NB}{mark_best(fmt_score(score), best)}"
 
 
 def combined_best(ranked: List[Dict[str, Any]]) -> Dict[str, bool]:
@@ -245,7 +246,7 @@ def render_section(
     best_in = {p: preset_best(ranked, p) for p in present}
     for row in ranked:
         combined = fmt_score(row["combined"]) + ("\\*" if row["combined_from_small_only"] else "")
-        combined = bold_if(combined, best_combined.get(row["id"], False))
+        combined = mark_best(combined, best_combined.get(row["id"], False))
         cells = [
             score_cell(v["rank"], v["score"], best_in[p].get(row["id"], False)) if (v := row["presets"].get(p)) else "—"
             for p in present
@@ -257,7 +258,8 @@ def render_section(
         )
     lines += [
         "",
-        "<sub>综合分 = `low` 及以上各体量综合分的几何平均；\\* 为仅供参考的小体量（综合分带 \\* 的扫描器只有小体量成绩）。"
+        "<sub><mark>**高亮**</mark> = 该列最高分 · <mark>**highlighted**</mark> = best in its column.<br><br>"
+        "综合分 = `low` 及以上各体量综合分的几何平均；\\* 为仅供参考的小体量（综合分带 \\* 的扫描器只有小体量成绩）。"
         "缺平台、缺体量都不扣分也不加分：只用它实际跑过的平台和体量计算，等于把缺的部分按它自己的平均分补上，"
         "平台多的工具不会因此更容易刷分，平台少的工具也不会因此被扣分。<br><br>"
         "Score = geometric mean of the per-size scores from `low` up; \\* marks the reference-only small sizes (a "
