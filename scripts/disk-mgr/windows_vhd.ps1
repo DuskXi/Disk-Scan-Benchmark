@@ -151,9 +151,11 @@ function Wait-BenchVolume([string]$Letter, [string]$FileSystem) {
             # device: take the letter off the old one and give it to the volume that has the filesystem
             $vol = Get-CimInstance Win32_Volume -Filter "FileSystem='$FileSystem'" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($vol -and $vol.DriveLetter -ne "${Letter}:") {
+                # A volume has one drive letter at a time: drop the one it was given (e.g. E:) before mounting at X:
+                if ($vol.DriveLetter) { mountvol $vol.DriveLetter /D 2>$null | Out-Null }
                 mountvol "${Letter}:" /D 2>$null | Out-Null
-                mountvol "${Letter}:" $vol.DeviceID | Out-Null
-                Write-Host "[windows_vhd] moved ${Letter}: to the $FileSystem volume $($vol.DeviceID)"
+                mountvol "${Letter}:\" $vol.DeviceID | Out-Null
+                Write-Host "[windows_vhd] moved the $FileSystem volume from '$($vol.DriveLetter)' to ${Letter}: ($($vol.DeviceID))"
             }
         }
         Start-Sleep -Seconds 1
@@ -207,6 +209,7 @@ assign letter=$DriveLetter
             if ($FsType -ne "btrfs") { $dp = $dp -replace "create partition primary", "create partition primary`r`nformat fs=$FsType label=`"BenchVol`" quick" }
             Invoke-DiskpartScript $dp
         }
+        Set-Content -Path (Join-Path $env:TEMP "disk_scanner_bench_${DriveLetter}.fs") -Value $FsType -Encoding ASCII
         if ($FsType -eq "btrfs") {
             # WinBtrfs (scripts/disk-mgr/install_winbtrfs.ps1) formats the raw partition and mounts it itself
             & (Join-Path $env:WINBTRFS_DIR "mkbtrfs.exe") "${DriveLetter}:" BenchVol
@@ -268,7 +271,9 @@ attach vdisk
 "@
             Invoke-DiskpartScript $dp
         }
-        Wait-BenchVolume $DriveLetter ""
+        $FsState = Join-Path $env:TEMP "disk_scanner_bench_${DriveLetter}.fs"
+        $Fs = if (Test-Path $FsState) { (Get-Content $FsState -Raw).Trim() } else { "" }
+        Wait-BenchVolume $DriveLetter $(if ($Fs -eq "btrfs") { "Btrfs" } else { "" })
         Write-Host "[windows_vhd] Cold cache state restored for ${DriveLetter}:\"
     }
 
