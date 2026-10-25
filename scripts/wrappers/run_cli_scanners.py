@@ -964,6 +964,32 @@ def install_runtime_packages(scanner: Dict[str, Any], os_key: str) -> None:
         subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", pkg], check=False)
 
 
+def resolve_installed_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, bin_dir: Path) -> Optional[str]:
+    """Where an already installed scanner lives, matching every place install_pinned_scanner can put it."""
+    scanner_id = scanner["id"]
+    exe = ".exe" if os_key == "windows" else ""
+    bundle = bin_dir / f"{scanner_id}_portable"
+    if bundle.exists():
+        target = (scanner["name"] + exe).lower()
+        for root, _, files in os.walk(bundle):
+            for fn in files:
+                if fn.lower() == target:
+                    return str(Path(root) / fn)
+    spec = str(scanner.get("install", {}).get(f"{os_key}_{arch_key}", ""))
+    if spec.startswith("system:"):
+        return shutil.which(spec.split(":", 1)[1])
+    if spec.startswith("cargo:"):
+        built = bin_dir / f"cargo-{scanner_id}" / "bin" / (spec.split(":", 2)[2] + exe)
+        if built.exists():
+            return str(built)
+    names = [scanner_id if os_key != "windows" else scanner["name"], scanner.get("bin_name", ""), scanner_id]
+    for name in [n for n in names if n]:
+        local = bin_dir / (name + exe)
+        if local.exists():
+            return str(local)
+    return shutil.which(scanner["name"] + exe) or shutil.which(scanner_id + exe)
+
+
 def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, bin_dir: Path) -> Optional[str]:
     """
     Resolves an existing binary or downloads the pinned version from scanners_registry.json into bin_dir.
@@ -1476,29 +1502,12 @@ def main() -> int:
             continue
 
         scanner_id = scanner["id"]
-        exe_suffix = ".exe" if os_key == "windows" else ""
-        bin_path = None
-        portable_bundle_dir = bin_dir / f"{scanner_id}_portable"
-        if portable_bundle_dir.exists():
-            target_exe_name = (scanner["name"] + exe_suffix).lower()
-            for root, _, files in os.walk(portable_bundle_dir):
-                for fn in files:
-                    if fn.lower() == target_exe_name:
-                        bin_path = str(Path(root) / fn)
-                        break
-                if bin_path:
-                    break
-        if not bin_path:
-            local_check = bin_dir / (scanner["name"] + exe_suffix if os_key == "windows" else scanner_id)
-            if local_check.exists():
-                bin_path = str(local_check)
-            else:
-                bin_path = shutil.which(scanner["name"] + exe_suffix) or shutil.which(scanner_id + exe_suffix)
-                if not bin_path and args.install_missing:
-                    try:
-                        bin_path = install_pinned_scanner(scanner, os_key, arch_key, bin_dir)
-                    except Exception as exc:
-                        print(f"[runner] Warning: failed to install {scanner['name']}: {exc}", file=sys.stderr)
+        bin_path = resolve_installed_scanner(scanner, os_key, arch_key, bin_dir)
+        if not bin_path and args.install_missing:
+            try:
+                bin_path = install_pinned_scanner(scanner, os_key, arch_key, bin_dir)
+            except Exception as exc:
+                print(f"[runner] Warning: failed to install {scanner['name']}: {exc}", file=sys.stderr)
 
         if not bin_path:
             print(f"[runner] Skipping {scanner['name']} (binary not found and not installed)")
