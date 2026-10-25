@@ -34,7 +34,7 @@ MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 def scanner_names() -> Dict[str, str]:
     data = json.loads(REGISTRY.read_text(encoding="utf-8"))
-    return {s["id"]: s["name"] for s in data["scanners"]}
+    return {s["id"]: s.get("display_name", s["name"]) for s in data["scanners"]}
 
 
 def extract_json(body: str) -> Optional[Any]:
@@ -123,10 +123,13 @@ def board(subs: List[Tuple[str, Dict[str, Any]]]) -> List[Dict[str, Any]]:
 
 def render_board(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> List[str]:
     names = scanner_names()
-    lines = [START, "", "## 🖥️ 社区真实盘成绩", ""]
+    lines = [START, "", "## 🖥️ 社区真实盘成绩 · Community results on real drives", ""]
     if not subs:
         lines += [
             "_还没有社区提交。_ 用 [本地基准套件](docs/LOCAL_SUITE.md) 在自己的硬盘上跑一遍，再提交成绩，就会出现在这里。",
+            "",
+            "_No submissions yet._ Run the [local suite](docs/LOCAL_SUITE.md) on your own drives and submit the result to "
+            "see it here.",
             "",
             END,
         ]
@@ -137,7 +140,12 @@ def render_board(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> List[str]
         "没能清缓存的盘只计热扫。提交方法见 [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md)，每块盘的明细见 "
         "[community/README.md](community/README.md)。",
         "",
-        "| 名次 | 扫描器 | **综合分** | 冷扫 | 热扫 | 测过的盘 |",
+        f"From {len(subs)} submissions on {n_vols} real drives. Each drive is scored relative to its own fastest scanner "
+        "(fastest / own x 100), then averaged geometrically over all drives; drives whose cache could not be purged count "
+        "for warm scans only. How to submit: [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md); per-drive details: "
+        "[community/README.md](community/README.md).",
+        "",
+        "| 名次<br>Rank | 扫描器<br>Scanner | **综合分**<br>**Score** | 冷扫<br>Cold | 热扫<br>Warm | 测过的盘<br>Drives |",
         "| :---: | :--- | ---: | ---: | ---: | ---: |",
     ]
     for r in board(subs):

@@ -14,6 +14,8 @@
     "apparent_on": "OS list where the scanner can only report logical sizes; it is then compared against the apparent ground truth",
     "command_template_by_os": "Per-OS replacement for command_template",
     "bin_name": "Executable name when it differs from 'name' (e.g. erd for erdtree, du64 for Sysinternals du)",
+    "display_name": "Name shown on the boards when 'name' is an executable name (spaceknife-backend -> SpaceKnife)",
+    "notes / notes_en": "Short Chinese / English notes shown in the README scanner table",
     "exe_by_arch": "Which executable of a multi-architecture archive to use per architecture",
     "verify_command_template": "Untimed extra run whose output is used to check completeness, for tools whose timed command prints nothing (ncdu -o /dev/null)",
     "install specs": "URL of an archive or raw executable; gh-artifact:<repo>:<run>:<artifact>; system:<command or path>; cargo:<crate>@<version>:<binary>; brew:<formula>"
@@ -108,6 +110,7 @@
     {
       "id": "wiztree",
       "name": "WizTree64",
+      "display_name": "WizTree",
       "version": "4.33",
       "enabled": true,
       "runner_type": "cli",
@@ -169,6 +172,7 @@
     {
       "id": "spaceknife",
       "name": "spaceknife-backend",
+      "display_name": "SpaceKnife",
       "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)",
       "enabled": true,
       "runner_type": "cli",
@@ -177,7 +181,7 @@
       "size_metric": "allocated",
       "command_template": ["{bin}", "scan", "{path}", "--no-snapshot", "--top", "5", "--depth", "1"],
       "mft": {
-        "command_template": ["{bin}", "scan", "{volume}", "--mft", "--no-snapshot", "--top", "5", "--depth", "1"]
+        "command_template": ["{bin}", "scan", "{volume}", "--mft", "--no-snapshot", "--top", "5", "--depth", "2"]
       },
       "output_parser": "spaceknife_cli",
       "install": {
@@ -192,6 +196,7 @@
     {
       "id": "squirreldisk",
       "name": "squirreldisk",
+      "display_name": "SquirrelDisk",
       "version": "2.6.1",
       "enabled": true,
       "runner_type": "cli",
@@ -220,6 +225,7 @@
       "command_template": ["{bin}", "-B1", "-d", "1", "{path}"],
       "output_parser": "du_bytes",
       "notes": "系统基线：单线程，硬链接只算一次，计入目录块",
+      "notes_en": "System baseline: single-threaded, hard links counted once, directory blocks included",
       "install": {"linux_x86_64": "system:du", "linux_aarch64": "system:du"}
     },
     {
@@ -234,6 +240,7 @@
       "command_template": ["{bin}", "-k", "-d", "1", "{path}"],
       "output_parser": "du_kib",
       "notes": "系统基线：单线程，硬链接只算一次，精度为 KiB",
+      "notes_en": "System baseline: single-threaded, hard links counted once, KiB granularity",
       "install": {"macos_x86_64": "system:/usr/bin/du", "macos_aarch64": "system:/usr/bin/du"}
     },
     {
@@ -250,6 +257,7 @@
       "output_parser": "sysinternals_du_csv",
       "exe_by_arch": {"x86_64": "du64.exe", "aarch64": "du64a.exe"},
       "notes": "微软 Sysinternals 出品；单线程；CSV 同时给出大小和实际占用",
+      "notes_en": "Microsoft Sysinternals; single-threaded; its CSV gives both size and size on disk",
       "install": {
         "windows_x86_64": "https://download.sysinternals.com/files/DU.zip",
         "windows_aarch64": "https://download.sysinternals.com/files/DU.zip"
@@ -271,6 +279,7 @@
       },
       "output_parser": "pdu_json",
       "notes": "parallel-disk-usage；用 --threads=max，因为默认的 auto 把虚拟盘误判成机械盘时会降到 1 线程；硬链接去重（-H）和块大小只在 Unix 上有",
+      "notes_en": "parallel-disk-usage; run with --threads=max because the default 'auto' drops to 1 thread on disks it takes for HDDs; hard-link dedupe (-H) and block sizes exist on Unix only",
       "install": {
         "linux_x86_64": "https://github.com/KSXGitHub/parallel-disk-usage/releases/download/0.24.0/pdu-x86_64-unknown-linux-musl",
         "linux_aarch64": "cargo:parallel-disk-usage@0.24.0:pdu",
@@ -293,6 +302,7 @@
       "command_template": ["{bin}", "{path}"],
       "output_parser": "bare_integer",
       "notes": "只输出总大小；默认线程数为核数 × 3；Windows 版只报逻辑大小",
+      "notes_en": "Prints only the total; 3 threads per core by default; the Windows build reports logical sizes",
       "install": {
         "linux_x86_64": "https://github.com/sharkdp/diskus/releases/download/v0.9.0/diskus-v0.9.0-x86_64-unknown-linux-musl.tar.gz",
         "linux_aarch64": "https://github.com/sharkdp/diskus/releases/download/v0.9.0/diskus-v0.9.0-aarch64-unknown-linux-gnu.tar.gz",
@@ -315,6 +325,7 @@
       "command_template": ["{bin}", "--no-config", "--no-progress", "-C", "none", "-.", "-i", "-d", "physical", "-y", "iflat", "-L", "1", "{path}"],
       "output_parser": "erdtree",
       "notes": "加 -. 和 -i 才会计入隐藏文件和被 .gitignore 忽略的文件；整棵树常驻内存",
+      "notes_en": "-. and -i make it count hidden and git-ignored files; keeps the whole tree in memory",
       "install": {
         "linux_x86_64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-x86_64-unknown-linux-musl.tar.gz",
         "linux_aarch64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-aarch64-unknown-linux-musl.tar.gz",

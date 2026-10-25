@@ -1841,7 +1841,12 @@ def main() -> int:
                     break
                 got = sample.get(zone_key) or sample.get("allocated_bytes") or sample.get("apparent_bytes")
                 want = int(ref.get(ref_zone_key, 0) or 0)
-                if got is not None and want > 0 and float(got) < 0.75 * want:
+                if got is None:
+                    # the folder's name shows up (e.g. in a largest-files list) but no size is reported for it
+                    valid = False
+                    invalid_reason = f"❌ INVALID: Incomplete traversal (no size reported for top-level folder {zone})"
+                    break
+                if want > 0 and float(got) < 0.75 * want:
                     valid = False
                     invalid_reason = (
                         f"❌ INVALID: Incomplete traversal ({zone} reported {int(got):,} < 75% of {want:,})"

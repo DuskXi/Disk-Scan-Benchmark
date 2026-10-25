@@ -20,6 +20,7 @@ README.md later from the stored payload alone.
 import argparse
 import json
 import math
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -176,6 +177,25 @@ def _median(values: List[Optional[float]]) -> Optional[float]:
     return statistics.median(vals) if vals else None
 
 
+def display_names() -> Dict[str, str]:
+    """Scanner id -> the name shown on boards ("display_name" in the registry, else "name")."""
+    registry = Path(__file__).resolve().parent / "wrappers" / "scanners_registry.json"
+    try:
+        data = json.loads(registry.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {s["id"]: s.get("display_name", s["name"]) for s in data.get("scanners", [])}
+
+
+def apply_display_names(payload: Dict[str, Any], names: Dict[str, str]) -> Dict[str, Any]:
+    """Renames scanners in a payload in place (stored payloads from older runs carry the executable names)."""
+    for sid, meta in payload.get("scanners", {}).items():
+        meta["name"] = names.get(sid, meta["name"])
+    for o in payload.get("overall", []):
+        o["scanner"] = names.get(o["id"], o["scanner"])
+    return payload
+
+
 def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
     dirs = find_platform_dirs(artifacts)
     # The RAM-disk pass is not a real disk and stays out of the ranking
@@ -242,7 +262,7 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
     for pos, o in enumerate(overall, start=1):
         o["rank"] = pos
 
-    return {
+    payload = {
         "schema": PAYLOAD_SCHEMA,
         "preset": str(gt.get("preset") or preset),
         "sha": sha,
@@ -257,32 +277,82 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
         "unranked": unranked,
         "per_platform": per_platform,
     }
+    return apply_display_names(payload, display_names())
 
 
 # --- Markdown rendering (shared with scripts/readme_board.py) ---
+#
+# bi=False: Chinese, for the run summary. bi=True: Chinese and English on one page (README), with tables kept from
+# wrapping inside cells (non-breaking spaces and hyphens) and short two-line headers.
+
+NB = "&nbsp;"
+VERIFY_CODES = {"size": "S", "files": "F", "zones": "Z", "io-only": "IO", "none": "—"}
 
 
-def render_overall_table(p: Dict[str, Any]) -> List[str]:
+CJK = "⺀-鿿豈-﫿＀-￯"
+CJK_PAIR = re.compile(f"(?<=[{CJK}])(?=[{CJK}])")
+
+
+def nobreak(text: str) -> str:
+    """
+    No line break inside a short cell ("dua-cli", "very-lite", "名次"): non-breaking hyphens and spaces, and a word
+    joiner (U+2060) between Chinese characters, which a browser may otherwise split one per line in a squeezed column.
+    """
+    return CJK_PAIR.sub("⁠", str(text).replace("-", "‑").replace(" ", NB))
+
+
+def head(zh: str, en: str, bi: bool) -> str:
+    return f"{nobreak(zh)}<br>{nobreak(en)}" if bi else zh
+
+
+def verify_code(value: Optional[str]) -> str:
+    if not value:
+        return "—"
+    return "·".join(VERIFY_CODES.get(part, part) for part in value.split("+"))
+
+
+def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
+    # bi: short headers (spelled out in the notes) so the eleven columns fit the page without wrapping
+    cols = [
+        ("名次", "Rank", ":---:"),
+        ("扫描器", "Scanner", ":---"),
+        ("**综合分**", "**Score**", "---:"),
+        ("冷扫", "Cold", "---:"),
+        ("热扫", "Warm", "---:"),
+        ("均衡" if bi else "均衡指数", "Balanced", "---:"),
+        ("内存" if bi else "峰值内存", "RAM", "---:"),
+        ("误差" if bi else "大小误差", "Error", "---:"),
+        ("核验", "Check", ":---:"),
+        ("平台" if bi else "有效平台", "Platforms", ":---:"),
+        ("夺冠" if bi else "平台第一", "Wins", ":---:"),
+    ]
     lines = [
-        "| 名次 | 扫描器 | **综合分** | 冷扫 | 热扫 | 均衡指数 | 峰值内存 | 大小误差 | 核验 | 有效平台 | 平台第一 |",
-        "| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: | :---: |",
+        "| " + " | ".join(head(zh, en, bi) for zh, en, _ in cols) + " |",
+        "| " + " | ".join(align for _, _, align in cols) + " |",
     ]
     for o in p["overall"]:
         medal = MEDALS.get(o["rank"], str(o["rank"]))
-        rss = f"{o['rss_mb']:,.0f} MB" if o.get("rss_mb") else "-"
-        acc = f"{o['abs_acc_pct']:.2f}%" if o.get("abs_acc_pct") is not None else "未核验"
+        sep = NB if bi else " "
+        rss = f"{o['rss_mb']:,.0f}{sep}MB" if o.get("rss_mb") else "-"
+        unverified = "n/a" if bi else "未核验"
+        acc = f"{o['abs_acc_pct']:.2f}%" if o.get("abs_acc_pct") is not None else unverified
+        verified = verify_code(o.get("verification")) if bi else verification_label(o.get("verification"))
+        name = nobreak(o["scanner"]) if bi else o["scanner"]
         lines.append(
-            f"| {medal} | **{o['scanner']}** | **{fmt_score(o['overall'])}** | {fmt_score(o['cold'])} "
-            f"| {fmt_score(o['warm'])} | {fmt_score(o['index'])} | {rss} | {acc} | {verification_label(o.get('verification'))} "
+            f"| {medal} | **{name}** | **{fmt_score(o['overall'])}** | {fmt_score(o['cold'])} "
+            f"| {fmt_score(o['warm'])} | {fmt_score(o['index'])} | {rss} | {acc} | {verified} "
             f"| {o['valid_platforms']}/{o['entered_platforms']} | {o['wins'] or '-'} |"
         )
     if p["unranked"]:
         names = "、".join(p["scanners"][s]["name"] for s in p["unranked"])
-        lines += ["", f"未上榜（没有任何平台的有效成绩）：{names}"]
+        lines += [
+            "",
+            f"未上榜（没有任何平台的有效成绩）{' · Unranked (no valid result anywhere)' if bi else ''}：{names}",
+        ]
     return lines
 
 
-def render_kings(p: Dict[str, Any]) -> List[str]:
+def render_kings(p: Dict[str, Any], bi: bool = False) -> List[str]:
     """One line naming the best scanner of each category."""
     rows = p["overall"]
     if not rows:
@@ -295,27 +365,71 @@ def render_kings(p: Dict[str, Any]) -> List[str]:
         return min(cands, key=lambda o: o[key]) if low else max(cands, key=lambda o: o[key])
 
     parts = []
-    for title, key, low, fmt in (
-        ("冷扫", "cold", False, lambda v: f"{v:.1f}"),
-        ("热扫", "warm", False, lambda v: f"{v:.1f}"),
-        ("均衡", "index", False, lambda v: f"{v:.1f}"),
-        ("最省内存", "rss_mb", True, lambda v: f"{v:,.0f} MB"),
-        ("最准", "abs_acc_pct", True, lambda v: f"误差 {v:.2f}%"),
+    for zh, en, key, low, fmt in (
+        ("冷扫", "Cold", "cold", False, lambda v: f"{v:.1f}"),
+        ("热扫", "Warm", "warm", False, lambda v: f"{v:.1f}"),
+        ("均衡", "Balanced", "index", False, lambda v: f"{v:.1f}"),
+        ("最省内存", "Least RAM", "rss_mb", True, lambda v: f"{v:,.0f} MB"),
+        ("最准", "Most accurate", "abs_acc_pct", True, lambda v: f"±{v:.2f}%"),
     ):
         o = best(key, low)
         if o is not None:
-            parts.append(f"**{title}** {o['scanner']}（{fmt(o[key])}）")
-    return ["单项第一：" + " · ".join(parts)]
+            title = f"{zh} {en}" if bi else zh
+            parts.append(f"**{title}** {o['scanner']} ({fmt(o[key])})")
+    return [("单项第一 · Category winners：" if bi else "单项第一：") + " · ".join(parts)]
 
 
-def render_matrix(p: Dict[str, Any]) -> List[str]:
-    labels = p["platforms"]
-    titles = {lbl: p["platform_info"][lbl]["title"] for lbl in labels}
+OS_GROUP_NAMES = {"linux": "Linux", "macos": "macOS", "windows": "Windows"}
+ARCH_NAMES = {"x86_64": "x64", "arm64": "ARM64", "aarch64": "ARM64"}
+MAX_GROUP_COLUMNS = 5
+
+
+def matrix_groups(labels: List[str]) -> List[Tuple[str, List[str]]]:
+    """Platforms split into narrow tables: one per OS, and one per OS and architecture when an OS has many columns."""
+    by_os: Dict[str, List[str]] = {}
+    for lbl in labels:
+        by_os.setdefault(parse_label(lbl)[0], []).append(lbl)
+    groups: List[Tuple[str, List[str]]] = []
+    for os_key, lbls in by_os.items():
+        name = OS_GROUP_NAMES.get(os_key, os_key)
+        if len(lbls) <= MAX_GROUP_COLUMNS:
+            groups.append((name, lbls))
+            continue
+        by_arch: Dict[str, List[str]] = {}
+        for lbl in lbls:
+            by_arch.setdefault(parse_label(lbl)[1], []).append(lbl)
+        for arch, arch_lbls in by_arch.items():
+            groups.append((f"{name} {ARCH_NAMES.get(arch, arch)}", arch_lbls))
+    return groups
+
+
+def render_matrix(p: Dict[str, Any], bi: bool = False) -> List[str]:
+    if not bi:
+        titles = {lbl: p["platform_info"][lbl]["title"] for lbl in p["platforms"]}
+        return matrix_table(p, p["platforms"], titles, False)
+    # README: one narrow table per OS (per OS and architecture for Linux's many filesystems), headers "x64 / ext4"
+    lines: List[str] = []
+    for group, labels in matrix_groups(p["platforms"]):
+        titles = {}
+        for lbl in labels:
+            _, arch, fs = parse_label(lbl)
+            titles[lbl] = f"{ARCH_NAMES.get(arch, arch)}<br>{nobreak(FS_NAMES.get(fs, fs))}"
+        if lines:
+            lines.append("")
+        lines += [f"**{nobreak(group)}**", ""] + matrix_table(p, labels, titles, True)
+    return lines
+
+
+def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], bi: bool) -> List[str]:
     order = [o["id"] for o in p["overall"]] + p["unranked"]
+    if bi:
+        # a scanner with no entry on any of these platforms gets no row in this table
+        order = [sid for sid in order if any(p["per_platform"][lbl].get(sid) for lbl in labels)]
     lines = [
-        "| 扫描器 | " + " | ".join(titles[lbl] for lbl in labels) + " |",
+        f"| {head('扫描器', 'Scanner', bi)} | " + " | ".join(titles[lbl] for lbl in labels) + " |",
         "| :--- | " + " | ".join(":---:" for _ in labels) + " |",
     ]
+    status_bi = {"cannot_run": "⛔", "disqualified": "❌", "invalid": "⚠️"}
     for sid in order:
         cells = []
         for lbl in labels:
@@ -324,10 +438,14 @@ def render_matrix(p: Dict[str, Any]) -> List[str]:
                 cells.append("—")
             elif e["status"] == "ok":
                 rank = MEDALS.get(e["rank"], f"#{e['rank']}")
-                cells.append(f"{rank} {fmt_s(e['cold_s'])} / {fmt_s(e['warm_s'])}")
+                if bi:
+                    cells.append(f"{rank}<br>{fmt_s(e['cold_s'])}{NB}/{NB}{fmt_s(e['warm_s'])}")
+                else:
+                    cells.append(f"{rank} {fmt_s(e['cold_s'])} / {fmt_s(e['warm_s'])}")
             else:
-                cells.append(STATUS_TEXT.get(e["status"], e["status"]))
-        lines.append(f"| **{p['scanners'][sid]['name']}** | " + " | ".join(cells) + " |")
+                cells.append(status_bi.get(e["status"], "?") if bi else STATUS_TEXT.get(e["status"], e["status"]))
+        name = nobreak(p["scanners"][sid]["name"]) if bi else p["scanners"][sid]["name"]
+        lines.append(f"| **{name}** | " + " | ".join(cells) + " |")
     return lines
 
 
@@ -354,20 +472,47 @@ def render_platforms(p: Dict[str, Any]) -> List[str]:
     return lines
 
 
-def render_notes(p: Dict[str, Any]) -> List[str]:
-    notes = [
-        "<sub>",
+NOTES_EN = [
+    "Scoring: within each platform a scanner gets relative scores first: cold / warm = the platform's fastest time "
+    "/ the scanner's time x 100, balanced = the scanner's balanced index / the platform's best x 100 (geometric mean of "
+    "cold and warm). Across platforms the scores are combined by geometric mean, so each runner's hardware speed cancels "
+    "out inside its own platform. Score = geometric mean of cold, warm and balanced. Peak RAM and size error are medians "
+    "over the valid platforms (absolute error). Only valid results count; disqualified, invalid and unrunnable "
+    "platforms are left out but marked in the per-platform table, and — means not supported or no native build.",
+    "Missing platforms neither cost nor earn points: a scanner is scored only on the platforms it runs on, which is "
+    "the same as filling every missing platform with its own average. Running on more platforms therefore does not "
+    "make a high score easier, and a Windows-only tool is not marked down for lacking Linux or macOS. The flip side: a "
+    "tool with few platforms was only compared where it runs, which the Platforms column shows.",
+]
+
+
+def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
+    notes: List[str] = []
+    if bi:
+        notes += [
+            "表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not "
+            "verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · 夺冠 Wins = 拿第一的平台数 platforms won · "
+            "核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · "
+            "IO = 只有 I/O 次数（图形界面工具没有输出 / GUI tool without output）。",
+            "各平台表格：名次，下一行 冷扫 / 热扫 秒 · Per platform: rank, then cold / warm seconds. "
+            "⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 不支持 not supported。",
+        ]
+    notes += [
         "计分：每个平台内先算相对分，冷扫/热扫 = 该平台最快用时 ÷ 本扫描器用时 × 100，均衡指数 = 本扫描器均衡指数 ÷ "
         "该平台最高 × 100（冷热两次取几何平均）。跨平台取几何平均，各平台硬件快慢在平台内就约掉了。"
         "综合分 = 冷扫、热扫、均衡指数三项的几何平均。峰值内存和大小误差取各有效平台的中位数（误差取绝对值）。"
         "只计有效成绩：违规、无效、无法运行的平台不计入，但在名次表里标出；—表示该平台不支持或没有原生版本。"
         "名次表按该平台三项相对分的几何平均排名。",
-        "缺平台不扣分、也不加分：每个工具只在它能运行的平台上算分，相当于把它没参加的平台按它自己的平均分补上。所以平台多的工具不会因为参赛平台多而更容易刷高分，只有 Windows 版的工具也不会因为缺 Linux、macOS 被扣分。要注意的是，平台少的工具只和别人比了它能跑的那几个平台，它在其他系统上表现如何，榜单反映不出来；覆盖面看「有效平台」列。",
+        "缺平台不扣分、也不加分：每个工具只在它能运行的平台上算分，相当于把它没参加的平台按它自己的平均分补上。所以平台多的工具不会因为参赛平台多而更容易刷高分，只有 Windows 版的工具也不会因为缺 Linux、macOS 被扣分。要注意的是，平台少的工具只和别人比了它能跑的那几个平台，它在其他系统上表现如何，榜单反映不出来；覆盖面看有效平台数。",
     ]
+    if bi:
+        notes += NOTES_EN
     if "windows-arm64" in p["platforms"]:
         notes.append("Win ARM64 没有 ReFS 对照任务，那一列的成绩没有经过 NTFS/ReFS 跨文件系统（MFT 逃逸）核查。")
-    notes.append("</sub>")
-    return notes
+        if bi:
+            notes.append("Win ARM64 has no ReFS counterpart, so its column is not cross-checked for MFT escapes.")
+    # one <sub> block; blank-line-like breaks keep the paragraphs apart (an HTML block would run them together)
+    return ["<sub>" + "<br><br>".join(notes) + "</sub>"]
 
 
 def render_run_summary(p: Dict[str, Any], title_preset: str) -> str:

@@ -24,8 +24,13 @@ from typing import Any, Dict, List, Optional
 
 from leaderboard import (
     MEDALS,
+    NB,
+    apply_display_names,
+    display_names,
     fmt_s,
     fmt_score,
+    head,
+    nobreak,
     render_kings,
     render_matrix,
     render_notes,
@@ -35,12 +40,12 @@ from leaderboard import (
 PRESETS = ["very-lite", "lite", "low", "mid", "high", "very-high"]
 SMALL = {"very-lite", "lite"}  # reference only: start-up cost dominates the wall clock
 PRESET_SIZE = {
-    "very-lite": "10 万文件",
-    "lite": "40 万文件",
-    "low": "100 万文件",
-    "mid": "300 万文件",
-    "high": "500 万文件",
-    "very-high": "900 万文件",
+    "very-lite": "10 万文件 · 100k files",
+    "lite": "40 万文件 · 400k files",
+    "low": "100 万文件 · 1M files",
+    "mid": "300 万文件 · 3M files",
+    "high": "500 万文件 · 5M files",
+    "very-high": "900 万文件 · 9M files",
 }
 START, END = "<!-- LEADERBOARD:START -->", "<!-- LEADERBOARD:END -->"
 RANK_COLORS = {1: "e3b341", 2: "a8b3bd", 3: "c47f3d"}
@@ -57,7 +62,9 @@ def load_data(data_dir: Path, kind: str) -> Dict[str, Dict[str, Any]]:
     for preset in PRESETS:
         path = data_dir / f"{kind}-{preset}.json"
         if path.exists():
-            found[preset] = json.loads(path.read_text(encoding="utf-8"))
+            record = json.loads(path.read_text(encoding="utf-8"))
+            apply_display_names(record["payload"], display_names())
+            found[preset] = record
     return found
 
 
@@ -96,85 +103,105 @@ def cross_size(standard: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
     return ordered
 
 
+def preset_head(preset: str) -> str:
+    return nobreak(preset) + ("\\*" if preset in SMALL else "")
+
+
+def score_cell(rank: int, score: Optional[float]) -> str:
+    return f"{MEDALS.get(rank, '#' + str(rank))}{NB}{fmt_score(score)}"
+
+
 def render_section(
     standard: Dict[str, Dict[str, Any]], mft: Dict[str, Dict[str, Any]], repo: str, branch: str
 ) -> List[str]:
-    lines = [START, "", "## 🏆 排行榜 Leaderboard", ""]
+    lines = [START, "", "## 🏆 排行榜 · Leaderboard", ""]
     dates = [rec["meta"].get("date", "") for rec in list(standard.values()) + list(mft.values())]
     last = max(dates) if dates else "—"
     scanners = {o["id"] for rec in standard.values() for o in rec["payload"]["overall"]}
     platforms = {lbl for rec in standard.values() for lbl in rec["payload"]["platforms"]}
     header = [
-        ("最近更新", last or "—", "4c8eda"),
-        ("已测体量", f"{len(standard)}/{len(PRESETS)}", "2ea44f" if len(standard) == len(PRESETS) else "dbab09"),
-        ("扫描器", str(len(scanners)), "6f42c1"),
-        ("平台", str(len(platforms)), "0969da"),
-        ("MFT 专栏", f"{len(mft)} 个体量", "8250df"),
+        ("updated", last or "—", "4c8eda"),
+        ("presets", f"{len(standard)}/{len(PRESETS)}", "2ea44f" if len(standard) == len(PRESETS) else "dbab09"),
+        ("scanners", str(len(scanners)), "6f42c1"),
+        ("platforms", str(len(platforms)), "0969da"),
+        ("MFT presets", str(len(mft)), "8250df"),
     ]
     lines.append(" ".join(f"![{lbl}]({static_badge(lbl, msg, col)})" for lbl, msg, col in header))
     lines += [
         "",
-        "> 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。"
-        "`very-lite` / `lite` 体量过小，计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。"
-        "评分方法与数据生成原理见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)。",
+        "> 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。`very-lite` / `lite` 体量过小，"
+        "计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。评分方法与数据生成原理见 "
+        "[docs/METHODOLOGY.md](docs/METHODOLOGY.md)。",
+        ">",
+        "> Each size runs and updates on its own: a finished run refreshes its column and the others keep their last "
+        "result. `very-lite` and `lite` are so small that process start-up dominates the wall clock, so they are for "
+        "reference only and stay out of the overall score. Scoring and test-data design: "
+        "[docs/METHODOLOGY.md](docs/METHODOLOGY.md).",
         "",
     ]
     if not standard:
-        lines += ["_还没有已发布的运行结果。_", "", END]
+        lines += ["_还没有已发布的运行结果 · No published run yet._", "", END]
         return lines
 
-    # Cross-size board
+    # Across sizes: no badge column, so the table stays narrow and nothing wraps inside a cell
     present = [p for p in PRESETS if p in standard]
-    head = (
-        ["名次", "扫描器", "**综合分**（low 及以上）"] + [f"{p}{'*' if p in SMALL else ''}" for p in present] + ["徽章"]
-    )
+    heads = [head("名次", "Rank", True), head("扫描器", "Scanner", True), head("**综合分**", "**Score**", True)]
+    heads += [preset_head(p) for p in present]
     lines += [
-        "### 跨体量总榜",
+        "### 跨体量总榜 · Overall across sizes",
         "",
-        "| " + " | ".join(head) + " |",
-        "| " + " | ".join([":---:", ":---", "---:"] + [":---:" for _ in present] + [":---:"]) + " |",
+        "| " + " | ".join(heads) + " |",
+        "| " + " | ".join([":---:", ":---", "---:"] + [":---:" for _ in present]) + " |",
     ]
     for row in cross_size(standard):
-        medal = MEDALS.get(row["rank"], str(row["rank"]))
-        combined = fmt_score(row["combined"]) + (" *" if row["combined_from_small_only"] else "")
-        cells = []
-        for p in present:
-            v = row["presets"].get(p)
-            cells.append(f"{MEDALS.get(v['rank'], '#' + str(v['rank']))} {fmt_score(v['score'])}" if v else "—")
-        badge = f"![{row['name']}]({endpoint_badge(repo, branch, row['id'] + '.json')})"
-        lines.append(f"| {medal} | **{row['name']}** | **{combined}** | " + " | ".join(cells) + f" | {badge} |")
+        combined = fmt_score(row["combined"]) + ("\\*" if row["combined_from_small_only"] else "")
+        cells = [score_cell(v["rank"], v["score"]) if (v := row["presets"].get(p)) else "—" for p in present]
+        lines.append(
+            f"| {MEDALS.get(row['rank'], str(row['rank']))} | **{nobreak(row['name'])}** | **{combined}** | "
+            + " | ".join(cells)
+            + " |"
+        )
     lines += [
         "",
-        "<sub>* 仅供参考的小体量；综合分带 * 的扫描器只有小体量成绩。综合分 = 各体量综合分的几何平均。缺平台、缺体量都不扣分也不加分：只用它实际跑过的平台和体量计算，等于把缺的部分按它自己的平均分补上，平台多的工具不会因此更容易刷分，平台少的工具也不会因此被扣分。</sub>",
+        "<sub>综合分 = `low` 及以上各体量综合分的几何平均；\\* 为仅供参考的小体量（综合分带 \\* 的扫描器只有小体量成绩）。"
+        "缺平台、缺体量都不扣分也不加分：只用它实际跑过的平台和体量计算，等于把缺的部分按它自己的平均分补上，"
+        "平台多的工具不会因此更容易刷分，平台少的工具也不会因此被扣分。<br><br>"
+        "Score = geometric mean of the per-size scores from `low` up; \\* marks the reference-only small sizes (a "
+        "score with \\* comes from small sizes only). Missing platforms and sizes neither cost nor earn points: only "
+        "what a scanner actually ran counts, the same as filling the gaps with its own average, so more platforms do "
+        "not make a high score easier and fewer do not mark a tool down.</sub>",
         "",
     ]
 
-    # Per-preset details, the largest reliable preset open
+    # Per-size details, the largest reliable size open
     open_preset = next((p for p in reversed(present) if p not in SMALL), present[-1])
-    lines += ["### 各体量详情", ""]
+    lines += ["### 各体量详情 · Results per size", ""]
     for p in reversed(present):
         rec = standard[p]
         meta, payload = rec["meta"], rec["payload"]
         run = f"<a href=\"{meta['run_url']}\">run {meta.get('run_id', '')}</a>" if meta.get("run_url") else ""
-        sha = f" · commit <code>{meta['sha'][:7]}</code>" if meta.get("sha") else ""
-        note = " · 仅供参考" if p in SMALL else ""
+        sha = f" · <code>{meta['sha'][:7]}</code>" if meta.get("sha") else ""
+        note = " · 仅供参考 reference only" if p in SMALL else ""
         lines += [
             f"<details{' open' if p == open_preset else ''}>",
             f"<summary><b>{p}</b> · {PRESET_SIZE.get(p, '')} · {meta.get('date', '')} · {run}{sha}{note}</summary>",
             "",
         ]
-        lines += render_overall_table(payload) + [""] + render_kings(payload)
-        lines += ["", "**各平台名次（冷扫 / 热扫 秒）**", ""] + render_matrix(payload)
-        lines += [""] + render_notes(payload) + ["", "</details>", ""]
+        lines += render_overall_table(payload, bi=True) + [""] + render_kings(payload, bi=True)
+        lines += ["", "**各平台名次 · Per platform**", ""] + render_matrix(payload, bi=True)
+        lines += [""] + render_notes(payload, bi=True) + ["", "</details>", ""]
 
     # NTFS raw-MFT column
-    lines += ["### NTFS MFT 专栏", ""]
+    lines += ["### NTFS MFT 专栏 · NTFS MFT column", ""]
     if not mft:
-        lines += ["_还没有已发布的 MFT 运行结果（工作流 `benchmark-mft.yml`）。_", ""]
+        lines += ["_还没有已发布的 MFT 运行结果 · No published MFT run yet (`benchmark-mft.yml`)._", ""]
     else:
         lines += [
-            "直接读取 NTFS `$MFT` 的扫描模式单独比较（冷热两次耗时应接近，因为每次都要读完整个 MFT）。"
-            "这里的成绩不和上面的普通遍历混排。",
+            "直接读取 NTFS `$MFT` 的扫描模式单独比较，不和上面的普通目录遍历混排；冷热两次耗时应当接近，"
+            "因为每次都要读完整张 MFT。",
+            "",
+            "Scanners that read the NTFS `$MFT` directly are ranked here, apart from the directory-walking board above; "
+            "their cold and warm times should be close, since every scan reads the whole MFT.",
             "",
         ]
         mft_present = [p for p in PRESETS if p in mft]
@@ -182,9 +209,13 @@ def render_section(
         for rec in mft.values():
             for o in rec["payload"]["overall"]:
                 ids.setdefault(o["id"], o["scanner"])
+        for rec in mft.values():  # scanners with no valid MFT result still get a row, with their status
+            for sid in rec["payload"]["unranked"]:
+                ids.setdefault(sid, rec["payload"]["scanners"][sid]["name"])
+        status_icon = {"cannot_run": "⛔", "disqualified": "❌", "invalid": "⚠️"}
         lines += [
-            "| 扫描器 | " + " | ".join(mft_present) + " | 徽章 |",
-            "| :--- | " + " | ".join(":---:" for _ in mft_present) + " | :---: |",
+            f"| {head('扫描器', 'Scanner', True)} | " + " | ".join(preset_head(p) for p in mft_present) + " |",
+            "| :--- | " + " | ".join(":---:" for _ in mft_present) + " |",
         ]
         for sid, name in ids.items():
             cells = []
@@ -195,23 +226,28 @@ def render_section(
                 plat = mft_plats[0].get(sid) if mft_plats else None
                 if o and plat and plat.get("status") == "ok":
                     medal = MEDALS.get(o["rank"], f"#{o['rank']}")
-                    cells.append(f"{medal} {fmt_s(plat['cold_s'])} / {fmt_s(plat['warm_s'])} s")
+                    cells.append(f"{medal}<br>{fmt_s(plat['cold_s'])}{NB}/{NB}{fmt_s(plat['warm_s'])}{NB}s")
+                elif plat:
+                    cells.append(status_icon.get(str(plat.get("status")), "?"))
                 else:
                     cells.append("—")
-            badge_file = f"{sid}-mft-{mft_present[-1]}.json"
-            lines.append(
-                f"| **{name}** | "
-                + " | ".join(cells)
-                + f" | ![{name} MFT]({endpoint_badge(repo, branch, badge_file)}) |"
-            )
-        lines += ["", "<sub>单元格：名次 冷扫 / 热扫 秒。</sub>", ""]
+            lines.append(f"| **{nobreak(name)}** | " + " | ".join(cells) + " |")
+        lines += [
+            "",
+            "<sub>名次，下一行 冷扫 / 热扫 秒 · rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 "
+            "disqualified · ⚠️ 无效 invalid · — 未参加 not run.</sub>",
+            "",
+        ]
 
     # Badge snippets for other READMEs
-    board_url = f"https://github.com/{repo}#-排行榜-leaderboard"
+    board_url = f"https://github.com/{repo}#-排行榜--leaderboard"
     lines += [
-        "### 在你的 README 里显示成绩",
+        "### 在你的 README 里显示成绩 · Show a score in your README",
         "",
-        "徽章由 CI 在每次发布时更新，内容是该扫描器的最新名次和综合分。把下面一行贴进任何 Markdown：",
+        "徽章由 CI 在每次发布时更新，显示该扫描器的最新名次和综合分。把对应的一行贴进任何 Markdown：",
+        "",
+        "Badges are refreshed on every publish with the scanner's current rank and score. Paste a line into any "
+        "Markdown file:",
         "",
         "```markdown",
     ]
@@ -220,8 +256,11 @@ def render_section(
     lines += [
         "```",
         "",
-        "只看某个体量：把文件名换成 `<扫描器>-<体量>.json`（例如 `gdu-low.json`）；MFT 专栏用 "
-        "`<扫描器>-mft-<体量>.json`。也可以用 `python scripts/readme_board.py --snippet <扫描器> [--preset low]` 生成。",
+        "单个体量：文件名换成 `<扫描器>-<体量>.json`（例如 `gdu-low.json`）；MFT 专栏用 `<扫描器>-mft-<体量>.json`；"
+        "也可以运行 `python scripts/readme_board.py --snippet <扫描器> [--preset low]` 生成。",
+        "",
+        "One size only: use `<scanner>-<size>.json` (e.g. `gdu-low.json`), or `<scanner>-mft-<size>.json` for the "
+        "MFT column; `python scripts/readme_board.py --snippet <scanner> [--preset low]` prints the line.",
         "",
         END,
     ]
@@ -260,32 +299,39 @@ OS_LABELS = {"linux": "Linux", "macos": "macOS", "windows": "Windows"}
 
 
 def render_scanners(registry: Path) -> List[str]:
-    """The participant table, straight from scanners_registry.json."""
+    """The participant table, straight from scanners_registry.json, in Chinese and English."""
     data = json.loads(registry.read_text(encoding="utf-8"))
+    cols = [("扫描器", "Scanner"), ("版本", "Version"), ("平台", "Platforms"), ("架构", "Arch"), ("口径", "Size")]
     lines = [
         SCANNERS_START,
         "",
-        "| 扫描器 | 锁定版本 | 平台 | 架构 | 大小口径 | 说明 |",
+        "| " + " | ".join(head(zh, en, True) for zh, en in cols) + f" | {head('说明', 'Notes', True)} |",
         "| :--- | :--- | :--- | :--- | :--- | :--- |",
     ]
+    # every column but the notes is kept from wrapping, so the notes take up the remaining width
     for s in data["scanners"]:
         if not s.get("enabled", True):
             continue
-        oses = ", ".join(OS_LABELS.get(o, o) for o in s.get("platforms", []))
-        arches = ", ".join(f"`{a}`" for a in s.get("architectures", []))
+        oses = "<br>".join(OS_LABELS.get(o, o) for o in s.get("platforms", []))
+        arches = "<br>".join(f"`{a}`" for a in s.get("architectures", []))
         metric = s.get("size_metric", "allocated")
         if s.get("apparent_on"):
-            metric += "（" + "、".join(OS_LABELS.get(o, o) for o in s["apparent_on"]) + " 上为 apparent）"
-        mode = "图形界面" if s.get("runner_type") == "win_gui" else "命令行"
+            on = ", ".join(OS_LABELS.get(o, o) for o in s["apparent_on"])
+            metric += f"<br>({nobreak(on + ': apparent')})"
+        mode = "图形界面 GUI" if s.get("runner_type") == "win_gui" else "命令行 CLI"
         if s.get("mft"):
-            mode += "，参加 MFT 专栏"
-        note = s.get("notes", "")
-        lines.append(
-            f"| **{s['name']}** | `{s['version']}` | {oses} | {arches} | {metric} | {mode}{'；' + note if note else ''} |"
-        )
-    off = [s["name"] for s in data["scanners"] if not s.get("enabled", True)]
+            mode += "；参加 MFT 专栏 · in the MFT column"
+        notes = [n for n in (s.get("notes", ""), s.get("notes_en", "")) if n]
+        cell = "<br>".join([mode] + notes)
+        name = nobreak(s.get("display_name", s["name"]))
+        version = str(s["version"]).split(" (")[0]  # long build notes stay in the registry
+        lines.append(f"| **{name}** | <code>{nobreak(version)}</code> | {oses} | {arches} | {metric} | {cell} |")
+    off = [s.get("display_name", s["name"]) for s in data["scanners"] if not s.get("enabled", True)]
     if off:
-        lines += ["", f"<sub>未参加：{'、'.join(off)}（原因见注册表）。</sub>"]
+        lines += [
+            "",
+            f"<sub>未参加 · Not taking part：{', '.join(off)}（原因见注册表 · reason in the registry）。</sub>",
+        ]
     lines += ["", SCANNERS_END]
     return lines
 
@@ -321,7 +367,7 @@ def main() -> int:
     if args.snippet:
         name = f"{args.snippet}-{args.preset}.json" if args.preset else f"{args.snippet}.json"
         url = endpoint_badge(args.repo, args.branch, name)
-        print(f"[![{args.snippet}]({url})](https://github.com/{args.repo}#-排行榜-leaderboard)")
+        print(f"[![{args.snippet}]({url})](https://github.com/{args.repo}#-排行榜--leaderboard)")
         return 0
 
     data_dir = Path(args.data_dir)
