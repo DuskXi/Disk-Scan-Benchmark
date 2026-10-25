@@ -62,6 +62,11 @@ on:
         required: false
         default: false
         type: boolean
+      windows_aging:
+        description: "Generate the Windows volumes on the aged timeline (FSM_AGING=1: years-of-use creation order)"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -364,6 +369,9 @@ jobs:
 
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
+        env:
+          # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
+          FSM_AGING: ${{ inputs.windows_aging && '1' || '0' }}
         run: |
           mkdir -p "results/$LABEL"
           EXTRA_ARGS=()
@@ -485,6 +493,9 @@ jobs:
 
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
+        env:
+          # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
+          FSM_AGING: ${{ inputs.windows_aging && '1' || '0' }}
         run: |
           mkdir -p "results/$LABEL"
           EXTRA_ARGS=()
@@ -614,6 +625,9 @@ jobs:
       # timeout only guards against a real hang.
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
+        env:
+          # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
+          FSM_AGING: ${{ inputs.windows_aging && '1' || '0' }}
         timeout-minutes: 300
         run: |
           mkdir -p "results/$LABEL"

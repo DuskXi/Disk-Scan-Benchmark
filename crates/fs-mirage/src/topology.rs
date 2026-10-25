@@ -223,6 +223,9 @@ pub struct GroundTruthManifest {
     /// Ground truth breakdown per top-level zone (zone_deep, zone_flat_cache, zone_sparse_media, zone_edge)
     #[serde(default)]
     pub zones: std::collections::BTreeMap<String, ZoneGroundTruth>,
+    /// True when the tree was created on the aged timeline (FSM_AGING=1): same tree, scattered creation order
+    #[serde(default)]
+    pub aged_timeline: bool,
 }
 
 #[derive(Debug)]
@@ -688,6 +691,7 @@ impl TopologyPlan {
             allocated_size_with_hardlinks_bytes: 0,
             allocated_files_only_bytes: 0,
             zones,
+            aged_timeline: false,
         };
 
         TopologyPlan {

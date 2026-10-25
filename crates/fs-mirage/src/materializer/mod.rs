@@ -654,6 +654,7 @@ pub fn materialize_tree(
     plan.manifest.allocated_size_bytes = allocated_bytes;
     plan.manifest.allocated_files_only_bytes = files_only_bytes;
     plan.manifest.allocated_size_with_hardlinks_bytes = allocated_bytes + extra_hl_alloc;
+    plan.manifest.aged_timeline = aging;
     for (zone, bytes) in zone_alloc.into_inner().unwrap_or_default() {
         if let Some(z) = plan.manifest.zones.get_mut(&zone) {
             z.allocated_size_bytes = bytes;

@@ -478,6 +478,7 @@ pub fn generate_from_profile(cfg: &TopologyConfig, prof: &Profile) -> TopologyPl
         allocated_size_with_hardlinks_bytes: 0,
         allocated_files_only_bytes: 0,
         zones,
+        aged_timeline: false,
     };
     TopologyPlan {
         directories,

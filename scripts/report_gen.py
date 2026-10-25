@@ -194,6 +194,12 @@ def generate_report(
         f"| **Total Directories** | `{total_dirs:,}` | Deep chains (8-25 levels) + Flat high-density buckets |",
         f"| **Apparent Logical Size** | `{format_bytes_gib(apparent_bytes)}` (`{apparent_bytes:,} B`) | Deduplicated logical volume across all zones |",
         f"| **Allocated Physical Size** | `{format_bytes_gib(allocated_bytes)}` (`{allocated_bytes:,} B`) | Dirty-Extent anchored physical blocks on disk |",
+        (
+            "| **Creation Timeline** | `aged` (`FSM_AGING=1`) | Same tree, created in a years-of-use order: "
+            "directory and file records scattered, directory indexes grown in pieces |"
+            if gt.get("aged_timeline")
+            else "| **Creation Timeline** | `fresh` | Created directory by directory: records and indexes contiguous |"
+        ),
     ]
 
     gt_zones: Dict[str, Dict[str, Any]] = gt.get("zones", {})
