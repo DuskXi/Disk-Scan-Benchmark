@@ -312,7 +312,8 @@ def verify_code(value: Optional[str]) -> str:
 
 
 def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
-    # bi: short headers (spelled out in the notes) so the eleven columns fit the page without wrapping
+    # bi (README): short headers spelled out in the notes, "#" for the rank and no platform-wins column (the
+    # per-platform tables show the medals), so the table fits GitHub's README width without wrapping or scrolling
     cols = [
         ("名次", "Rank", ":---:"),
         ("扫描器", "Scanner", ":---"),
@@ -324,10 +325,12 @@ def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
         ("误差" if bi else "大小误差", "Error", "---:"),
         ("核验", "Check", ":---:"),
         ("平台" if bi else "有效平台", "Platforms", ":---:"),
-        ("夺冠" if bi else "平台第一", "Wins", ":---:"),
     ]
+    if not bi:
+        cols.append(("平台第一", "Wins", ":---:"))
+    heads = ["#" if bi and zh == "名次" else head(zh, en, bi) for zh, en, _ in cols]
     lines = [
-        "| " + " | ".join(head(zh, en, bi) for zh, en, _ in cols) + " |",
+        "| " + " | ".join(heads) + " |",
         "| " + " | ".join(align for _, _, align in cols) + " |",
     ]
     for o in p["overall"]:
@@ -338,10 +341,11 @@ def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
         acc = f"{o['abs_acc_pct']:.2f}%" if o.get("abs_acc_pct") is not None else unverified
         verified = verify_code(o.get("verification")) if bi else verification_label(o.get("verification"))
         name = nobreak(o["scanner"]) if bi else o["scanner"]
+        wins = "" if bi else f" {o['wins'] or '-'} |"
         lines.append(
             f"| {medal} | **{name}** | **{fmt_score(o['overall'])}** | {fmt_score(o['cold'])} "
             f"| {fmt_score(o['warm'])} | {fmt_score(o['index'])} | {rss} | {acc} | {verified} "
-            f"| {o['valid_platforms']}/{o['entered_platforms']} | {o['wins'] or '-'} |"
+            f"| {o['valid_platforms']}/{o['entered_platforms']} |{wins}"
         )
     if p["unranked"]:
         names = "、".join(p["scanners"][s]["name"] for s in p["unranked"])
@@ -491,7 +495,7 @@ def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
     if bi:
         notes += [
             "表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not "
-            "verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · 夺冠 Wins = 拿第一的平台数 platforms won · "
+            "verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · "
             "核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · "
             "IO = 只有 I/O 次数（图形界面工具没有输出 / GUI tool without output）。",
             "各平台表格：名次，下一行 冷扫 / 热扫 秒 · Per platform: rank, then cold / warm seconds. "

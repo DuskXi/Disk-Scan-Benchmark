@@ -20,7 +20,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 ### 跨体量总榜 · Overall across sizes
 
-| 名⁠次<br>Rank | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | very‑lite\* | low |
+| # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | very‑lite\* | low |
 | :---: | :--- | ---: | :---: | :---: |
 | 🥇 | **SpaceKnife** | **88.3** | #6&nbsp;53.9 | 🥇&nbsp;88.3 |
 | 🥈 | **SquirrelDisk** | **82.6** | 🥇&nbsp;86.8 | 🥈&nbsp;82.6 |
@@ -45,23 +45,23 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 <details open>
 <summary><b>low</b> · 100 万文件 · 1M files · 2026-10-25 · <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40209205669">run 40209205669</a> · <code>fe51464</code></summary>
 
-| 名⁠次<br>Rank | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | 冷⁠扫<br>Cold | 热⁠扫<br>Warm | 均⁠衡<br>Balanced | 内⁠存<br>RAM | 误⁠差<br>Error | 核⁠验<br>Check | 平⁠台<br>Platforms | 夺⁠冠<br>Wins |
-| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: | :---: |
-| 🥇 | **SpaceKnife** | **88.3** | 82.2 | 92.5 | 90.5 | 246&nbsp;MB | 0.67% | S·F·Z | 7/7 | 3 |
-| 🥈 | **SquirrelDisk** | **82.6** | 84.1 | 79.5 | 84.4 | 31&nbsp;MB | 0.81% | S·F·Z | 5/5 | 3 |
-| 🥉 | **dua‑cli** | **62.6** | 77.4 | 50.9 | 62.4 | 52&nbsp;MB | 0.00% | S·Z | 7/7 | - |
-| 4 | **gdu** | **58.1** | 51.4 | 61.3 | 62.1 | 48&nbsp;MB | 0.58% | S·Z | 7/7 | - |
-| 5 | **WizTree** | **54.5** | 74.6 | 36.9 | 58.7 | 518&nbsp;MB | 0.58% | S·F·Z | 2/2 | - |
-| 6 | **WinDirStat** | **47.1** | 100.0 | 22.3 | 47.0 | 247&nbsp;MB | 0.58% | S·F·Z | 3/3 | - |
-| 7 | **BSD&nbsp;du** | **41.5** | 33.5 | 33.7 | 63.2 | 472&nbsp;MB | 17.48% | S·Z | 2/2 | - |
-| 8 | **GNU&nbsp;du** | **40.8** | 28.6 | 37.4 | 63.4 | 9&nbsp;MB | 0.00% | S·Z | 2/2 | - |
-| 9 | **diskus** | **39.7** | 54.6 | 29.2 | 39.1 | 27&nbsp;MB | 0.58% | S | 7/7 | 1 |
-| 10 | **pdu** | **39.4** | 53.4 | 27.9 | 41.0 | 50&nbsp;MB | 0.58% | S·Z | 7/7 | - |
-| 11 | **ncdu** | **33.6** | 25.2 | 29.0 | 52.0 | 212&nbsp;MB | 0.00% | S·F·Z | 4/4 | - |
-| 12 | **dust** | **31.1** | 49.2 | 18.6 | 32.9 | 391&nbsp;MB | 0.50% | S·Z | 7/7 | - |
-| 13 | **erdtree** | **30.0** | 48.7 | 18.3 | 30.4 | 910&nbsp;MB | 0.38% | S·F·Z | 6/6 | - |
-| 14 | **SpaceSniffer** | **20.3** | 33.3 | 8.7 | 28.6 | 553&nbsp;MB | n/a | IO | 2/2 | - |
-| 15 | **Sysinternals&nbsp;du** | **8.4** | 16.3 | 3.0 | 12.3 | 57&nbsp;MB | 0.86% | S·F·Z | 3/3 | - |
+| # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | 冷⁠扫<br>Cold | 热⁠扫<br>Warm | 均⁠衡<br>Balanced | 内⁠存<br>RAM | 误⁠差<br>Error | 核⁠验<br>Check | 平⁠台<br>Platforms |
+| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: |
+| 🥇 | **SpaceKnife** | **88.3** | 82.2 | 92.5 | 90.5 | 246&nbsp;MB | 0.67% | S·F·Z | 7/7 |
+| 🥈 | **SquirrelDisk** | **82.6** | 84.1 | 79.5 | 84.4 | 31&nbsp;MB | 0.81% | S·F·Z | 5/5 |
+| 🥉 | **dua‑cli** | **62.6** | 77.4 | 50.9 | 62.4 | 52&nbsp;MB | 0.00% | S·Z | 7/7 |
+| 4 | **gdu** | **58.1** | 51.4 | 61.3 | 62.1 | 48&nbsp;MB | 0.58% | S·Z | 7/7 |
+| 5 | **WizTree** | **54.5** | 74.6 | 36.9 | 58.7 | 518&nbsp;MB | 0.58% | S·F·Z | 2/2 |
+| 6 | **WinDirStat** | **47.1** | 100.0 | 22.3 | 47.0 | 247&nbsp;MB | 0.58% | S·F·Z | 3/3 |
+| 7 | **BSD&nbsp;du** | **41.5** | 33.5 | 33.7 | 63.2 | 472&nbsp;MB | 17.48% | S·Z | 2/2 |
+| 8 | **GNU&nbsp;du** | **40.8** | 28.6 | 37.4 | 63.4 | 9&nbsp;MB | 0.00% | S·Z | 2/2 |
+| 9 | **diskus** | **39.7** | 54.6 | 29.2 | 39.1 | 27&nbsp;MB | 0.58% | S | 7/7 |
+| 10 | **pdu** | **39.4** | 53.4 | 27.9 | 41.0 | 50&nbsp;MB | 0.58% | S·Z | 7/7 |
+| 11 | **ncdu** | **33.6** | 25.2 | 29.0 | 52.0 | 212&nbsp;MB | 0.00% | S·F·Z | 4/4 |
+| 12 | **dust** | **31.1** | 49.2 | 18.6 | 32.9 | 391&nbsp;MB | 0.50% | S·Z | 7/7 |
+| 13 | **erdtree** | **30.0** | 48.7 | 18.3 | 30.4 | 910&nbsp;MB | 0.38% | S·F·Z | 6/6 |
+| 14 | **SpaceSniffer** | **20.3** | 33.3 | 8.7 | 28.6 | 553&nbsp;MB | n/a | IO | 2/2 |
+| 15 | **Sysinternals&nbsp;du** | **8.4** | 16.3 | 3.0 | 12.3 | 57&nbsp;MB | 0.86% | S·F·Z | 3/3 |
 
 单项第一 · Category winners：**冷扫 Cold** WinDirStat (100.0) · **热扫 Warm** SpaceKnife (92.5) · **均衡 Balanced** SpaceKnife (90.5) · **最省内存 Least RAM** GNU du (9 MB) · **最准 Most accurate** dua-cli (±0.00%)
 
@@ -114,30 +114,30 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | **SpaceSniffer** | #10<br>90.2&nbsp;/&nbsp;33.8 | — | #8<br>40.9&nbsp;/&nbsp;13.2 |
 | **Sysinternals&nbsp;du** | #12<br>158&nbsp;/&nbsp;70.3 | #8<br>205&nbsp;/&nbsp;63.6 | #12<br>77.4&nbsp;/&nbsp;48.0 |
 
-<sub>表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · 夺冠 Wins = 拿第一的平台数 platforms won · 核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · IO = 只有 I/O 次数（图形界面工具没有输出 / GUI tool without output）。<br><br>各平台表格：名次，下一行 冷扫 / 热扫 秒 · Per platform: rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 不支持 not supported。<br><br>计分：每个平台内先算相对分，冷扫/热扫 = 该平台最快用时 ÷ 本扫描器用时 × 100，均衡指数 = 本扫描器均衡指数 ÷ 该平台最高 × 100（冷热两次取几何平均）。跨平台取几何平均，各平台硬件快慢在平台内就约掉了。综合分 = 冷扫、热扫、均衡指数三项的几何平均。峰值内存和大小误差取各有效平台的中位数（误差取绝对值）。只计有效成绩：违规、无效、无法运行的平台不计入，但在名次表里标出；—表示该平台不支持或没有原生版本。名次表按该平台三项相对分的几何平均排名。<br><br>缺平台不扣分、也不加分：每个工具只在它能运行的平台上算分，相当于把它没参加的平台按它自己的平均分补上。所以平台多的工具不会因为参赛平台多而更容易刷高分，只有 Windows 版的工具也不会因为缺 Linux、macOS 被扣分。要注意的是，平台少的工具只和别人比了它能跑的那几个平台，它在其他系统上表现如何，榜单反映不出来；覆盖面看有效平台数。<br><br>Scoring: within each platform a scanner gets relative scores first: cold / warm = the platform's fastest time / the scanner's time x 100, balanced = the scanner's balanced index / the platform's best x 100 (geometric mean of cold and warm). Across platforms the scores are combined by geometric mean, so each runner's hardware speed cancels out inside its own platform. Score = geometric mean of cold, warm and balanced. Peak RAM and size error are medians over the valid platforms (absolute error). Only valid results count; disqualified, invalid and unrunnable platforms are left out but marked in the per-platform table, and — means not supported or no native build.<br><br>Missing platforms neither cost nor earn points: a scanner is scored only on the platforms it runs on, which is the same as filling every missing platform with its own average. Running on more platforms therefore does not make a high score easier, and a Windows-only tool is not marked down for lacking Linux or macOS. The flip side: a tool with few platforms was only compared where it runs, which the Platforms column shows.<br><br>Win ARM64 没有 ReFS 对照任务，那一列的成绩没有经过 NTFS/ReFS 跨文件系统（MFT 逃逸）核查。<br><br>Win ARM64 has no ReFS counterpart, so its column is not cross-checked for MFT escapes.</sub>
+<sub>表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · 核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · IO = 只有 I/O 次数（图形界面工具没有输出 / GUI tool without output）。<br><br>各平台表格：名次，下一行 冷扫 / 热扫 秒 · Per platform: rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 不支持 not supported。<br><br>计分：每个平台内先算相对分，冷扫/热扫 = 该平台最快用时 ÷ 本扫描器用时 × 100，均衡指数 = 本扫描器均衡指数 ÷ 该平台最高 × 100（冷热两次取几何平均）。跨平台取几何平均，各平台硬件快慢在平台内就约掉了。综合分 = 冷扫、热扫、均衡指数三项的几何平均。峰值内存和大小误差取各有效平台的中位数（误差取绝对值）。只计有效成绩：违规、无效、无法运行的平台不计入，但在名次表里标出；—表示该平台不支持或没有原生版本。名次表按该平台三项相对分的几何平均排名。<br><br>缺平台不扣分、也不加分：每个工具只在它能运行的平台上算分，相当于把它没参加的平台按它自己的平均分补上。所以平台多的工具不会因为参赛平台多而更容易刷高分，只有 Windows 版的工具也不会因为缺 Linux、macOS 被扣分。要注意的是，平台少的工具只和别人比了它能跑的那几个平台，它在其他系统上表现如何，榜单反映不出来；覆盖面看有效平台数。<br><br>Scoring: within each platform a scanner gets relative scores first: cold / warm = the platform's fastest time / the scanner's time x 100, balanced = the scanner's balanced index / the platform's best x 100 (geometric mean of cold and warm). Across platforms the scores are combined by geometric mean, so each runner's hardware speed cancels out inside its own platform. Score = geometric mean of cold, warm and balanced. Peak RAM and size error are medians over the valid platforms (absolute error). Only valid results count; disqualified, invalid and unrunnable platforms are left out but marked in the per-platform table, and — means not supported or no native build.<br><br>Missing platforms neither cost nor earn points: a scanner is scored only on the platforms it runs on, which is the same as filling every missing platform with its own average. Running on more platforms therefore does not make a high score easier, and a Windows-only tool is not marked down for lacking Linux or macOS. The flip side: a tool with few platforms was only compared where it runs, which the Platforms column shows.<br><br>Win ARM64 没有 ReFS 对照任务，那一列的成绩没有经过 NTFS/ReFS 跨文件系统（MFT 逃逸）核查。<br><br>Win ARM64 has no ReFS counterpart, so its column is not cross-checked for MFT escapes.</sub>
 
 </details>
 
 <details>
 <summary><b>very-lite</b> · 10 万文件 · 100k files · 2026-10-25 · <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40217165966">run 40217165966</a> · <code>6d7ac1c</code> · 仅供参考 reference only</summary>
 
-| 名⁠次<br>Rank | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | 冷⁠扫<br>Cold | 热⁠扫<br>Warm | 均⁠衡<br>Balanced | 内⁠存<br>RAM | 误⁠差<br>Error | 核⁠验<br>Check | 平⁠台<br>Platforms | 夺⁠冠<br>Wins |
-| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: | :---: |
-| 🥇 | **SquirrelDisk** | **86.8** | 82.8 | 84.9 | 93.1 | 12&nbsp;MB | 2.02% | S·F·Z | 9/9 | 3 |
-| 🥈 | **gdu** | **72.2** | 66.9 | 75.5 | 74.6 | 26&nbsp;MB | 0.10% | S·Z | 11/14 | 5 |
-| 🥉 | **diskus** | **61.3** | 74.2 | 52.0 | 59.6 | 11&nbsp;MB | 0.15% | S | 14/14 | 5 |
-| 4 | **BSD&nbsp;du** | **60.5** | 57.2 | 51.6 | 75.2 | 71&nbsp;MB | 2.78% | S·Z | 2/2 | - |
-| 5 | **pdu** | **54.6** | 57.5 | 49.4 | 57.3 | 9&nbsp;MB | 0.15% | S·Z | 14/14 | - |
-| 6 | **SpaceKnife** | **53.9** | 54.2 | 44.3 | 65.3 | 71&nbsp;MB | 0.04% | S·F·Z | 14/14 | - |
-| 7 | **dua‑cli** | **49.6** | 63.8 | 37.2 | 51.4 | 6&nbsp;MB | 0.00% | S·Z | 14/14 | 1 |
-| 8 | **WinDirStat** | **48.3** | 92.3 | 24.8 | 49.2 | 71&nbsp;MB | 0.31% | S·F·Z | 4/4 | - |
-| 9 | **WizTree** | **46.0** | 66.3 | 28.6 | 51.5 | 95&nbsp;MB | 0.31% | S·F·Z | 3/3 | - |
-| 10 | **GNU&nbsp;du** | **42.7** | 24.6 | 45.5 | 69.5 | 5&nbsp;MB | 0.00% | S·Z | 8/8 | - |
-| 11 | **ncdu** | **41.4** | 25.3 | 43.3 | 64.5 | 3&nbsp;MB | 0.00% | S·F·Z | 10/10 | - |
-| 12 | **dust** | **35.3** | 48.8 | 24.0 | 37.7 | 41&nbsp;MB | 0.77% | S·Z | 14/14 | - |
-| 13 | **erdtree** | **29.2** | 40.4 | 20.1 | 30.6 | 90&nbsp;MB | 0.04% | S·F·Z | 10/13 | - |
-| 14 | **SpaceSniffer** | **23.3** | 39.4 | 9.8 | 33.1 | 86&nbsp;MB | n/a | IO | 3/3 | - |
-| 15 | **Sysinternals&nbsp;du** | **12.0** | 19.9 | 5.2 | 16.9 | 13&nbsp;MB | 0.33% | S·F·Z | 4/4 | - |
+| # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | 冷⁠扫<br>Cold | 热⁠扫<br>Warm | 均⁠衡<br>Balanced | 内⁠存<br>RAM | 误⁠差<br>Error | 核⁠验<br>Check | 平⁠台<br>Platforms |
+| :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: |
+| 🥇 | **SquirrelDisk** | **86.8** | 82.8 | 84.9 | 93.1 | 12&nbsp;MB | 2.02% | S·F·Z | 9/9 |
+| 🥈 | **gdu** | **72.2** | 66.9 | 75.5 | 74.6 | 26&nbsp;MB | 0.10% | S·Z | 11/14 |
+| 🥉 | **diskus** | **61.3** | 74.2 | 52.0 | 59.6 | 11&nbsp;MB | 0.15% | S | 14/14 |
+| 4 | **BSD&nbsp;du** | **60.5** | 57.2 | 51.6 | 75.2 | 71&nbsp;MB | 2.78% | S·Z | 2/2 |
+| 5 | **pdu** | **54.6** | 57.5 | 49.4 | 57.3 | 9&nbsp;MB | 0.15% | S·Z | 14/14 |
+| 6 | **SpaceKnife** | **53.9** | 54.2 | 44.3 | 65.3 | 71&nbsp;MB | 0.04% | S·F·Z | 14/14 |
+| 7 | **dua‑cli** | **49.6** | 63.8 | 37.2 | 51.4 | 6&nbsp;MB | 0.00% | S·Z | 14/14 |
+| 8 | **WinDirStat** | **48.3** | 92.3 | 24.8 | 49.2 | 71&nbsp;MB | 0.31% | S·F·Z | 4/4 |
+| 9 | **WizTree** | **46.0** | 66.3 | 28.6 | 51.5 | 95&nbsp;MB | 0.31% | S·F·Z | 3/3 |
+| 10 | **GNU&nbsp;du** | **42.7** | 24.6 | 45.5 | 69.5 | 5&nbsp;MB | 0.00% | S·Z | 8/8 |
+| 11 | **ncdu** | **41.4** | 25.3 | 43.3 | 64.5 | 3&nbsp;MB | 0.00% | S·F·Z | 10/10 |
+| 12 | **dust** | **35.3** | 48.8 | 24.0 | 37.7 | 41&nbsp;MB | 0.77% | S·Z | 14/14 |
+| 13 | **erdtree** | **29.2** | 40.4 | 20.1 | 30.6 | 90&nbsp;MB | 0.04% | S·F·Z | 10/13 |
+| 14 | **SpaceSniffer** | **23.3** | 39.4 | 9.8 | 33.1 | 86&nbsp;MB | n/a | IO | 3/3 |
+| 15 | **Sysinternals&nbsp;du** | **12.0** | 19.9 | 5.2 | 16.9 | 13&nbsp;MB | 0.33% | S·F·Z | 4/4 |
 
 单项第一 · Category winners：**冷扫 Cold** WinDirStat (92.3) · **热扫 Warm** SquirrelDisk (84.9) · **均衡 Balanced** SquirrelDisk (93.1) · **最省内存 Least RAM** ncdu (3 MB) · **最准 Most accurate** dua-cli (±0.00%)
 
@@ -204,7 +204,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | **SpaceSniffer** | #10<br>4.88&nbsp;/&nbsp;2.50 | — | #10<br>3.83&nbsp;/&nbsp;2.63 | #9<br>3.79&nbsp;/&nbsp;1.91 |
 | **Sysinternals&nbsp;du** | #12<br>9.05&nbsp;/&nbsp;4.61 | #8<br>22.0&nbsp;/&nbsp;6.52 | #11<br>7.62&nbsp;/&nbsp;3.67 | #12<br>5.82&nbsp;/&nbsp;3.37 |
 
-<sub>表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · 夺冠 Wins = 拿第一的平台数 platforms won · 核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · IO = 只有 I/O 次数（图形界面工具没有输出 / GUI tool without output）。<br><br>各平台表格：名次，下一行 冷扫 / 热扫 秒 · Per platform: rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 不支持 not supported。<br><br>计分：每个平台内先算相对分，冷扫/热扫 = 该平台最快用时 ÷ 本扫描器用时 × 100，均衡指数 = 本扫描器均衡指数 ÷ 该平台最高 × 100（冷热两次取几何平均）。跨平台取几何平均，各平台硬件快慢在平台内就约掉了。综合分 = 冷扫、热扫、均衡指数三项的几何平均。峰值内存和大小误差取各有效平台的中位数（误差取绝对值）。只计有效成绩：违规、无效、无法运行的平台不计入，但在名次表里标出；—表示该平台不支持或没有原生版本。名次表按该平台三项相对分的几何平均排名。<br><br>缺平台不扣分、也不加分：每个工具只在它能运行的平台上算分，相当于把它没参加的平台按它自己的平均分补上。所以平台多的工具不会因为参赛平台多而更容易刷高分，只有 Windows 版的工具也不会因为缺 Linux、macOS 被扣分。要注意的是，平台少的工具只和别人比了它能跑的那几个平台，它在其他系统上表现如何，榜单反映不出来；覆盖面看有效平台数。<br><br>Scoring: within each platform a scanner gets relative scores first: cold / warm = the platform's fastest time / the scanner's time x 100, balanced = the scanner's balanced index / the platform's best x 100 (geometric mean of cold and warm). Across platforms the scores are combined by geometric mean, so each runner's hardware speed cancels out inside its own platform. Score = geometric mean of cold, warm and balanced. Peak RAM and size error are medians over the valid platforms (absolute error). Only valid results count; disqualified, invalid and unrunnable platforms are left out but marked in the per-platform table, and — means not supported or no native build.<br><br>Missing platforms neither cost nor earn points: a scanner is scored only on the platforms it runs on, which is the same as filling every missing platform with its own average. Running on more platforms therefore does not make a high score easier, and a Windows-only tool is not marked down for lacking Linux or macOS. The flip side: a tool with few platforms was only compared where it runs, which the Platforms column shows.<br><br>Win ARM64 没有 ReFS 对照任务，那一列的成绩没有经过 NTFS/ReFS 跨文件系统（MFT 逃逸）核查。<br><br>Win ARM64 has no ReFS counterpart, so its column is not cross-checked for MFT escapes.</sub>
+<sub>表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · 核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · IO = 只有 I/O 次数（图形界面工具没有输出 / GUI tool without output）。<br><br>各平台表格：名次，下一行 冷扫 / 热扫 秒 · Per platform: rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 不支持 not supported。<br><br>计分：每个平台内先算相对分，冷扫/热扫 = 该平台最快用时 ÷ 本扫描器用时 × 100，均衡指数 = 本扫描器均衡指数 ÷ 该平台最高 × 100（冷热两次取几何平均）。跨平台取几何平均，各平台硬件快慢在平台内就约掉了。综合分 = 冷扫、热扫、均衡指数三项的几何平均。峰值内存和大小误差取各有效平台的中位数（误差取绝对值）。只计有效成绩：违规、无效、无法运行的平台不计入，但在名次表里标出；—表示该平台不支持或没有原生版本。名次表按该平台三项相对分的几何平均排名。<br><br>缺平台不扣分、也不加分：每个工具只在它能运行的平台上算分，相当于把它没参加的平台按它自己的平均分补上。所以平台多的工具不会因为参赛平台多而更容易刷高分，只有 Windows 版的工具也不会因为缺 Linux、macOS 被扣分。要注意的是，平台少的工具只和别人比了它能跑的那几个平台，它在其他系统上表现如何，榜单反映不出来；覆盖面看有效平台数。<br><br>Scoring: within each platform a scanner gets relative scores first: cold / warm = the platform's fastest time / the scanner's time x 100, balanced = the scanner's balanced index / the platform's best x 100 (geometric mean of cold and warm). Across platforms the scores are combined by geometric mean, so each runner's hardware speed cancels out inside its own platform. Score = geometric mean of cold, warm and balanced. Peak RAM and size error are medians over the valid platforms (absolute error). Only valid results count; disqualified, invalid and unrunnable platforms are left out but marked in the per-platform table, and — means not supported or no native build.<br><br>Missing platforms neither cost nor earn points: a scanner is scored only on the platforms it runs on, which is the same as filling every missing platform with its own average. Running on more platforms therefore does not make a high score easier, and a Windows-only tool is not marked down for lacking Linux or macOS. The flip side: a tool with few platforms was only compared where it runs, which the Platforms column shows.<br><br>Win ARM64 没有 ReFS 对照任务，那一列的成绩没有经过 NTFS/ReFS 跨文件系统（MFT 逃逸）核查。<br><br>Win ARM64 has no ReFS counterpart, so its column is not cross-checked for MFT escapes.</sub>
 
 </details>
 
@@ -281,10 +281,10 @@ Generated from [`scanners_registry.json`](scripts/wrappers/scanners_registry.jso
 | **WizTree** | <code>4.33</code> | Windows | `x86_64` | apparent | 命令行 CLI；参加 MFT 专栏 · in the MFT column |
 | **SpaceSniffer** | <code>2.2.0.27</code> | Windows | `x86_64` | apparent | 图形界面 GUI |
 | **WinDirStat** | <code>2.9.3</code> | Windows | `x86_64`<br>`aarch64` | apparent | 命令行 CLI；参加 MFT 专栏 · in the MFT column |
-| **SpaceKnife** | <code>0.3.3&nbsp;dev‑38c3b73</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI；参加 MFT 专栏 · in the MFT column |
+| **SpaceKnife** | <code>0.3.3</code><br><code>dev‑38c3b73</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI；参加 MFT 专栏 · in the MFT column |
 | **SquirrelDisk** | <code>2.6.1</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI |
-| **GNU&nbsp;du** | <code>coreutils&nbsp;9.4</code> | Linux | `x86_64`<br>`aarch64` | allocated | 命令行 CLI<br>系统基线：单线程，硬链接只算一次，计入目录块<br>System baseline: single-threaded, hard links counted once, directory blocks included |
-| **BSD&nbsp;du** | <code>macOS&nbsp;system&nbsp;/usr/bin/du</code> | macOS | `x86_64`<br>`aarch64` | allocated | 命令行 CLI<br>系统基线：单线程，硬链接只算一次，精度为 KiB<br>System baseline: single-threaded, hard links counted once, KiB granularity |
+| **GNU&nbsp;du** | <code>coreutils</code><br><code>9.4</code> | Linux | `x86_64`<br>`aarch64` | allocated | 命令行 CLI<br>系统基线：单线程，硬链接只算一次，计入目录块<br>System baseline: single-threaded, hard links counted once, directory blocks included |
+| **BSD&nbsp;du** | <code>macOS</code><br><code>system</code><br><code>/usr/bin/du</code> | macOS | `x86_64`<br>`aarch64` | allocated | 命令行 CLI<br>系统基线：单线程，硬链接只算一次，精度为 KiB<br>System baseline: single-threaded, hard links counted once, KiB granularity |
 | **Sysinternals&nbsp;du** | <code>1.62</code> | Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI<br>微软 Sysinternals 出品；单线程；CSV 同时给出大小和实际占用<br>Microsoft Sysinternals; single-threaded; its CSV gives both size and size on disk |
 | **pdu** | <code>0.24.0</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated<br>(Windows:&nbsp;apparent) | 命令行 CLI<br>parallel-disk-usage；用 --threads=max，因为默认的 auto 把虚拟盘误判成机械盘时会降到 1 线程；硬链接去重（-H）和块大小只在 Unix 上有<br>parallel-disk-usage; run with --threads=max because the default 'auto' drops to 1 thread on disks it takes for HDDs; hard-link dedupe (-H) and block sizes exist on Unix only |
 | **diskus** | <code>0.9.0</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated<br>(Windows:&nbsp;apparent) | 命令行 CLI<br>只输出总大小；默认线程数为核数 × 3；Windows 版只报逻辑大小<br>Prints only the total; 3 threads per core by default; the Windows build reports logical sizes |

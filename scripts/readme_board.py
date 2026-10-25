@@ -145,7 +145,7 @@ def render_section(
 
     # Across sizes: no badge column, so the table stays narrow and nothing wraps inside a cell
     present = [p for p in PRESETS if p in standard]
-    heads = [head("名次", "Rank", True), head("扫描器", "Scanner", True), head("**综合分**", "**Score**", True)]
+    heads = ["#", head("扫描器", "Scanner", True), head("**综合分**", "**Score**", True)]
     heads += [preset_head(p) for p in present]
     lines += [
         "### 跨体量总榜 · Overall across sizes",
@@ -325,7 +325,8 @@ def render_scanners(registry: Path) -> List[str]:
         cell = "<br>".join([mode] + notes)
         name = nobreak(s.get("display_name", s["name"]))
         version = str(s["version"]).split(" (")[0]  # long build notes stay in the registry
-        lines.append(f"| **{name}** | <code>{nobreak(version)}</code> | {oses} | {arches} | {metric} | {cell} |")
+        version_cell = "<br>".join(f"<code>{nobreak(part)}</code>" for part in version.split())
+        lines.append(f"| **{name}** | {version_cell} | {oses} | {arches} | {metric} | {cell} |")
     off = [s.get("display_name", s["name"]) for s in data["scanners"] if not s.get("enabled", True)]
     if off:
         lines += [
