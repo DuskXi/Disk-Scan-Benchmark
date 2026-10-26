@@ -614,7 +614,13 @@ def render_run_summary(p: Dict[str, Any], title_preset: str) -> str:
     lines += [info + "。各平台的完整报告在本总榜下方。", ""]
     if p["missing_platforms"]:
         names = "、".join(platform_title(lbl) for lbl in p["missing_platforms"])
-        lines += [f"> [!WARNING]\n> 以下平台没有产出结果，未计入总榜：{names}", ""]
+        warning = [f"> [!WARNING]\n> 以下平台没有产出结果，未计入总榜：{names}。"]
+        if "windows-x86_64-refs" in p["missing_platforms"] and "windows-x86_64" in p["platforms"]:
+            warning.append(
+                "> 没有 ReFS 成绩，Win x64 NTFS 的成绩没有经过 NTFS/ReFS 交叉核查（MFT 逃逸），只能当作未核查的参考。"
+            )
+        warning.append("> 缺少核心平台的运行只出现在这份运行总结里，不会发布到 README 榜单。")
+        lines += ["\n".join(warning), ""]
     lines += render_overall_table(p) + [""] + render_kings(p)
     lines += ["", "### 各平台名次（冷扫 / 热扫 秒）", ""] + render_matrix(p)
     lines += ["", "### 平台概况", ""] + render_platforms(p)
