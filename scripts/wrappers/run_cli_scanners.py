@@ -940,7 +940,11 @@ def run_monitored_cli(
 
 
 def _windows_purge_standby() -> bool:
-    """Flush modified pages and empty the standby list (what RAMMap's "Empty Standby List" does); needs admin."""
+    """
+    Evicts the file cache the way RAMMap's "Empty System Working Set" + "Empty Standby List" do: trims the system file
+    cache working set (where NTFS keeps the $MFT and directory index pages it is using), flushes modified pages and
+    purges the standby list. Needs an elevated token; prints the step that failed.
+    """
     try:
         from ctypes import wintypes
 
@@ -954,24 +958,61 @@ def _windows_purge_standby() -> bool:
         class TOKEN_PRIVILEGES(ctypes.Structure):
             _fields_ = [("PrivilegeCount", wintypes.DWORD), ("Luid", LUID), ("Attributes", wintypes.DWORD)]
 
+        # Without explicit types ctypes passes handles and sizes as 32-bit ints: the -1 pseudo-handle of the current
+        # process and the (SIZE_T)-1 cache limits would arrive truncated on 64-bit Windows.
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.SetSystemFileCacheSize.argtypes = [ctypes.c_size_t, ctypes.c_size_t, wintypes.DWORD]
+        kernel32.SetSystemFileCacheSize.restype = wintypes.BOOL
+        advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+        advapi32.OpenProcessToken.restype = wintypes.BOOL
+        advapi32.LookupPrivilegeValueW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, ctypes.POINTER(LUID)]
+        advapi32.LookupPrivilegeValueW.restype = wintypes.BOOL
+        advapi32.AdjustTokenPrivileges.argtypes = [
+            wintypes.HANDLE,
+            wintypes.BOOL,
+            ctypes.POINTER(TOKEN_PRIVILEGES),
+            wintypes.DWORD,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        advapi32.AdjustTokenPrivileges.restype = wintypes.BOOL
+        ntdll.NtSetSystemInformation.argtypes = [ctypes.c_int, ctypes.c_void_p, wintypes.ULONG]
+        ntdll.NtSetSystemInformation.restype = wintypes.LONG
+
+        def fail(step: str, code: int) -> bool:
+            print(f"[purge] {step} failed ({code:#x})", file=sys.stderr, flush=True)
+            return False
+
         token = wintypes.HANDLE()
         # TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY
         if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x20 | 0x8, ctypes.byref(token)):
-            return False
-        luid = LUID()
-        if not advapi32.LookupPrivilegeValueW(None, "SeProfileSingleProcessPrivilege", ctypes.byref(luid)):
-            return False
-        tp = TOKEN_PRIVILEGES(1, luid, 0x2)  # SE_PRIVILEGE_ENABLED
-        advapi32.AdjustTokenPrivileges(token, False, ctypes.byref(tp), 0, None, None)
-        if ctypes.get_last_error() != 0:  # ERROR_NOT_ALL_ASSIGNED: not elevated
-            return False
-        ok = True
-        for command in (3, 4):  # MemoryFlushModifiedList, MemoryPurgeStandbyList
+            return fail("OpenProcessToken", ctypes.get_last_error())  # type: ignore[attr-defined]
+        try:
+            # SeIncreaseQuotaPrivilege: SetSystemFileCacheSize; SeProfileSingleProcessPrivilege: the memory lists
+            for privilege in ("SeIncreaseQuotaPrivilege", "SeProfileSingleProcessPrivilege"):
+                luid = LUID()
+                if not advapi32.LookupPrivilegeValueW(None, privilege, ctypes.byref(luid)):
+                    return fail(f"LookupPrivilegeValue {privilege}", ctypes.get_last_error())  # type: ignore
+                tp = TOKEN_PRIVILEGES(1, luid, 0x2)  # SE_PRIVILEGE_ENABLED
+                advapi32.AdjustTokenPrivileges(token, False, ctypes.byref(tp), 0, None, None)
+                err = ctypes.get_last_error()  # type: ignore[attr-defined]
+                if err != 0:  # ERROR_NOT_ALL_ASSIGNED (0x514): not elevated
+                    return fail(f"enable {privilege}", err)
+        finally:
+            kernel32.CloseHandle(token)
+
+        # (SIZE_T)-1 for both limits empties the system file cache working set: its pages go to the standby list
+        unlimited = ctypes.c_size_t(-1).value
+        if not kernel32.SetSystemFileCacheSize(unlimited, unlimited, 0):
+            return fail("SetSystemFileCacheSize (empty the system working set)", ctypes.get_last_error())  # type: ignore
+        for command, name in ((3, "MemoryFlushModifiedList"), (4, "MemoryPurgeStandbyList")):
             cmd = ctypes.c_int(command)
-            # SystemMemoryListInformation = 80
-            ok = ntdll.NtSetSystemInformation(80, ctypes.byref(cmd), ctypes.sizeof(cmd)) == 0 and ok
-        return ok
-    except (AttributeError, OSError):
+            status = ntdll.NtSetSystemInformation(80, ctypes.byref(cmd), ctypes.sizeof(cmd))  # SystemMemoryListInfo
+            if status != 0:
+                return fail(name, status & 0xFFFFFFFF)
+        return True
+    except (AttributeError, OSError) as exc:
+        print(f"[purge] {exc}", file=sys.stderr, flush=True)
         return False
 
 
