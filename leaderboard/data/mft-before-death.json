@@ -1,0 +1,145 @@
+{
+ "meta": {
+  "kind": "mft",
+  "preset": "before-death",
+  "run_id": "40243034921",
+  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40243034921",
+  "sha": "38e6704ce8206551a8026b5e3d72462b9ac2f2f0",
+  "date": "2026-10-26"
+ },
+ "payload": {
+  "schema": 2,
+  "preset": "before-death",
+  "sha": "38e6704ce8206551a8026b5e3d72462b9ac2f2f0",
+  "files": 14000006,
+  "dirs": 1694170,
+  "aged_timeline": true,
+  "platforms": [
+   "windows-x86_64-mft"
+  ],
+  "platform_info": {
+   "windows-x86_64-mft": {
+    "title": "Win x64 (NTFS · MFT)",
+    "cores": 4,
+    "iops": 13930.20171994682,
+    "cpu_ms": 72.3448,
+    "ok": 3,
+    "tried": 3,
+    "fastest_cold": "spaceknife",
+    "fastest_warm": "spaceknife"
+   }
+  },
+  "missing_platforms": [],
+  "scanners": {
+   "spaceknife": {
+    "name": "SpaceKnife",
+    "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)"
+   },
+   "wiztree": {
+    "name": "WizTree",
+    "version": "4.33"
+   },
+   "windirstat": {
+    "name": "WinDirStat",
+    "version": "2.9.3"
+   }
+  },
+  "per_platform": {
+   "windows-x86_64-mft": {
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 31.168380000000003,
+     "warm_s": 31.061880000000002,
+     "cold_rel": 100.0,
+     "warm_rel": 100.0,
+     "index_rel": 100.0,
+     "platform_score": 100.00000000000004,
+     "rss_mb": 3643.11,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": -0.31,
+     "rank": 1
+    },
+    "wiztree": {
+     "status": "ok",
+     "cold_s": 78.21522,
+     "warm_s": 76.93913,
+     "cold_rel": 39.84950755108788,
+     "warm_rel": 40.37201876340426,
+     "index_rel": 21.96094654239603,
+     "platform_score": 32.81341969712533,
+     "rss_mb": 7491.0,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": 1.21,
+     "rank": 3
+    },
+    "windirstat": {
+     "status": "ok",
+     "cold_s": 83.54928,
+     "warm_s": 78.27933,
+     "cold_rel": 37.30538431929036,
+     "warm_rel": 39.6808199559194,
+     "index_rel": 25.24927111822351,
+     "platform_score": 33.434923506963976,
+     "rss_mb": 6048.85,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": 1.21,
+     "rank": 2
+    }
+   }
+  },
+  "overall": [
+   {
+    "id": "spaceknife",
+    "scanner": "SpaceKnife",
+    "version": "0.3.3 dev-38c3b73 (runs 40188287823, 40188287831)",
+    "overall": 100.00000000000004,
+    "cold": 100.00000000000004,
+    "warm": 100.00000000000004,
+    "index": 100.00000000000004,
+    "rss_mb": 3643.11,
+    "abs_acc_pct": 0.31,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 1,
+    "rank": 1
+   },
+   {
+    "id": "windirstat",
+    "scanner": "WinDirStat",
+    "version": "2.9.3",
+    "overall": 33.434923506963976,
+    "cold": 37.305384319290354,
+    "warm": 39.68081995591939,
+    "index": 25.24927111822351,
+    "rss_mb": 6048.85,
+    "abs_acc_pct": 1.21,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 2
+   },
+   {
+    "id": "wiztree",
+    "scanner": "WizTree",
+    "version": "4.33",
+    "overall": 32.81341969712533,
+    "cold": 39.84950755108788,
+    "warm": 40.372018763404256,
+    "index": 21.96094654239603,
+    "rss_mb": 7491.0,
+    "abs_acc_pct": 1.21,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 3
+   }
+  ],
+  "unranked": []
+ }
+}
