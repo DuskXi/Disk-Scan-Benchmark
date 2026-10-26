@@ -110,9 +110,13 @@ jobs:
             GEN="--preset ${{ inputs.preset }} --max-physical-mb 1500"
             CAP=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb 60)
           fi
+          # logical_gb only shrinks the media zone: the other zones of 1M files still add up to ~106 GiB, so size the
+          # VHDX from the planned tree itself (a dynamic VHDX only grows with what is written)
+          APPARENT=$(./target/release/fs-mirage --root "$RUNNER_TEMP/plan" --seed 42 $GEN --plan-only | sed -n 's/.*apparent_gib=\([0-9.]*\).*/\1/p')
+          CAP=$(python -c "import math; print(max($CAP, math.ceil(float('${APPARENT:-0}') * 1.15) + 20))")
           echo "GEN_ARGS=$GEN" >> "$GITHUB_ENV"
           echo "VDISK_GB=$CAP" >> "$GITHUB_ENV"
-          echo "fs-mirage $GEN | VHDX capacity $CAP GiB"
+          echo "fs-mirage $GEN | planned tree ${APPARENT:-?} GiB | VHDX capacity $CAP GiB"
 
       - name: Prepare The Volume (${{ matrix.backing }})
         shell: pwsh
