@@ -61,6 +61,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Each scanner's progress reaches the log as it happens: block-buffered output on a pipe was lost whenever a
+  # job hit its time limit, which left no trace of how far the scans had got
+  PYTHONUNBUFFERED: "1"
+
 jobs:
   mft-benchmark:
     name: "MFT Bench (windows-x86_64 NTFS | ${{ inputs.preset }})"
