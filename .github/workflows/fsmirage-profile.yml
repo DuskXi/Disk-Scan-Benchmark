@@ -75,10 +75,28 @@ jobs:
         run: |
           [ -n "$FSM_THREADS" ] || unset FSM_THREADS
           mkdir -p out
+          # every 30 s: free memory, file cache, paged pool, disk reads / writes per second, read latency
+          powershell -NoProfile -Command '
+            $c = "\Memory\Available MBytes", "\Memory\Cache Bytes", "\Memory\Pool Paged Bytes", "\Memory\Pool Nonpaged Bytes",
+                 "\PhysicalDisk(_Total)\Disk Reads/sec", "\PhysicalDisk(_Total)\Disk Writes/sec", "\PhysicalDisk(_Total)\Avg. Disk sec/Read",
+                 "\Processor(_Total)\% Processor Time"
+            $t0 = Get-Date
+            while ($true) {
+              $s = (Get-Counter -Counter $c -SampleInterval 1 -MaxSamples 1).CounterSamples
+              $v = @{}; foreach ($x in $s) { $v[$x.Path.Split("\")[-1]] = $x.CookedValue }
+              "{0,6:N0}s avail {1,6:N0} MB | cache {2,6:N0} MB | paged pool {3,6:N0} MB | nonpaged {4,5:N0} MB | reads/s {5,7:N0} | writes/s {6,7:N0} | read lat {7,6:N1} ms | cpu {8,4:N0}%" -f `
+                ((Get-Date) - $t0).TotalSeconds, $v["available mbytes"], ($v["cache bytes"] / 1MB), ($v["pool paged bytes"] / 1MB),
+                ($v["pool nonpaged bytes"] / 1MB), $v["disk reads/sec"], $v["disk writes/sec"], ($v["avg. disk sec/read"] * 1000), $v["% processor time"]
+              Start-Sleep -Seconds 29
+            }' > out/samples.txt 2>&1 &
+          sampler=$!
           start=$(date +%s)
           ./target/release/fs-mirage --root "X:/bench" --preset "${{ inputs.preset }}" --seed 42 \
             --max-physical-mb 1500 --manifest-out out/ground_truth.json
           echo "wall clock: $(( $(date +%s) - start )) s"
+          kill $sampler 2>/dev/null || true
+          echo "--- samples during generation ---"
+          cat out/samples.txt
           powershell -NoProfile -Command '$p = (Get-Content (Join-Path $env:TEMP "disk_scanner_bench_X.vhdpath") -Raw).Trim(); $v = Get-Volume -DriveLetter X; "VHDX {0:N1} GB physical | X: used {1:N1} of {2:N0} GB" -f ((Get-Item $p).Length / 1GB), (($v.Size - $v.SizeRemaining) / 1GB), ($v.Size / 1GB)'
 
       - name: Teardown
