@@ -693,9 +693,14 @@ jobs:
           path: results/
           retention-days: 30
 
-  benchmark-refs:
-    name: "Bench (windows-x86_64-refs | ${{ inputs.preset }})"
+  # ReFS is built and scanned in two jobs: generation on ReFS grows much faster than the tree (its CPU cost per file
+  # rises with the number of files on the volume: high took 2 h 41 min against 21 min on NTFS), and with the scans in
+  # the same job high ran past the 6-hour job limit. The finished disk is handed over as a VHDX, so each job gets its
+  # own 6 hours, and the scanning job starts on a cold, freshly attached volume.
+  build-refs:
+    name: "Build ReFS Volume (${{ inputs.preset }})"
     runs-on: windows-latest
+    timeout-minutes: 355
     env:
       LABEL: windows-x86_64-refs
     steps:
@@ -715,21 +720,9 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-${{ runner.arch }}
 
-      - name: Build Core Engines (fs-mirage & hw-probe)
+      - name: Build fs-mirage
         shell: bash
-        run: cargo build --release --workspace
-
-      - name: Cache Pinned Scanner Binaries
-        uses: actions/cache@v4
-        with:
-          path: bin
-          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
-
-      - name: Install Pinned Target Scanners
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+        run: cargo build --release -p fs-mirage
 
       - name: Resolve Virtual Disk Capacity
         shell: bash
@@ -744,17 +737,17 @@ jobs:
 
       # Preallocated like on NTFS, so both filesystems hold the same tree: with --no-prealloc the media and the
       # >=256 KiB files were sparse on ReFS only, and the NTFS-vs-ReFS cross-check compared two different trees. A plain
-      # SetEndOfFile on ReFS reserves clusters without writing zeros (verified locally and on the runner: very-lite
-      # allocated 102 GB with a 1.5 GB VHDX). ReFS generation grows much faster than linearly on the runner, so the
-      # timeout only guards against a real hang.
+      # SetEndOfFile on ReFS reserves clusters without writing zeros (very-lite allocated 102 GB with a 1.5 GB VHDX).
+      # 8 threads instead of fs-mirage's 32: ReFS keeps the runner's 4 cores busy, and on mid 8 threads built the tree
+      # fastest (1,069 s against 1,454 s with 32, 1,458 s with 4 and 1,473 s with 16).
       - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
         shell: bash
         env:
           # aged creation timeline (scattered MFT records, directory indexes grown in pieces); same final tree
           FSM_AGING: ${{ inputs.aging && '1' || '0' }}
-        timeout-minutes: 300
+          FSM_THREADS: "8"
         run: |
-          mkdir -p "results/$LABEL"
+          mkdir -p handoff
           EXTRA_ARGS=()
           if [ "${{ inputs.preset }}" = "custom" ]; then
             if [ -n "${{ inputs.files }}" ]; then
@@ -769,9 +762,74 @@ jobs:
             --preset "${{ inputs.preset }}" \
             --seed "${{ inputs.seed }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
-            --manifest-out "results/$LABEL/ground_truth.json" \
+            --manifest-out "handoff/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
           powershell -NoProfile -Command '$p = (Get-Content (Join-Path $env:TEMP "disk_scanner_bench_X.vhdpath") -Raw).Trim(); $v = Get-Volume -DriveLetter X; "ReFS after generation: VHDX {0:N1} GB physical | X: used {1:N1} of {2:N0} GB | D: free {3:N1} GB" -f ((Get-Item $p).Length / 1GB), (($v.Size - $v.SizeRemaining) / 1GB), ($v.Size / 1GB), ((Get-PSDrive D).Free / 1GB)' || true
+
+      - name: Detach The Volume For The Scanning Job
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 detach "X:/bench" "$env:GITHUB_WORKSPACE/handoff/refs.vhdx"
+
+      - name: Upload ReFS Volume
+        uses: actions/upload-artifact@v4
+        with:
+          name: refs-volume-${{ inputs.preset }}
+          path: handoff/
+          compression-level: 1
+          retention-days: 1
+
+  benchmark-refs:
+    name: "Bench (windows-x86_64-refs | ${{ inputs.preset }})"
+    needs: build-refs
+    runs-on: windows-latest
+    timeout-minutes: 355
+    env:
+      LABEL: windows-x86_64-refs
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build hw-probe
+        shell: bash
+        run: cargo build --release -p hw-probe
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: Download ReFS Volume
+        uses: actions/download-artifact@v4
+        with:
+          name: refs-volume-${{ inputs.preset }}
+          path: ${{ runner.temp }}/refs-volume
+
+      - name: Attach The ReFS Volume
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "results/$env:LABEL" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/refs-volume/ground_truth.json" "results/$env:LABEL/ground_truth.json"
+          ./scripts/disk-mgr/windows_vhd.ps1 attach "$env:RUNNER_TEMP/refs-volume/refs.vhdx" "X:/bench" refs
 
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
         shell: bash

@@ -4,14 +4,15 @@
 .DESCRIPTION
     Supports three subcommands:
       .\windows_vhd.ps1 create <size_gb> <mount_path> [ntfs|refs|btrfs]
-      .\windows_vhd.ps1 attach <vhdx_path> <mount_path> btrfs   (an image built elsewhere, e.g. btrfs_image.sh)
+      .\windows_vhd.ps1 attach <vhdx_path> <mount_path> btrfs|refs   (an image built elsewhere, e.g. btrfs_image.sh)
+      .\windows_vhd.ps1 detach <mount_path> <dest_path>   (flush, dismount and move the VHDX to dest_path, kept)
       .\windows_vhd.ps1 purge-cache <mount_path>
       .\windows_vhd.ps1 teardown <mount_path>
       .\windows_vhd.ps1 defender-on <mount_path>
 #>
 param(
     [Parameter(Mandatory=$true, Position=0)]
-    [ValidateSet("create", "attach", "purge-cache", "teardown", "defender-on")]
+    [ValidateSet("create", "attach", "detach", "purge-cache", "teardown", "defender-on")]
     [string]$Action,
 
     [Parameter(Position=1)]
@@ -252,6 +253,25 @@ assign letter=$DriveLetter
         Wait-BenchVolume $DriveLetter $FsName
         try { & fsutil behavior set disablelastaccess 1 | Out-Null } catch {}
         Write-Host "[windows_vhd] $FsName volume from $VhdPath mounted at ${DriveLetter}:\"
+    }
+
+    "detach" {
+        # The disk is handed to another job (ReFS: one job builds the tree, the next scans it): flush the volume,
+        # dismount the VHDX cleanly and move it to the destination, keeping it
+        $DriveLetter = Get-DriveLetterFromPath $Arg1
+        $VhdPath = Get-VhdPath $DriveLetter
+        $Dest = $Arg2
+        if (Get-Command Write-VolumeCache -ErrorAction SilentlyContinue) {
+            Write-VolumeCache -DriveLetter $DriveLetter -ErrorAction SilentlyContinue
+        }
+        if ($HasHyperVCmdlets) {
+            Dismount-VHD -Path $VhdPath
+        } else {
+            Invoke-DiskpartScript "select vdisk file=`"$VhdPath`"`r`ndetach vdisk`r`n"
+        }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Dest) | Out-Null
+        Move-Item -Path $VhdPath -Destination $Dest -Force
+        Write-Host "[windows_vhd] Detached ${DriveLetter}: and kept the image at $Dest ($([math]::Round((Get-Item $Dest).Length / 1GB, 2)) GB on disk)"
     }
 
     "purge-cache" {
