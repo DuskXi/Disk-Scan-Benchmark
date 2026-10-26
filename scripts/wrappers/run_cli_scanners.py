@@ -1876,9 +1876,15 @@ def main() -> int:
                         f"❌ INVALID: Incomplete traversal (top-level folder {zone} missing from the output)"
                     )
                     break
-                got = sample.get(zone_key) or sample.get("allocated_bytes") or sample.get("apparent_bytes")
+                # 0 is a reported size (on APFS a folder of files that were never written allocates nothing): only a
+                # missing number counts as unreported, so no `or` chain here
+                got = next(
+                    (sample[k] for k in (zone_key, "allocated_bytes", "apparent_bytes") if sample.get(k) is not None),
+                    None,
+                )
                 # manifests from before the files-only zone field fall back to the full allocation
-                want = int(ref.get(ref_zone_key) or ref.get("allocated_size_bytes", 0) or 0)
+                want_raw = ref.get(ref_zone_key)
+                want = int(want_raw if want_raw is not None else ref.get("allocated_size_bytes", 0) or 0)
                 if got is None:
                     # the folder's name shows up (e.g. in a largest-files list) but no size is reported for it
                     valid = False
