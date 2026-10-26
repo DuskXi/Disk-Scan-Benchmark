@@ -320,11 +320,18 @@ jobs:
       - name: Run All Platform Scanners Sequentially on Same Instance
         shell: bash
         run: |
+          # macOS x64 scans a mid tree in ~250 min and its warm scans are as slow as its cold ones: from high up one
+          # warm scan instead of three keeps the job inside the 6-hour limit
+          WARM_RUNS=3
+          if [ "${{ matrix.target_label == 'macos-x86_64' && contains(fromJSON('["high","very-high","before-death"]'), inputs.preset) }}" = "true" ]; then
+            WARM_RUNS=1
+          fi
           python ./scripts/wrappers/run_cli_scanners.py \
             --path "${{ matrix.mount_path }}" \
             --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
             --out "results/${{ matrix.target_label }}/raw_results.json" \
-            --bin-dir "./bin"
+            --bin-dir "./bin" \
+            --warm-runs "$WARM_RUNS"
 
       - name: Generate Normalized Report
         shell: bash
