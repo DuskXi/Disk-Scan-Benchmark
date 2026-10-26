@@ -12,7 +12,9 @@ run-name: "Scanner I/O profile ${{ inputs.preset }} | ${{ inputs.backings }}${{ 
 # backings to find one without that bias:
 #   vhdx    - the benchmark's dynamic VHDX, remounted before each cold scan (the control)
 #   folder  - a folder on the runner's physical data drive, OS-wide standby-list purge before each cold scan
-#   ramdisk - an NTFS RAM disk (ImDisk; x64 only): no storage latency at all, CPU and filesystem cost alone
+#   ramdisk - an NTFS RAM disk (ImDisk; x64 only): no storage latency and no IOPS cap, CPU and filesystem cost alone.
+#             The tree is generated with --no-prealloc: files of 256 KiB and more stay sparse, so the ~110 GiB tree
+#             takes ~6 GiB of RAM (small files, $MFT and directory indexes) with the same names and layout
 # A physical drive or RAM disk cannot hold a preset's preallocated size (low: ~500 GB), so with logical_gb set the tree
 # keeps the preset's file count and seed and only its total size shrinks; every backing then gets the same tree.
 on:
@@ -136,7 +138,7 @@ jobs:
               choco install imdisk-toolkit -y --no-progress | Out-Null
               if (-not (Get-Command imdisk -ErrorAction SilentlyContinue)) { choco install imdisk -y --no-progress | Out-Null }
               $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + $env:Path
-              imdisk -a -s 10G -m R: -p "/fs:ntfs /q /y"
+              imdisk -a -s 12G -m R: -p "/fs:ntfs /q /y"
               $root = "R:/bench"; $purge = "system"
               New-Item -ItemType Directory -Force -Path $root | Out-Null
             }
@@ -153,7 +155,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
-          ./target/release/fs-mirage --root "$ROOT" --seed 42 --manifest-out out/ground_truth.json $GEN_ARGS
+          NO_PREALLOC=""
+          if [ "${{ matrix.backing }}" = "ramdisk" ]; then NO_PREALLOC="--no-prealloc"; fi
+          ./target/release/fs-mirage --root "$ROOT" --seed 42 --manifest-out out/ground_truth.json $GEN_ARGS $NO_PREALLOC
+          df -h "$ROOT" 2>/dev/null || true
 
       - name: Random-Read Sweep (1 / 4 / 16 / 64 reads in flight)
         shell: bash
