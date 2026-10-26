@@ -1,16 +1,25 @@
 name: Scanner I/O Profile (diagnostic)
 
-run-name: "Scanner I/O profile ${{ inputs.preset }}"
+run-name: "Scanner I/O profile ${{ inputs.preset }} | ${{ inputs.backings }}${{ inputs.logical_gb && format(' | {0} GiB', inputs.logical_gb) || '' }}"
 
-# Cold scans of gdu, dua-cli, SpaceKnife and WinDirStat (default, 1, 4 and 8 scanning threads) on Win x64 NTFS,
-# Win ARM64 NTFS and Win x64 ReFS, sampling the benchmark volume's queue depth, reads/s, read latency and size and the
-# CPU every second (scripts/profile/scanner_io_profile.py). WinDirStat wins cold scans on the slower CI disks but ties
-# on the fast one: this shows whether it does so by keeping more reads in flight.
+# Cold scans of gdu, dua-cli, SpaceKnife and WinDirStat (default, 1, 4 and 8 scanning threads) with the benchmark
+# volume's queue depth, reads/s, read latency and size, the VHDX host drive and the CPU sampled every second
+# (scripts/profile/scanner_io_profile.py), plus a random-read sweep at 1 / 4 / 16 / 64 reads in flight (hw-probe).
+#
+# On the benchmark's dynamic VHDX every read reaches the host drive in ~0.1 ms, but scanners keeping many reads in
+# flight queue up inside the virtual-disk layer (gdu ~1 ms, SpaceKnife 3-9 ms per read) while WinDirStat's shallow queue
+# does not, so it won cold scans on the CI disks and loses on a local NVMe drive. The same tree is profiled on three
+# backings to find one without that bias:
+#   vhdx    - the benchmark's dynamic VHDX, remounted before each cold scan (the control)
+#   folder  - a folder on the runner's physical data drive, OS-wide standby-list purge before each cold scan
+#   ramdisk - an NTFS RAM disk (ImDisk; x64 only): no storage latency at all, CPU and filesystem cost alone
+# A physical drive or RAM disk cannot hold a preset's preallocated size (low: ~500 GB), so with logical_gb set the tree
+# keeps the preset's file count and seed and only its total size shrinks; every backing then gets the same tree.
 on:
   workflow_dispatch:
     inputs:
       preset:
-        description: "Scale preset"
+        description: "Scale preset (its file count is used)"
         required: true
         default: "low"
         type: choice
@@ -19,6 +28,16 @@ on:
           - lite
           - low
           - mid
+      logical_gb:
+        description: "Total logical size in GiB of the tree (empty = the preset's own; folder / ramdisk need it small)"
+        required: false
+        default: "4"
+        type: string
+      backings:
+        description: 'JSON list of volume backings: "vhdx", "folder", "ramdisk"'
+        required: true
+        default: '["vhdx","folder","ramdisk"]'
+        type: string
       rounds:
         description: "Rounds over all configurations (every second round in reverse order)"
         required: true
@@ -33,25 +52,17 @@ env:
 
 jobs:
   profile:
-    name: "I/O profile ${{ matrix.label }} | ${{ inputs.preset }}"
-    runs-on: ${{ matrix.runner }}
+    name: "I/O profile ${{ matrix.target }} | ${{ matrix.backing }} | ${{ inputs.preset }}"
+    runs-on: ${{ matrix.target == 'windows-arm64' && 'windows-11-arm' || 'windows-latest' }}
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: windows-x86_64
-            runner: windows-latest
-            fs: ntfs
-            py_arch: x64
-          - label: windows-arm64
-            runner: windows-11-arm
-            fs: ntfs
-            py_arch: arm64
-          - label: windows-x86_64-refs
-            runner: windows-latest
-            fs: refs
-            py_arch: x64
+        target: [windows-x86_64, windows-arm64]
+        backing: ${{ fromJSON(inputs.backings) }}
+        exclude:
+          - target: windows-arm64
+            backing: ramdisk  # ImDisk has no ARM64 driver
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -63,16 +74,16 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          architecture: ${{ matrix.py_arch }}
+          architecture: ${{ matrix.target == 'windows-arm64' && 'arm64' || 'x64' }}
 
       - name: Cache Cargo Registry & Build Artifacts
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ runner.os }}-${{ runner.arch }}
 
-      - name: Build fs-mirage
+      - name: Build fs-mirage & hw-probe
         shell: bash
-        run: cargo build --release -p fs-mirage
+        run: cargo build --release -p fs-mirage -p hw-probe
 
       - name: Cache Pinned Scanner Binaries
         uses: actions/cache@v4
@@ -88,29 +99,83 @@ jobs:
           python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
           python -m pip install --quiet psutil || echo "psutil unavailable: process threads and CPU are left out"
 
-      - name: Create & Mount Dynamic VHDX
+      - name: Tree Size
         shell: bash
         run: |
-          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb 60)
-          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 create "$VDISK_GB" "X:/bench" "${{ matrix.fs }}"
+          if [ -n "${{ inputs.logical_gb }}" ]; then
+            FILES=$(python -c "import sys; sys.path.insert(0, 'scripts/disk-mgr'); import vdisk_capacity as v; print(v.PRESET_FILES['${{ inputs.preset }}'])")
+            GEN="--preset custom --files $FILES --logical-gb ${{ inputs.logical_gb }} --max-physical-mb 500"
+            CAP=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset custom --logical-gb "${{ inputs.logical_gb }}" --files "$FILES" --min-gb 60)
+          else
+            GEN="--preset ${{ inputs.preset }} --max-physical-mb 1500"
+            CAP=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb 60)
+          fi
+          echo "GEN_ARGS=$GEN" >> "$GITHUB_ENV"
+          echo "VDISK_GB=$CAP" >> "$GITHUB_ENV"
+          echo "fs-mirage $GEN | VHDX capacity $CAP GiB"
 
-      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
-        shell: bash
-        env:
-          FSM_THREADS: ${{ matrix.fs == 'refs' && '8' || '' }}
+      - name: Prepare The Volume (${{ matrix.backing }})
+        shell: pwsh
         run: |
-          [ -n "$FSM_THREADS" ] || unset FSM_THREADS
+          switch ("${{ matrix.backing }}") {
+            "vhdx" {
+              ./scripts/disk-mgr/windows_vhd.ps1 create "$env:VDISK_GB" "X:/bench" ntfs
+              $root = "X:/bench"; $purge = "vdisk"
+            }
+            "folder" {
+              # the drive that holds the runner's work and temp folders: a physical (Azure temporary) disk
+              $drive = $env:RUNNER_TEMP.Substring(0, 2)
+              $root = "$drive/bench"; $purge = "system"
+              New-Item -ItemType Directory -Force -Path $root | Out-Null
+            }
+            "ramdisk" {
+              choco install imdisk-toolkit -y --no-progress | Out-Null
+              if (-not (Get-Command imdisk -ErrorAction SilentlyContinue)) { choco install imdisk -y --no-progress | Out-Null }
+              $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + $env:Path
+              imdisk -a -s 10G -m R: -p "/fs:ntfs /q /y"
+              $root = "R:/bench"; $purge = "system"
+              New-Item -ItemType Directory -Force -Path $root | Out-Null
+            }
+          }
+          # same Defender state as the benchmark volume: real-time scanning off, the tree excluded
+          Set-MpPreference -DisableRealtimeMonitoring $true -DisableIOAVProtection $true -DisableBehaviorMonitoring $true -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionPath $root.Replace("/", "\") -ErrorAction SilentlyContinue
+          Add-MpPreference -ExclusionProcess "fs-mirage.exe", "hw-probe.exe", "python.exe" -ErrorAction SilentlyContinue
+          "ROOT=$root" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "PURGE=$purge" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Get-Volume | Where-Object DriveLetter | Format-Table DriveLetter, FileSystem, DriveType, Size, SizeRemaining -AutoSize | Out-String | Write-Host
+
+      - name: Materialize The Tree (fs-mirage)
+        shell: bash
+        run: |
           mkdir -p out
-          ./target/release/fs-mirage --root "X:/bench" --preset "${{ inputs.preset }}" --seed 42 \
-            --max-physical-mb 1500 --manifest-out out/ground_truth.json
+          ./target/release/fs-mirage --root "$ROOT" --seed 42 --manifest-out out/ground_truth.json $GEN_ARGS
+
+      - name: Random-Read Sweep (1 / 4 / 16 / 64 reads in flight)
+        shell: bash
+        run: |
+          {
+            echo "### ${{ matrix.target }} | ${{ matrix.backing }}: random 4 KiB reads"
+            echo
+            echo "| reads in flight | reads/s |"
+            echo "| ---: | ---: |"
+          } > out/rand_sweep.md
+          for t in 1 4 16 64; do
+            ./target/release/hw-probe --root "$ROOT" --only-rand --rand-threads "$t" --rand-mb 512 --rand-secs 5 --out "out/rand_$t.json" > /dev/null
+            iops=$(python -c "import json; print(round(json.load(open('out/rand_$t.json'))['b_rand_read_iops']))")
+            echo "| $t | $iops |" >> out/rand_sweep.md
+          done
+          cat out/rand_sweep.md
 
       - name: Cold Scans With Per-Second I/O Sampling
         shell: bash
         run: |
-          python ./scripts/profile/scanner_io_profile.py --path "X:/bench" --bin-dir ./bin --rounds "${{ inputs.rounds }}" \
-            --md-out out/io_profile.md --json-out out/io_profile.json
+          python ./scripts/profile/scanner_io_profile.py --path "$ROOT" --purge "$PURGE" --bin-dir ./bin \
+            --rounds "${{ inputs.rounds }}" --md-out out/io_profile.md --json-out out/io_profile.json
           {
-            echo "## ${{ matrix.label }} (${{ inputs.preset }})"
+            echo "## ${{ matrix.target }} | ${{ matrix.backing }} (${{ inputs.preset }}, $GEN_ARGS)"
+            echo
+            cat out/rand_sweep.md
             echo
             cat out/io_profile.md
           } >> "$GITHUB_STEP_SUMMARY"
@@ -118,12 +183,17 @@ jobs:
       - name: Teardown
         if: always()
         shell: bash
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+        run: |
+          if [ "${{ matrix.backing }}" = "vhdx" ]; then
+            powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+          elif [ "${{ matrix.backing }}" = "ramdisk" ]; then
+            imdisk -D -m R: || true
+          fi
 
       - name: Upload Profile
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: io-profile-${{ matrix.label }}-${{ inputs.preset }}
+          name: io-profile-${{ matrix.target }}-${{ matrix.backing }}-${{ inputs.preset }}
           path: out/
           retention-days: 14

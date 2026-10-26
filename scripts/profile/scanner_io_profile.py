@@ -144,14 +144,23 @@ def read_typeperf(path: Path, t0: dt.datetime, t1: dt.datetime) -> List[List[flo
 
 
 def run_config(
-    label: str, scanner: Dict[str, Any], threads: Optional[int], bin_path: str, scan_path: str, work: Path
+    label: str,
+    scanner: Dict[str, Any],
+    threads: Optional[int],
+    bin_path: str,
+    scan_path: str,
+    work: Path,
+    purge: str = "vdisk",
 ) -> Dict[str, Any]:
     os_key = "windows"
     rcs.configure_windows_gui_scanner(scanner["id"], os_key, bin_path, False)
     if threads is not None:
         set_windirstat_threads(threads)
     rcs.prewarm_scanner_binary(scanner, bin_path, os_key)
-    rcs.invoke_purge_cache(os_key, scan_path, REPO, False)
+    # vdisk: remount the VHDX (the benchmark); system: OS-wide standby-list purge, for a folder on a physical drive or
+    # a RAM disk, which cannot be remounted
+    if not rcs.invoke_purge_cache(os_key, scan_path, REPO, False, purge) and purge != "none":
+        print(f"[io-profile] cache purge ({purge}) failed before {label}", flush=True)
 
     vol = scan_path[:2].upper()
     host = host_drive(vol)
@@ -244,6 +253,12 @@ def main() -> int:
     ap.add_argument("--path", required=True, help="Benchmark tree on its own volume, e.g. X:/bench")
     ap.add_argument("--bin-dir", default="bin")
     ap.add_argument("--rounds", type=int, default=2, help="Rounds over all configurations (odd rounds reversed)")
+    ap.add_argument(
+        "--purge",
+        choices=["vdisk", "system", "none"],
+        default="vdisk",
+        help="Before each cold scan: remount the VHDX (vdisk), purge the OS standby list (system), or nothing",
+    )
     ap.add_argument("--md-out", default="")
     ap.add_argument("--json-out", default="")
     args = ap.parse_args()
@@ -265,7 +280,7 @@ def main() -> int:
             if not bin_path:
                 print(f"[io-profile] {label}: not installed for {os_key}/{arch_key}, skipped")
                 continue
-            r = run_config(label, scanner, threads, bin_path, args.path, work)
+            r = run_config(label, scanner, threads, bin_path, args.path, work, args.purge)
             r["round"] = rnd + 1
             results.append(r)
             print(
