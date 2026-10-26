@@ -1,0 +1,129 @@
+name: Scanner I/O Profile (diagnostic)
+
+run-name: "Scanner I/O profile ${{ inputs.preset }}"
+
+# Cold scans of gdu, dua-cli, SpaceKnife and WinDirStat (default, 1, 4 and 8 scanning threads) on Win x64 NTFS,
+# Win ARM64 NTFS and Win x64 ReFS, sampling the benchmark volume's queue depth, reads/s, read latency and size and the
+# CPU every second (scripts/profile/scanner_io_profile.py). WinDirStat wins cold scans on the slower CI disks but ties
+# on the fast one: this shows whether it does so by keeping more reads in flight.
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Scale preset"
+        required: true
+        default: "low"
+        type: choice
+        options:
+          - very-lite
+          - lite
+          - low
+          - mid
+      rounds:
+        description: "Rounds over all configurations (every second round in reverse order)"
+        required: true
+        default: "2"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  profile:
+    name: "I/O profile ${{ matrix.label }} | ${{ inputs.preset }}"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-x86_64
+            runner: windows-latest
+            fs: ntfs
+            py_arch: x64
+          - label: windows-arm64
+            runner: windows-11-arm
+            fs: ntfs
+            py_arch: arm64
+          - label: windows-x86_64-refs
+            runner: windows-latest
+            fs: refs
+            py_arch: x64
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.py_arch }}
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build fs-mirage
+        shell: bash
+        run: cargo build --release -p fs-mirage
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners And psutil
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+          python -m pip install --quiet psutil || echo "psutil unavailable: process threads and CPU are left out"
+
+      - name: Create & Mount Dynamic VHDX
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb 60)
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 create "$VDISK_GB" "X:/bench" "${{ matrix.fs }}"
+
+      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
+        shell: bash
+        env:
+          FSM_THREADS: ${{ matrix.fs == 'refs' && '8' || '' }}
+        run: |
+          [ -n "$FSM_THREADS" ] || unset FSM_THREADS
+          mkdir -p out
+          ./target/release/fs-mirage --root "X:/bench" --preset "${{ inputs.preset }}" --seed 42 \
+            --max-physical-mb 1500 --manifest-out out/ground_truth.json
+
+      - name: Cold Scans With Per-Second I/O Sampling
+        shell: bash
+        run: |
+          python ./scripts/profile/scanner_io_profile.py --path "X:/bench" --bin-dir ./bin --rounds "${{ inputs.rounds }}" \
+            --md-out out/io_profile.md --json-out out/io_profile.json
+          {
+            echo "## ${{ matrix.label }} (${{ inputs.preset }})"
+            echo
+            cat out/io_profile.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Teardown
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+      - name: Upload Profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: io-profile-${{ matrix.label }}-${{ inputs.preset }}
+          path: out/
+          retention-days: 14
