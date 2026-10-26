@@ -48,6 +48,11 @@ struct Args {
     #[arg(long)]
     only_rand: bool,
 
+    /// Skip the full B_meta traversal and record it as 0 (unknown). For very large trees on slow runners, where the
+    /// traversal alone costs tens of minutes; the report then shows the traversal-based columns as "-".
+    #[arg(long)]
+    skip_meta: bool,
+
     /// Optional: raw scanner results JSON to merge and normalize against this baseline
     #[arg(long)]
     merge_results: Option<PathBuf>,
@@ -126,15 +131,27 @@ fn main() -> Result<()> {
     }
 
     // 1. B_meta: Native concurrent metadata traversal ceiling
-    let meta_detail = io_meta::run_meta_probe(&args.root)
-        .with_context(|| format!("Failed to run B_meta probe on {}", args.root.display()))?;
-    println!(
-        "[hw-probe] B_meta: {:.0} files/sec ({} files, {} dirs in {:.2} ms)",
-        meta_detail.b_meta_files_per_sec,
-        meta_detail.files_scanned,
-        meta_detail.dirs_scanned,
-        meta_detail.elapsed_ms
-    );
+    let meta_detail = if args.skip_meta {
+        println!("[hw-probe] B_meta: skipped (--skip-meta)");
+        io_meta::MetaProbeResult {
+            files_scanned: 0,
+            dirs_scanned: 0,
+            total_logical_bytes: 0,
+            elapsed_ms: 0.0,
+            b_meta_files_per_sec: 0.0,
+        }
+    } else {
+        let detail = io_meta::run_meta_probe(&args.root)
+            .with_context(|| format!("Failed to run B_meta probe on {}", args.root.display()))?;
+        println!(
+            "[hw-probe] B_meta: {:.0} files/sec ({} files, {} dirs in {:.2} ms)",
+            detail.b_meta_files_per_sec,
+            detail.files_scanned,
+            detail.dirs_scanned,
+            detail.elapsed_ms
+        );
+        detail
+    };
 
     // 2. B_seq: Sequential read bandwidth ceiling
     let seq_detail = io_seq::run_seq_probe(&args.root, args.seq_mb)

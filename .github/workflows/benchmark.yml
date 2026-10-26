@@ -287,7 +287,10 @@ jobs:
             ./target/release/fs-mirage "${GEN_ARGS[@]}" --recount-alloc
           fi
 
+      # macOS x64 runners walk a large tree slowly (a mid scan takes 3-5 hours): from mid up the extra full walks of the
+      # layout probe and hw-probe's B_meta traversal are skipped there so the scans fit in the 6-hour job limit
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
+        if: ${{ !(matrix.platform == 'macos' && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset)) }}
         shell: bash
         timeout-minutes: 10
         continue-on-error: true
@@ -306,9 +309,12 @@ jobs:
 
           # ZFS caches data in its ARC whatever O_DIRECT asks for; cache only metadata while the probe reads its file
           if [ "${{ matrix.fs }}" = "zfs" ]; then sudo zfs set primarycache=metadata benchpool; fi
+          SKIP_META=()
+          if [ "${{ matrix.platform == 'macos' && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}" = "true" ]; then SKIP_META=(--skip-meta); fi
           ./target/release/hw-probe \
             --root "${{ matrix.mount_path }}" \
-            --out "results/${{ matrix.target_label }}/baseline.json"
+            --out "results/${{ matrix.target_label }}/baseline.json" \
+            "${SKIP_META[@]}"
           if [ "${{ matrix.fs }}" = "zfs" ]; then sudo zfs set primarycache=all benchpool; fi
 
       - name: Run All Platform Scanners Sequentially on Same Instance
@@ -333,6 +339,14 @@ jobs:
 
           cat "results/${{ matrix.target_label }}/benchmark_report.md"
 
+      # before the teardown: a job that runs out of time while detaching the disk still keeps its results
+      - name: Upload Benchmark Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ matrix.target_label }}-${{ inputs.preset }}
+          path: results/
+          retention-days: 30
+
       - name: Teardown Standard Virtual Disk Container
         if: always()
         shell: bash
@@ -352,7 +366,9 @@ jobs:
           FSM_AGING: ${{ inputs.aging && '1' || '0' }}
         run: |
           RAM_LABEL="${{ matrix.target_label }}-ramdisk"
-          mkdir -p "results/${RAM_LABEL}"
+          # its own folder and artifact: the main results are already uploaded
+          RAM_OUT="results-ramdisk/${RAM_LABEL}"
+          mkdir -p "$RAM_OUT"
           case "${{ inputs.preset }}" in
             very-lite) INODES=2000000 ;;
             lite)      INODES=2000000 ;;
@@ -382,37 +398,38 @@ jobs:
             --seed "${{ inputs.seed }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
             --no-prealloc \
-            --manifest-out "results/${RAM_LABEL}/ground_truth.json" \
+            --manifest-out "$RAM_OUT/ground_truth.json" \
             "${EXTRA_ARGS[@]}"
 
           ./scripts/disk-mgr/linux_loop.sh purge-cache "${{ matrix.mount_path }}"
           ./target/release/hw-probe \
             --root "${{ matrix.mount_path }}" \
-            --out "results/${RAM_LABEL}/baseline.json"
+            --out "$RAM_OUT/baseline.json"
 
           python ./scripts/wrappers/run_cli_scanners.py \
             --path "${{ matrix.mount_path }}" \
-            --ground-truth "results/${RAM_LABEL}/ground_truth.json" \
-            --out "results/${RAM_LABEL}/raw_results.json" \
+            --ground-truth "$RAM_OUT/ground_truth.json" \
+            --out "$RAM_OUT/raw_results.json" \
             --bin-dir "./bin"
 
           python ./scripts/report_gen.py \
-            --ground-truth "results/${RAM_LABEL}/ground_truth.json" \
-            --baseline "results/${RAM_LABEL}/baseline.json" \
-            --raw-results "results/${RAM_LABEL}/raw_results.json" \
-            --out "results/${RAM_LABEL}/benchmark_report.md" \
-            --json-out "results/${RAM_LABEL}/normalized_results.json" \
+            --ground-truth "$RAM_OUT/ground_truth.json" \
+            --baseline "$RAM_OUT/baseline.json" \
+            --raw-results "$RAM_OUT/raw_results.json" \
+            --out "$RAM_OUT/benchmark_report.md" \
+            --json-out "$RAM_OUT/normalized_results.json" \
             --title-suffix "(${RAM_LABEL} | ${{ inputs.preset }} /dev/shm)"
 
-          cat "results/${RAM_LABEL}/benchmark_report.md"
+          cat "$RAM_OUT/benchmark_report.md"
 
           ./scripts/disk-mgr/linux_loop.sh teardown "${{ matrix.mount_path }}" || true
 
-      - name: Upload Benchmark Artifacts
+      - name: Upload RAMDisk Pass Artifacts
+        if: matrix.platform == 'linux' && matrix.fs == 'ext4' && inputs.enable_ramdisk == true
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results-${{ matrix.target_label }}-${{ inputs.preset }}
-          path: results/
+          name: benchmark-results-${{ matrix.target_label }}-ramdisk-${{ inputs.preset }}
+          path: results-ramdisk/
           retention-days: 30
 
   benchmark-ntfs:

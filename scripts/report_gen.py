@@ -167,7 +167,9 @@ def generate_report(
     layout: Optional[Dict[str, Any]] = None,
     layout_reference: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[str, List[Dict[str, Any]]]:
-    b_meta = float(baseline.get("b_meta_files_per_sec", 1.0)) or 1.0
+    # 0 / missing: hw-probe ran with --skip-meta (no full traversal on large macOS presets), so the traversal-based
+    # efficiency and the NVMe projection are unknown rather than computed against a stand-in ceiling
+    b_meta = float(baseline.get("b_meta_files_per_sec", 0.0) or 0.0)
     b_seq = float(baseline.get("b_seq_mb_per_sec", 1.0)) or 1.0
     b_cpu = float(baseline.get("b_cpu_ms", 1.0)) or 1.0
     os_name = baseline.get("os", "unknown")
@@ -200,7 +202,7 @@ def generate_report(
         cold_speed_fps = scanned_files / cold_secs
 
         # Core Formula 1: Cold Cache I/O Efficiency (eta_io %)
-        eta_io_pct = (cold_speed_fps / b_meta) * 100.0
+        eta_io_pct: Optional[float] = (cold_speed_fps / b_meta) * 100.0 if b_meta > 0 else None
 
         # Core Formula 2: Warm Cache Normalized CPU Cost Ratio
         cpu_cost_ratio = warm_ms / b_cpu
@@ -216,8 +218,10 @@ def generate_report(
             acc_diff_pct = None
 
         # Projected 1M-file scan time on a Consumer NVMe PC
-        effective_pc_fps = max(1.0, (eta_io_pct / 100.0) * ref_pc_b_meta)
-        projected_pc_1m_sec = 1_000_000.0 / effective_pc_fps
+        projected_pc_1m_sec: Optional[float] = None
+        if eta_io_pct is not None:
+            effective_pc_fps = max(1.0, (eta_io_pct / 100.0) * ref_pc_b_meta)
+            projected_pc_1m_sec = 1_000_000.0 / effective_pc_fps
 
         cpu_runs = entry.get("cpu_seconds_runs") or []
         read_runs = entry.get("device_reads_runs") or []
@@ -240,10 +244,10 @@ def generate_report(
             "balanced_warm": balanced_warm,
             "cold_files_per_sec": round(cold_speed_fps, 1),
             "warm_files_per_sec": round(scanned_files / max(warm_ms / 1000.0, 1e-6), 1),
-            "eta_io_percent": round(eta_io_pct, 2),
+            "eta_io_percent": round(eta_io_pct, 2) if eta_io_pct is not None else None,
             "cpu_cost_ratio": round(cpu_cost_ratio, 3),
             "accuracy_diff_pct": round(acc_diff_pct, 2) if acc_diff_pct is not None else None,
-            "projected_nvme_1m_sec": round(projected_pc_1m_sec, 2),
+            "projected_nvme_1m_sec": round(projected_pc_1m_sec, 2) if projected_pc_1m_sec is not None else None,
         }
         normalized_rows.append(row)
 
@@ -263,7 +267,7 @@ def generate_report(
         "| :--- | :--- | :--- |",
         f"| **Platform / Arch** | `{os_name} / {arch_name}` | `{cores}` Logical CPU Cores |",
         *defender_rows(raw_results),
-        f"| **$B_{{\\text{{meta}}}}$ (Metadata Ceiling)** | `{b_meta:,.0f} files/sec` | Native OS concurrent traversal ceiling (`getdents64` / `FindFirstFileExW`) |",
+        f"| **$B_{{\\text{{meta}}}}$ (Metadata Ceiling)** | `{f'{b_meta:,.0f} files/sec' if b_meta > 0 else 'skipped'}` | Native OS concurrent traversal ceiling (`getdents64` / `FindFirstFileExW`) |",
         f"| **$B_{{\\text{{seq}}}}$ (Sequential Read)** | `{b_seq:,.2f} MB/s` | Unbuffered sequential disk throughput ceiling |",
         f"| **$B_{{\\text{{cpu}}}}$ (Memory Tree Sort)** | `{b_cpu:,.2f} ms` | Pure-memory 1,000,000-node tree aggregation & descending sort baseline |",
         (
@@ -337,12 +341,12 @@ def generate_report(
             f"| `{r['cold_files_per_sec']:,.0f}` "
             f"| `{r['warm_files_per_sec']:,.0f}` "
             f"| `{tool_ms}` "
-            f"| **{r['eta_io_percent']:.1f}%** "
+            f"| **{'-' if r['eta_io_percent'] is None else format(r['eta_io_percent'], '.1f') + '%'}** "
             f"| `{r['cpu_cost_ratio']:.2f}x` "
             f"| `{r['peak_rss_mb']:.1f}` "
             f"| `{fmt_acc(r['accuracy_diff_pct'])}` "
             f"| {verification_label(r.get('verification'))} "
-            f"| `{r['projected_nvme_1m_sec']:.2f}s` |"
+            f"| `{'-' if r['projected_nvme_1m_sec'] is None else format(r['projected_nvme_1m_sec'], '.2f') + 's'}` |"
         )
 
     lines.extend(
