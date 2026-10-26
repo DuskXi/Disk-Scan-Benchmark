@@ -1,0 +1,459 @@
+{
+ "meta": {
+  "kind": "standard",
+  "preset": "lite",
+  "run_id": "40257044247",
+  "run_url": "https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40257044247",
+  "sha": "252bc42b93e1dec03011e3f014b9a9532b5ae8f2",
+  "date": "2026-10-26"
+ },
+ "payload": {
+  "schema": 2,
+  "preset": "lite",
+  "sha": "252bc42b93e1dec03011e3f014b9a9532b5ae8f2",
+  "files": 400006,
+  "dirs": 48659,
+  "aged_timeline": true,
+  "platforms": [
+   "windows-x86_64-btrfs"
+  ],
+  "platform_info": {
+   "windows-x86_64-btrfs": {
+    "title": "Win x64 (Btrfs)",
+    "cores": 4,
+    "iops": 7175.997463813712,
+    "cpu_ms": 87.3938,
+    "ok": 12,
+    "tried": 12,
+    "fastest_cold": "squirreldisk",
+    "fastest_warm": "gdu"
+   }
+  },
+  "missing_platforms": [
+   "linux-x86_64",
+   "linux-arm64",
+   "macos-x86_64",
+   "macos-arm64",
+   "windows-x86_64",
+   "windows-x86_64-refs",
+   "windows-arm64"
+  ],
+  "scanners": {
+   "squirreldisk": {
+    "name": "SquirrelDisk",
+    "version": "2.6.1"
+   },
+   "spaceknife": {
+    "name": "SpaceKnife",
+    "version": "0.3.4 (release run 40255561003, d50a09b)"
+   },
+   "windirstat": {
+    "name": "WinDirStat",
+    "version": "2.9.3"
+   },
+   "gdu": {
+    "name": "gdu",
+    "version": "5.38.0"
+   },
+   "wiztree": {
+    "name": "WizTree",
+    "version": "4.33"
+   },
+   "dua": {
+    "name": "dua-cli",
+    "version": "2.46.0"
+   },
+   "spacesniffer": {
+    "name": "SpaceSniffer",
+    "version": "2.2.0.27"
+   },
+   "diskus": {
+    "name": "diskus",
+    "version": "0.9.0"
+   },
+   "pdu": {
+    "name": "pdu",
+    "version": "0.24.0"
+   },
+   "erdtree": {
+    "name": "erdtree",
+    "version": "3.1.2"
+   },
+   "dust": {
+    "name": "dust",
+    "version": "1.2.6"
+   },
+   "sysinternals-du": {
+    "name": "Sysinternals du",
+    "version": "1.62"
+   }
+  },
+  "per_platform": {
+   "windows-x86_64-btrfs": {
+    "squirreldisk": {
+     "status": "ok",
+     "cold_s": 5.938350000000001,
+     "warm_s": 1.71164,
+     "cold_rel": 100.0,
+     "warm_rel": 89.99848098899301,
+     "index_rel": 93.50214673762909,
+     "platform_score": 94.41020061625103,
+     "rss_mb": 18.18,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": 37.54,
+     "rank": 2
+    },
+    "spaceknife": {
+     "status": "ok",
+     "cold_s": 6.34909,
+     "warm_s": 1.5879400000000001,
+     "cold_rel": 93.53072645056221,
+     "warm_rel": 97.00933284632922,
+     "index_rel": 97.25945549238433,
+     "platform_score": 95.91794959003062,
+     "rss_mb": 133.67,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": 37.56,
+     "rank": 1
+    },
+    "windirstat": {
+     "status": "ok",
+     "cold_s": 7.6355699999999995,
+     "warm_s": 6.42177,
+     "cold_rel": 77.77218989544986,
+     "warm_rel": 23.987934790563973,
+     "index_rel": 39.637384908006865,
+     "platform_score": 41.97339134124626,
+     "rss_mb": 124.87,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": 0.41,
+     "rank": 6
+    },
+    "gdu": {
+     "status": "ok",
+     "cold_s": 8.885219999999999,
+     "warm_s": 1.54045,
+     "cold_rel": 66.8340232430936,
+     "warm_rel": 100.0,
+     "index_rel": 85.07020351947074,
+     "platform_score": 82.84348478295728,
+     "rss_mb": 34.39,
+     "verification": "size+zones",
+     "warnings": [],
+     "acc_pct": 0.4,
+     "rank": 3
+    },
+    "wiztree": {
+     "status": "ok",
+     "cold_s": 9.08396,
+     "warm_s": 3.29675,
+     "cold_rel": 65.37182021937569,
+     "warm_rel": 46.72632137711383,
+     "index_rel": 60.09356692076558,
+     "platform_score": 56.83205813994542,
+     "rss_mb": 236.21,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": 0.41,
+     "rank": 5
+    },
+    "dua": {
+     "status": "ok",
+     "cold_s": 10.65794,
+     "warm_s": 1.83938,
+     "cold_rel": 55.7176152239551,
+     "warm_rel": 83.74832824103774,
+     "index_rel": 74.51388207956737,
+     "platform_score": 70.318341462643,
+     "rss_mb": 28.83,
+     "verification": "size+zones",
+     "warnings": [],
+     "acc_pct": 37.11,
+     "rank": 4
+    },
+    "spacesniffer": {
+     "status": "ok",
+     "cold_s": 18.05003,
+     "warm_s": 14.65214,
+     "cold_rel": 32.89939130295075,
+     "warm_rel": 10.513481307167417,
+     "index_rel": 29.814392263412188,
+     "platform_score": 21.76640923926789,
+     "rss_mb": 241.69,
+     "verification": "io-only",
+     "warnings": [],
+     "acc_pct": null,
+     "rank": 7
+    },
+    "diskus": {
+     "status": "ok",
+     "cold_s": 37.609120000000004,
+     "warm_s": 30.72966,
+     "cold_rel": 15.789654211531671,
+     "warm_rel": 5.012909352072232,
+     "index_rel": 10.232357058990042,
+     "platform_score": 9.321362243170164,
+     "rss_mb": 22.4,
+     "verification": "size",
+     "warnings": [],
+     "acc_pct": 0.41,
+     "rank": 8
+    },
+    "pdu": {
+     "status": "ok",
+     "cold_s": 38.348879999999994,
+     "warm_s": 41.74112,
+     "cold_rel": 15.485067621270817,
+     "warm_rel": 3.6904855451890124,
+     "index_rel": 9.763200088718369,
+     "platform_score": 8.232459475850222,
+     "rss_mb": 7.54,
+     "verification": "size+zones",
+     "warnings": [],
+     "acc_pct": 0.41,
+     "rank": 9
+    },
+    "erdtree": {
+     "status": "ok",
+     "cold_s": 38.938919999999996,
+     "warm_s": 40.91961,
+     "cold_rel": 15.250422970128602,
+     "warm_rel": 3.764576446354205,
+     "index_rel": 8.11941812874133,
+     "platform_score": 7.753675813401601,
+     "rss_mb": 333.02,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": 37.49,
+     "rank": 11
+    },
+    "dust": {
+     "status": "ok",
+     "cold_s": 40.488,
+     "warm_s": 41.50511,
+     "cold_rel": 14.666938352104328,
+     "warm_rel": 3.7114707080646214,
+     "index_rel": 9.406238851711278,
+     "platform_score": 8.000193698689914,
+     "rss_mb": 152.46,
+     "verification": "size+zones",
+     "warnings": [],
+     "acc_pct": 0.25,
+     "rank": 10
+    },
+    "sysinternals-du": {
+     "status": "ok",
+     "cold_s": 49.37519,
+     "warm_s": 52.89947,
+     "cold_rel": 12.026991693601584,
+     "warm_rel": 2.9120329560957794,
+     "index_rel": 9.669534530692978,
+     "platform_score": 6.970323828805743,
+     "rss_mb": 27.6,
+     "verification": "size+files+zones",
+     "warnings": [],
+     "acc_pct": 37.05,
+     "rank": 12
+    }
+   }
+  },
+  "overall": [
+   {
+    "id": "spaceknife",
+    "scanner": "SpaceKnife",
+    "version": "0.3.4 (release run 40255561003, d50a09b)",
+    "overall": 95.91794959003062,
+    "cold": 93.53072645056226,
+    "warm": 97.00933284632923,
+    "index": 97.25945549238435,
+    "rss_mb": 133.67,
+    "abs_acc_pct": 37.56,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 1,
+    "rank": 1
+   },
+   {
+    "id": "squirreldisk",
+    "scanner": "SquirrelDisk",
+    "version": "2.6.1",
+    "overall": 94.41020061625103,
+    "cold": 100.00000000000004,
+    "warm": 89.998480988993,
+    "index": 93.50214673762909,
+    "rss_mb": 18.18,
+    "abs_acc_pct": 37.54,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 2
+   },
+   {
+    "id": "gdu",
+    "scanner": "gdu",
+    "version": "5.38.0",
+    "overall": 82.84348478295728,
+    "cold": 66.83402324309361,
+    "warm": 100.00000000000004,
+    "index": 85.07020351947077,
+    "rss_mb": 34.39,
+    "abs_acc_pct": 0.4,
+    "verification": "size+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 3
+   },
+   {
+    "id": "dua",
+    "scanner": "dua-cli",
+    "version": "2.46.0",
+    "overall": 70.318341462643,
+    "cold": 55.71761522395512,
+    "warm": 83.7483282410377,
+    "index": 74.5138820795674,
+    "rss_mb": 28.83,
+    "abs_acc_pct": 37.11,
+    "verification": "size+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 4
+   },
+   {
+    "id": "wiztree",
+    "scanner": "WizTree",
+    "version": "4.33",
+    "overall": 56.83205813994542,
+    "cold": 65.37182021937572,
+    "warm": 46.72632137711382,
+    "index": 60.09356692076557,
+    "rss_mb": 236.21,
+    "abs_acc_pct": 0.41,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 5
+   },
+   {
+    "id": "windirstat",
+    "scanner": "WinDirStat",
+    "version": "2.9.3",
+    "overall": 41.97339134124626,
+    "cold": 77.77218989544984,
+    "warm": 23.98793479056397,
+    "index": 39.63738490800686,
+    "rss_mb": 124.87,
+    "abs_acc_pct": 0.41,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 6
+   },
+   {
+    "id": "spacesniffer",
+    "scanner": "SpaceSniffer",
+    "version": "2.2.0.27",
+    "overall": 21.76640923926789,
+    "cold": 32.89939130295075,
+    "warm": 10.513481307167416,
+    "index": 29.81439226341219,
+    "rss_mb": 241.69,
+    "abs_acc_pct": null,
+    "verification": "io-only",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 7
+   },
+   {
+    "id": "diskus",
+    "scanner": "diskus",
+    "version": "0.9.0",
+    "overall": 9.321362243170164,
+    "cold": 15.789654211531671,
+    "warm": 5.012909352072232,
+    "index": 10.23235705899004,
+    "rss_mb": 22.4,
+    "abs_acc_pct": 0.41,
+    "verification": "size",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 8
+   },
+   {
+    "id": "pdu",
+    "scanner": "pdu",
+    "version": "0.24.0",
+    "overall": 8.232459475850222,
+    "cold": 15.485067621270817,
+    "warm": 3.690485545189012,
+    "index": 9.763200088718367,
+    "rss_mb": 7.54,
+    "abs_acc_pct": 0.41,
+    "verification": "size+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 9
+   },
+   {
+    "id": "dust",
+    "scanner": "dust",
+    "version": "1.2.6",
+    "overall": 8.000193698689914,
+    "cold": 14.666938352104326,
+    "warm": 3.711470708064621,
+    "index": 9.406238851711276,
+    "rss_mb": 152.46,
+    "abs_acc_pct": 0.25,
+    "verification": "size+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 10
+   },
+   {
+    "id": "erdtree",
+    "scanner": "erdtree",
+    "version": "3.1.2",
+    "overall": 7.753675813401601,
+    "cold": 15.250422970128602,
+    "warm": 3.7645764463542055,
+    "index": 8.119418128741332,
+    "rss_mb": 333.02,
+    "abs_acc_pct": 37.49,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 11
+   },
+   {
+    "id": "sysinternals-du",
+    "scanner": "Sysinternals du",
+    "version": "1.62",
+    "overall": 6.970323828805743,
+    "cold": 12.026991693601586,
+    "warm": 2.9120329560957794,
+    "index": 9.669534530692976,
+    "rss_mb": 27.6,
+    "abs_acc_pct": 37.05,
+    "verification": "size+files+zones",
+    "valid_platforms": 1,
+    "entered_platforms": 1,
+    "wins": 0,
+    "rank": 12
+   }
+  ],
+  "unranked": []
+ }
+}
