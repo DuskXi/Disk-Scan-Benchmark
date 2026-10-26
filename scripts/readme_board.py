@@ -290,7 +290,18 @@ def render_section(
         ("cold", "### 冷扫综合榜 · Cold scans across sizes", "冷扫", "cold-scan"),
         ("warm", "### 热扫综合榜 · Warm scans across sizes", "热扫", "warm-scan"),
     ):
-        lines += [title, ""] + cross_size_table(standard, present, key)
+        lines += [title, ""]
+        if key == "cold":
+            # the CI disks cap random reads, which decides this ranking (see the README's scoring section)
+            lines += [
+                "> CI Runner 的盘是 IOPS 受限的云盘，冷扫比的是在这种盘上谁读得省，和本地 NVMe 上的冷扫排名可能不同，"
+                "见[CI 冷扫测的是什么](#ci-冷扫测的是什么--what-the-ci-cold-scans-measure)。<br>"
+                "The CI runners' disks are IOPS-capped cloud disks: cold scans here measure who reads most economically "
+                "on such a disk, and may rank differently on a local NVMe drive; see "
+                "[What the CI cold scans measure](#ci-冷扫测的是什么--what-the-ci-cold-scans-measure).",
+                "",
+            ]
+        lines += cross_size_table(standard, present, key)
         lines += [
             "",
             f"<sub>只看{zh}：每个体量取{zh}相对分（该平台最快 ÷ 自己 × 100，跨平台几何平均），再对 `low` 及以上取几何平均；"
