@@ -97,13 +97,20 @@ def badge_json(label: str, rank: int, score: Optional[float]) -> Dict[str, Any]:
     return {"schemaVersion": 1, "label": label, "message": msg, "color": RANK_COLORS.get(rank, "4c8eda")}
 
 
-def cross_size(standard: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """One row per scanner: its overall score in each preset and the combined score of the presets >= low."""
+def cross_size(standard: Dict[str, Dict[str, Any]], key: str = "overall") -> List[Dict[str, Any]]:
+    """
+    One row per scanner: its score in each preset and the combined score of the presets >= low. key picks the score:
+    "overall" (the board's score), or "cold" / "warm" (cold-scan and warm-scan relative scores), each preset then ranked
+    by that same score.
+    """
     rows: Dict[str, Dict[str, Any]] = {}
     for preset, rec in standard.items():
-        for o in rec["payload"]["overall"]:
+        scored = [o for o in rec["payload"]["overall"] if o.get(key) is not None]
+        ranks = {o["id"]: pos for pos, o in enumerate(sorted(scored, key=lambda o: -o[key]), start=1)}
+        for o in scored:
             row = rows.setdefault(o["id"], {"id": o["id"], "name": o["scanner"], "presets": {}})
-            row["presets"][preset] = {"rank": o["rank"], "score": o["overall"]}
+            rank = o["rank"] if key == "overall" else ranks[o["id"]]
+            row["presets"][preset] = {"rank": rank, "score": o[key]}
     for row in rows.values():
         big = [v["score"] for p, v in row["presets"].items() if p not in SMALL]
         small = [v["score"] for p, v in row["presets"].items() if p in SMALL]
@@ -179,6 +186,36 @@ def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
     return lines
 
 
+def cross_size_table(standard: Dict[str, Dict[str, Any]], present: List[str], key: str) -> List[str]:
+    """The across-sizes table for one score (overall, cold or warm): combined score, then rank and score per size."""
+    score_head = {
+        "overall": ("**综合分**", "**Score**"),
+        "cold": ("**冷扫分**", "**Cold**"),
+        "warm": ("**热扫分**", "**Warm**"),
+    }
+    heads = ["#", head("扫描器", "Scanner", True), head(*score_head[key], True)] + [preset_head(p) for p in present]
+    lines = [
+        "| " + " | ".join(heads) + " |",
+        "| " + " | ".join([":---:", ":---", "---:"] + [":---:" for _ in present]) + " |",
+    ]
+    ranked = cross_size(standard, key)
+    best_combined = combined_best(ranked)
+    best_in = {p: preset_best(ranked, p) for p in present}
+    for row in ranked:
+        combined = fmt_score(row["combined"]) + ("\\*" if row["combined_from_small_only"] else "")
+        combined = mark_best(combined, best_combined.get(row["id"], False))
+        cells = [
+            score_cell(v["rank"], v["score"], best_in[p].get(row["id"], False)) if (v := row["presets"].get(p)) else "—"
+            for p in present
+        ]
+        lines.append(
+            f"| {MEDALS.get(row['rank'], str(row['rank']))} | **{nobreak(row['name'])}** | {combined} | "
+            + " | ".join(cells)
+            + " |"
+        )
+    return lines
+
+
 def preset_head(preset: str) -> str:
     return nobreak(preset) + ("\\*" if preset in SMALL else "")
 
@@ -234,29 +271,7 @@ def render_section(
 
     # Across sizes: no badge column, so the table stays narrow and nothing wraps inside a cell
     present = [p for p in PRESETS if p in standard]
-    heads = ["#", head("扫描器", "Scanner", True), head("**综合分**", "**Score**", True)]
-    heads += [preset_head(p) for p in present]
-    lines += [
-        "### 跨体量总榜 · Overall across sizes",
-        "",
-        "| " + " | ".join(heads) + " |",
-        "| " + " | ".join([":---:", ":---", "---:"] + [":---:" for _ in present]) + " |",
-    ]
-    ranked = cross_size(standard)
-    best_combined = combined_best(ranked)
-    best_in = {p: preset_best(ranked, p) for p in present}
-    for row in ranked:
-        combined = fmt_score(row["combined"]) + ("\\*" if row["combined_from_small_only"] else "")
-        combined = mark_best(combined, best_combined.get(row["id"], False))
-        cells = [
-            score_cell(v["rank"], v["score"], best_in[p].get(row["id"], False)) if (v := row["presets"].get(p)) else "—"
-            for p in present
-        ]
-        lines.append(
-            f"| {MEDALS.get(row['rank'], str(row['rank']))} | **{nobreak(row['name'])}** | {combined} | "
-            + " | ".join(cells)
-            + " |"
-        )
+    lines += ["### 跨体量总榜 · Overall across sizes", ""] + cross_size_table(standard, present, "overall")
     lines += [
         "",
         "<sub><mark>**高亮**</mark> = 该列最高分 · <mark>**highlighted**</mark> = best in its column.<br><br>"
@@ -269,6 +284,22 @@ def render_section(
         "not make a high score easier and fewer do not mark a tool down.</sub>",
         "",
     ]
+
+    # The two halves of the score on their own: cold scans (first scan after the caches were dropped) and warm scans
+    for key, title, zh, en in (
+        ("cold", "### 冷扫综合榜 · Cold scans across sizes", "冷扫", "cold-scan"),
+        ("warm", "### 热扫综合榜 · Warm scans across sizes", "热扫", "warm-scan"),
+    ):
+        lines += [title, ""] + cross_size_table(standard, present, key)
+        lines += [
+            "",
+            f"<sub>只看{zh}：每个体量取{zh}相对分（该平台最快 ÷ 自己 × 100，跨平台几何平均），再对 `low` 及以上取几何平均；"
+            f"格子里是该体量{zh}的名次和分数，<mark>**高亮**</mark> = 该列最高分。<br><br>"
+            f"The {en} score alone: each size's {en} relative score (platform fastest / own x 100, geometric mean across "
+            f"platforms), then the geometric mean from `low` up; each cell is the {en} rank and score in that size, "
+            "<mark>**highlighted**</mark> = best in its column.</sub>",
+            "",
+        ]
 
     # Per-size details, the largest reliable size open
     open_preset = next((p for p in reversed(present) if p not in SMALL), present[-1])

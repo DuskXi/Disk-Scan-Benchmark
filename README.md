@@ -40,6 +40,50 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 <sub><mark>**高亮**</mark> = 该列最高分 · <mark>**highlighted**</mark> = best in its column.<br><br>综合分 = `low` 及以上各体量综合分的几何平均；\* 为仅供参考的小体量（综合分带 \* 的扫描器只有小体量成绩）。缺平台、缺体量都不扣分也不加分：只用它实际跑过的平台和体量计算，等于把缺的部分按它自己的平均分补上，平台多的工具不会因此更容易刷分，平台少的工具也不会因此被扣分。<br><br>Score = geometric mean of the per-size scores from `low` up; \* marks the reference-only small sizes (a score with \* comes from small sizes only). Missing platforms and sizes neither cost nor earn points: only what a scanner actually ran counts, the same as filling the gaps with its own average, so more platforms do not make a high score easier and fewer do not mark a tool down.</sub>
 
+### 冷扫综合榜 · Cold scans across sizes
+
+| # | 扫⁠描⁠器<br>Scanner | **冷⁠扫⁠分**<br>**Cold** | very‑lite\* | lite\* | low | mid |
+| :---: | :--- | ---: | :---: | :---: | :---: | :---: |
+| 🥇 | **WinDirStat** | <mark>**96.1**</mark> | 🥇&nbsp;<mark>**91.6**</mark> | 🥇&nbsp;<mark>**93.9**</mark> | 🥇&nbsp;<mark>**92.3**</mark> | 🥇&nbsp;<mark>**100.0**</mark> |
+| 🥈 | **SpaceKnife** | 84.9 | #8&nbsp;59.4 | 🥈&nbsp;85.3 | 🥈&nbsp;87.9 | 🥈&nbsp;82.1 |
+| 🥉 | **SquirrelDisk** | 76.6 | 🥈&nbsp;76.7 | #4&nbsp;83.0 | 🥉&nbsp;79.0 | #5&nbsp;74.2 |
+| 4 | **gdu** | 74.5 | #5&nbsp;68.5 | 🥉&nbsp;84.3 | #4&nbsp;67.7 | 🥉&nbsp;81.9 |
+| 5 | **diskus** | 69.2 | #4&nbsp;72.7 | #7&nbsp;58.0 | #6&nbsp;60.8 | #4&nbsp;78.9 |
+| 6 | **dua‑cli** | 69.1 | #6&nbsp;64.1 | #6&nbsp;65.1 | #5&nbsp;64.8 | #6&nbsp;73.8 |
+| 7 | **WizTree** | 61.3 | #7&nbsp;61.1 | #5&nbsp;72.1 | #7&nbsp;57.1 | #8&nbsp;65.7 |
+| 8 | **pdu** | 59.2 | #9&nbsp;53.4 | #8&nbsp;53.7 | #8&nbsp;53.4 | #7&nbsp;65.7 |
+| 9 | **dust** | 52.5 | #10&nbsp;47.6 | #9&nbsp;47.6 | #9&nbsp;47.5 | #9&nbsp;58.1 |
+| 10 | **erdtree** | 42.1 | #11&nbsp;39.7 | #11&nbsp;36.2 | #10&nbsp;39.6 | #10&nbsp;44.8 |
+| 11 | **SpaceSniffer** | 33.0 | #12&nbsp;34.1 | #12&nbsp;32.9 | #11&nbsp;34.0 | #11&nbsp;32.0 |
+| 12 | **ncdu** | 27.9 | #13&nbsp;25.5 | #14&nbsp;24.3 | #12&nbsp;26.3 | #12&nbsp;29.6 |
+| 13 | **GNU&nbsp;du** | 27.4 | #14&nbsp;23.1 | #13&nbsp;25.2 | #13&nbsp;25.9 | #13&nbsp;28.9 |
+| 14 | **BSD&nbsp;du** | 24.6 | 🥉&nbsp;72.9 | #10&nbsp;46.8 | #14&nbsp;24.6 | — |
+| 15 | **Sysinternals&nbsp;du** | 15.5 | #15&nbsp;19.0 | #15&nbsp;15.3 | #15&nbsp;15.4 | #14&nbsp;15.7 |
+
+<sub>只看冷扫：每个体量取冷扫相对分（该平台最快 ÷ 自己 × 100，跨平台几何平均），再对 `low` 及以上取几何平均；格子里是该体量冷扫的名次和分数，<mark>**高亮**</mark> = 该列最高分。<br><br>The cold-scan score alone: each size's cold-scan relative score (platform fastest / own x 100, geometric mean across platforms), then the geometric mean from `low` up; each cell is the cold-scan rank and score in that size, <mark>**highlighted**</mark> = best in its column.</sub>
+
+### 热扫综合榜 · Warm scans across sizes
+
+| # | 扫⁠描⁠器<br>Scanner | **热⁠扫⁠分**<br>**Warm** | very‑lite\* | lite\* | low | mid |
+| :---: | :--- | ---: | :---: | :---: | :---: | :---: |
+| 🥇 | **SpaceKnife** | <mark>**97.4**</mark> | 🥉&nbsp;50.0 | 🥉&nbsp;80.0 | 🥇&nbsp;<mark>**94.9**</mark> | 🥇&nbsp;<mark>**100.0**</mark> |
+| 🥈 | **gdu** | 73.1 | 🥈&nbsp;78.0 | 🥈&nbsp;81.0 | 🥉&nbsp;73.8 | 🥈&nbsp;72.3 |
+| 🥉 | **SquirrelDisk** | 69.3 | 🥇&nbsp;<mark>**85.9**</mark> | 🥇&nbsp;<mark>**91.1**</mark> | 🥈&nbsp;82.4 | 🥉&nbsp;58.3 |
+| 4 | **diskus** | 41.6 | #4&nbsp;49.5 | #7&nbsp;39.1 | #7&nbsp;38.0 | #4&nbsp;45.5 |
+| 5 | **dua‑cli** | 41.5 | #9&nbsp;39.7 | #6&nbsp;42.0 | #4&nbsp;41.5 | #5&nbsp;41.6 |
+| 6 | **BSD&nbsp;du** | 38.6 | #5&nbsp;48.4 | #5&nbsp;42.2 | #6&nbsp;38.6 | — |
+| 7 | **GNU&nbsp;du** | 37.7 | #7&nbsp;45.7 | #8&nbsp;37.0 | #5&nbsp;39.0 | #9&nbsp;36.5 |
+| 8 | **pdu** | 37.4 | #6&nbsp;48.1 | #9&nbsp;35.4 | #9&nbsp;34.9 | #7&nbsp;40.1 |
+| 9 | **WizTree** | 37.2 | #10&nbsp;30.0 | #4&nbsp;44.6 | #10&nbsp;33.5 | #6&nbsp;41.2 |
+| 10 | **ncdu** | 37.2 | #8&nbsp;43.6 | #10&nbsp;34.4 | #8&nbsp;37.0 | #8&nbsp;37.3 |
+| 11 | **WinDirStat** | 23.0 | #11&nbsp;26.9 | #11&nbsp;25.7 | #11&nbsp;22.0 | #10&nbsp;24.0 |
+| 12 | **dust** | 22.2 | #12&nbsp;25.2 | #12&nbsp;19.7 | #12&nbsp;20.7 | #11&nbsp;23.8 |
+| 13 | **erdtree** | 18.3 | #13&nbsp;24.0 | #13&nbsp;19.5 | #13&nbsp;20.0 | #12&nbsp;16.7 |
+| 14 | **SpaceSniffer** | 9.6 | #14&nbsp;11.6 | #14&nbsp;9.8 | #14&nbsp;8.9 | #13&nbsp;10.4 |
+| 15 | **Sysinternals&nbsp;du** | 3.1 | #15&nbsp;5.3 | #15&nbsp;3.5 | #15&nbsp;3.1 | #14&nbsp;3.1 |
+
+<sub>只看热扫：每个体量取热扫相对分（该平台最快 ÷ 自己 × 100，跨平台几何平均），再对 `low` 及以上取几何平均；格子里是该体量热扫的名次和分数，<mark>**高亮**</mark> = 该列最高分。<br><br>The warm-scan score alone: each size's warm-scan relative score (platform fastest / own x 100, geometric mean across platforms), then the geometric mean from `low` up; each cell is the warm-scan rank and score in that size, <mark>**highlighted**</mark> = best in its column.</sub>
+
 ### 各体量详情 · Results per size
 
 <details open>
