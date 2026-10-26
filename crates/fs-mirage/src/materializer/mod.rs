@@ -546,42 +546,46 @@ pub fn materialize_tree(
     let t_links = Instant::now();
     let alloc_map = hl_alloc_map.into_inner().unwrap_or_default();
 
-    // 3. Materialize hard links concurrently
+    // 3. Materialize hard links concurrently, on the I/O pool: every link resolves two paths, which on a large ReFS
+    //    volume means a metadata read of ~6 ms per lookup, so the default pool (one thread per core) left it waiting
+    //    on the disk (ReFS mid: 150,000 links in 227 s at 15% CPU)
     let hardlink_extra_alloc = AtomicU64::new(0);
-    plan.hardlinks
-        .par_iter()
-        .try_for_each(|entry| -> Result<()> {
-            if let EntryKind::HardLink {
-                ref target_rel_path,
-                ..
-            } = entry.kind
-            {
-                let src_path = to_os_path(root, target_rel_path);
-                let dst_path = to_os_path(root, &entry.rel_path);
-                // Create first and only clean up on AlreadyExists: an up-front exists() costs an extra
-                // metadata syscall per link, which is expensive on NTFS.
-                let t_hl = prof::start();
-                let linked = match fs::hard_link(&src_path, &dst_path) {
-                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                        let _ = fs::remove_file(&dst_path);
-                        fs::hard_link(&src_path, &dst_path)
+    io_pool.install(|| {
+        plan.hardlinks
+            .par_iter()
+            .try_for_each(|entry| -> Result<()> {
+                if let EntryKind::HardLink {
+                    ref target_rel_path,
+                    ..
+                } = entry.kind
+                {
+                    let src_path = to_os_path(root, target_rel_path);
+                    let dst_path = to_os_path(root, &entry.rel_path);
+                    // Create first and only clean up on AlreadyExists: an up-front exists() costs an extra
+                    // metadata syscall per link, which is expensive on NTFS.
+                    let t_hl = prof::start();
+                    let linked = match fs::hard_link(&src_path, &dst_path) {
+                        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+                            let _ = fs::remove_file(&dst_path);
+                            fs::hard_link(&src_path, &dst_path)
+                        }
+                        other => other,
+                    };
+                    prof::stop(9, t_hl);
+                    linked.with_context(|| {
+                        format!(
+                            "Failed to create hard link {} -> {}",
+                            dst_path.display(),
+                            src_path.display()
+                        )
+                    })?;
+                    if let Some(&target_alloc) = alloc_map.get(target_rel_path.as_str()) {
+                        hardlink_extra_alloc.fetch_add(target_alloc, Ordering::Relaxed);
                     }
-                    other => other,
-                };
-                prof::stop(9, t_hl);
-                linked.with_context(|| {
-                    format!(
-                        "Failed to create hard link {} -> {}",
-                        dst_path.display(),
-                        src_path.display()
-                    )
-                })?;
-                if let Some(&target_alloc) = alloc_map.get(target_rel_path.as_str()) {
-                    hardlink_extra_alloc.fetch_add(target_alloc, Ordering::Relaxed);
                 }
-            }
-            Ok(())
-        })?;
+                Ok(())
+            })
+    })?;
 
     eprintln!(
         "[fs-mirage]   hard links created in {:.2?}",
