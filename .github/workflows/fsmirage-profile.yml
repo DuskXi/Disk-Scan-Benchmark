@@ -1,0 +1,87 @@
+name: fs-mirage Generation Profile (diagnostic)
+
+run-name: "fs-mirage profile ${{ inputs.preset }} | ${{ inputs.filesystems }}${{ inputs.threads && format(' | {0} threads', inputs.threads) || '' }}"
+
+# Generates the benchmark tree on Windows volumes without running any scanner, with FSM_PROFILE=1: fs-mirage prints the
+# cumulative time of each kind of operation (create by size class, preallocate, dirty writes, ADS / attributes, churn,
+# directory handles, hard links), so a slow filesystem can be compared with NTFS operation by operation.
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Scale preset"
+        required: true
+        default: "low"
+        type: choice
+        options:
+          - very-lite
+          - lite
+          - low
+          - mid
+          - high
+      filesystems:
+        description: "Comma-separated Windows filesystems to profile (ntfs, refs)"
+        required: true
+        default: "ntfs,refs"
+        type: string
+      threads:
+        description: "FSM_THREADS override (empty = fs-mirage default)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  profile:
+    name: "Profile ${{ matrix.fs }} | ${{ inputs.preset }}"
+    runs-on: windows-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        fs: ${{ fromJSON(format('["{0}"]', join(split(inputs.filesystems, ','), '","'))) }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build fs-mirage
+        shell: bash
+        run: cargo build --release -p fs-mirage
+
+      - name: Create & Mount Dynamic VHDX
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb 60)
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 create "$VDISK_GB" "X:/bench" "${{ matrix.fs }}"
+
+      - name: Generate With Per-Operation Profile
+        shell: bash
+        env:
+          FSM_PROFILE: "1"
+          FSM_THREADS: ${{ inputs.threads }}
+        run: |
+          [ -n "$FSM_THREADS" ] || unset FSM_THREADS
+          mkdir -p out
+          start=$(date +%s)
+          ./target/release/fs-mirage --root "X:/bench" --preset "${{ inputs.preset }}" --seed 42 \
+            --max-physical-mb 1500 --manifest-out out/ground_truth.json
+          echo "wall clock: $(( $(date +%s) - start )) s"
+          powershell -NoProfile -Command '$p = (Get-Content (Join-Path $env:TEMP "disk_scanner_bench_X.vhdpath") -Raw).Trim(); $v = Get-Volume -DriveLetter X; "VHDX {0:N1} GB physical | X: used {1:N1} of {2:N0} GB" -f ((Get-Item $p).Length / 1GB), (($v.Size - $v.SizeRemaining) / 1GB), ($v.Size / 1GB)'
+
+      - name: Teardown
+        if: always()
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
