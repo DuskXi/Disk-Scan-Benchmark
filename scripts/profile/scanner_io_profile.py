@@ -48,13 +48,30 @@ CONFIGS: List[Tuple[str, str, Optional[int]]] = [
     ("WinDirStat 4 threads", "windirstat", 4),
     ("WinDirStat 8 threads", "windirstat", 8),
 ]
+# {vol}: the benchmark volume; {host}: the drive holding its VHDX, where the reads really land on the runner
 COUNTERS = [
     "\\LogicalDisk({vol})\\Current Disk Queue Length",
     "\\LogicalDisk({vol})\\Disk Reads/sec",
     "\\LogicalDisk({vol})\\Avg. Disk sec/Read",
     "\\LogicalDisk({vol})\\Avg. Disk Bytes/Read",
     "\\Processor(_Total)\\% Processor Time",
+    "\\LogicalDisk({vol})\\Disk Read Bytes/sec",
+    "\\LogicalDisk({host})\\Disk Reads/sec",
+    "\\LogicalDisk({host})\\Disk Read Bytes/sec",
+    "\\LogicalDisk({host})\\Avg. Disk sec/Read",
 ]
+
+
+def host_drive(vol: str) -> str:
+    """Drive of the VHDX that backs the benchmark volume (recorded by windows_vhd.ps1), D: if unknown."""
+    state = Path(os.environ.get("TEMP", tempfile.gettempdir())) / f"disk_scanner_bench_{vol[0]}.vhdpath"
+    try:
+        text = state.read_text(encoding="ascii", errors="ignore").strip()
+        if len(text) > 1 and text[1] == ":":
+            return text[:2].upper()
+    except OSError:
+        pass
+    return "D:"
 
 
 def set_windirstat_threads(threads: int) -> None:
@@ -137,9 +154,12 @@ def run_config(
     rcs.invoke_purge_cache(os_key, scan_path, REPO, False)
 
     vol = scan_path[:2].upper()
+    host = host_drive(vol)
     perf_csv = work / f"perf_{label.replace(' ', '_')}_{int(time.time())}.csv"
     perf = subprocess.Popen(
-        ["typeperf"] + [c.format(vol=vol) for c in COUNTERS] + ["-si", "1", "-o", str(perf_csv), "-f", "CSV", "-y"],
+        ["typeperf"]
+        + [c.format(vol=vol, host=host) for c in COUNTERS]
+        + ["-si", "1", "-o", str(perf_csv), "-f", "CSV", "-y"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -187,6 +207,7 @@ def run_config(
     reading = [s for s in samples if s[1] > 0]
     lat = statistics.fmean(s[2] for s in reading) * 1000 if reading else None
     size = statistics.fmean(s[3] for s in reading) / 1024 if reading else None
+    host_reading = [s for s in samples if s[6] > 0]
     return {
         "label": label,
         "wall_s": round(wall, 2),
@@ -197,6 +218,16 @@ def run_config(
         "reads_per_s": mean(1),
         "read_ms": lat,
         "read_kib": size,
+        "read_mib_total": sum(s[5] for s in samples) / 1024**2,  # one sample per second
+        "reads_total": sum(s[1] for s in samples),
+        "host": host,
+        "host_reads_per_s": mean(6),
+        "host_read_kib": (
+            statistics.fmean(s[7] / s[6] for s in host_reading) / 1024 if host_reading else None
+        ),  # bytes/s over reads/s
+        "host_read_ms": statistics.fmean(s[8] for s in host_reading) * 1000 if host_reading else None,
+        "host_reads_total": sum(s[6] for s in samples),
+        "host_read_mib_total": sum(s[7] for s in samples) / 1024**2,
         "cpu_total_pct": mean(4),
         "proc_cpu_s": proc_stats.get("cpu_s"),
         "proc_max_threads": proc_stats.get("max_threads"),
@@ -216,6 +247,8 @@ def main() -> int:
     ap.add_argument("--md-out", default="")
     ap.add_argument("--json-out", default="")
     args = ap.parse_args()
+    # the runner's console is cp1252: the Markdown table has Chinese headers
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
     os_key, arch_key = rcs.detect_os_arch()
     registry = json.loads((REPO / "scripts" / "wrappers" / "scanners_registry.json").read_text(encoding="utf-8"))
@@ -237,29 +270,36 @@ def main() -> int:
             results.append(r)
             print(
                 f"[io-profile] round {rnd + 1} {label}: {r['wall_s']} s, queue {fmt(r['queue_mean'], '.1f')} "
-                f"(peak {fmt(r['queue_peak'], '.0f')}), {fmt(r['reads_per_s'], ',.0f')} reads/s, "
-                f"{fmt(r['read_ms'], '.2f')} ms/read, threads {r['proc_max_threads']}, exit {r['exit']}",
+                f"(peak {fmt(r['queue_peak'], '.0f')}), {fmt(r['reads_per_s'], ',.0f')} reads/s of "
+                f"{fmt(r['read_kib'], '.1f')} KiB at {fmt(r['read_ms'], '.2f')} ms, volume {fmt(r['reads_total'], ',.0f')} "
+                f"reads / {fmt(r['read_mib_total'], ',.0f')} MiB | host {r['host']} {fmt(r['host_reads_total'], ',.0f')} "
+                f"reads / {fmt(r['host_read_mib_total'], ',.0f')} MiB, {fmt(r['host_read_kib'], '.1f')} KiB at "
+                f"{fmt(r['host_read_ms'], '.2f')} ms | threads {r['proc_max_threads']}, exit {r['exit']}",
                 flush=True,
             )
+            if args.json_out:  # keep what was measured even if a later configuration fails
+                Path(args.json_out).write_text(json.dumps(results, indent=2), encoding="utf-8")
 
     lines = [
-        "| 配置 Config | 轮 Round | 冷扫 s | 队列均值 Queue | 队列峰值 Peak | 读/秒 Reads/s | 读延迟 ms | 每次读 KiB "
-        "| 总 CPU % | 进程 CPU s | 最多线程 |",
-        "| :--- | :---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| 配置 Config | 轮 Round | 冷扫 s | 队列均值 Queue | 读/秒 Reads/s | 读延迟 ms | 每次读 KiB | 卷上读 MiB "
+        "| 宿主盘读次数 Host reads | 宿主盘读 MiB | 宿主每次读 KiB | 宿主读延迟 ms | 进程 CPU s | 最多线程 |",
+        "| :--- | :---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for r in results:
         lines.append(
             f"| {r['label']} | {r['round']} | {r['wall_s']:.2f} | {fmt(r['queue_mean'], '.1f')} "
-            f"| {fmt(r['queue_peak'], '.0f')} | {fmt(r['reads_per_s'], ',.0f')} | {fmt(r['read_ms'], '.2f')} "
-            f"| {fmt(r['read_kib'], '.1f')} | {fmt(r['cpu_total_pct'], '.0f')} | {fmt(r['proc_cpu_s'], '.1f')} "
+            f"| {fmt(r['reads_per_s'], ',.0f')} | {fmt(r['read_ms'], '.2f')} | {fmt(r['read_kib'], '.1f')} "
+            f"| {fmt(r['read_mib_total'], ',.0f')} | {fmt(r['host_reads_total'], ',.0f')} "
+            f"| {fmt(r['host_read_mib_total'], ',.0f')} | {fmt(r['host_read_kib'], '.1f')} "
+            f"| {fmt(r['host_read_ms'], '.2f')} | {fmt(r['proc_cpu_s'], '.1f')} "
             f"| {r['proc_max_threads'] if r['proc_max_threads'] is not None else '-'} |"
         )
     md = "\n".join(lines) + "\n"
-    print(md)
     if args.md_out:
         Path(args.md_out).write_text(md, encoding="utf-8")
     if args.json_out:
         Path(args.json_out).write_text(json.dumps(results, indent=2), encoding="utf-8")
+    print(md)
     return 0
 
 
