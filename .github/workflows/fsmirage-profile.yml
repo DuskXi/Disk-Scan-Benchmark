@@ -20,9 +20,9 @@ on:
           - mid
           - high
       filesystems:
-        description: "Comma-separated Windows filesystems to profile (ntfs, refs)"
+        description: 'JSON list of Windows filesystems to profile, e.g. ["ntfs","refs"]'
         required: true
-        default: "ntfs,refs"
+        default: '["ntfs","refs"]'
         type: string
       threads:
         description: "FSM_THREADS override (empty = fs-mirage default)"
@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fs: ${{ fromJSON(format('["{0}"]', join(split(inputs.filesystems, ','), '","'))) }}
+        fs: ${{ fromJSON(inputs.filesystems) }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
