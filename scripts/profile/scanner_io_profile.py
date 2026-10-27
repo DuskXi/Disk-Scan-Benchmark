@@ -10,7 +10,11 @@ NVMe drive: the suspicion is that it keeps more reads in flight. For each config
   3. starts typeperf on the benchmark volume (queue depth, reads/s, read latency, bytes per read, total CPU),
   4. runs the scanner's benchmark command once (a cold scan) while psutil samples its process tree,
 
-and prints one Markdown table. Every configuration runs once in order and once in reverse order.
+and prints one Markdown table. Every configuration runs once in order and once in reverse order (or in an order
+shuffled by --shuffle-seed, so parallel jobs on different runners each see a different order).
+
+--configs picks configurations by label, among them the thread-count variants of gdu (-m), dua-cli (DUA_THREADS) and
+SpaceKnife (SPACEKNIFE_SCAN_THREADS): whether fewer reads in flight make the parallel scanners faster on the CI disks.
 
   python scanner_io_profile.py --path X:/bench --bin-dir ./bin --md-out io.md --json-out io.json
 """
@@ -20,6 +24,7 @@ import csv
 import datetime as dt
 import json
 import os
+import random
 import statistics
 import subprocess
 import sys
@@ -38,15 +43,27 @@ try:
 except ImportError:  # the disk counters still work without it
     psutil = None
 
-# (label, scanner id, WinDirStat ScanningThreads: None = untouched, 0 = value removed as in the benchmark, else N)
-CONFIGS: List[Tuple[str, str, Optional[int]]] = [
-    ("gdu", "gdu", None),
-    ("dua-cli", "dua", None),
-    ("SpaceKnife", "spaceknife", None),
-    ("WinDirStat default", "windirstat", 0),
-    ("WinDirStat 1 thread", "windirstat", 1),
-    ("WinDirStat 4 threads", "windirstat", 4),
-    ("WinDirStat 8 threads", "windirstat", 8),
+# (label, scanner id, WinDirStat ScanningThreads: None = untouched, 0 = value removed as in the benchmark, else N,
+#  extra environment, extra arguments right after the executable)
+Config = Tuple[str, str, Optional[int], Dict[str, str], List[str]]
+CONFIGS: List[Config] = [
+    ("gdu", "gdu", None, {}, []),
+    ("dua-cli", "dua", None, {}, []),
+    ("SpaceKnife", "spaceknife", None, {}, []),
+    ("WinDirStat default", "windirstat", 0, {}, []),
+    ("WinDirStat 1 thread", "windirstat", 1, {}, []),
+    ("WinDirStat 4 threads", "windirstat", 4, {}, []),
+    ("WinDirStat 8 threads", "windirstat", 8, {}, []),
+]
+# fewer reads in flight for the parallel scanners (only with --configs)
+THREAD_VARIANTS: List[Config] = [
+    ("gdu 1 core", "gdu", None, {}, ["-m", "1"]),
+    ("gdu 2 cores", "gdu", None, {}, ["-m", "2"]),
+    ("dua-cli 1 thread", "dua", None, {"DUA_THREADS": "1"}, []),
+    ("dua-cli 2 threads", "dua", None, {"DUA_THREADS": "2"}, []),
+    ("SpaceKnife 1 thread", "spaceknife", None, {"SPACEKNIFE_SCAN_THREADS": "1"}, []),
+    ("SpaceKnife 4 threads", "spaceknife", None, {"SPACEKNIFE_SCAN_THREADS": "4"}, []),
+    ("SpaceKnife 16 threads", "spaceknife", None, {"SPACEKNIFE_SCAN_THREADS": "16"}, []),
 ]
 # {vol}: the benchmark volume; {host}: the drive holding its VHDX, where the reads really land on the runner
 COUNTERS = [
@@ -151,6 +168,8 @@ def run_config(
     scan_path: str,
     work: Path,
     purge: str = "vdisk",
+    extra_env: Optional[Dict[str, str]] = None,
+    extra_args: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     os_key = "windows"
     rcs.configure_windows_gui_scanner(scanner["id"], os_key, bin_path, False)
@@ -181,9 +200,11 @@ def run_config(
         tok.replace("{bin}", bin_path).replace("{path}", scan_path).replace("{export_file}", str(export_file))
         for tok in rcs.command_template_for(scanner, os_key)
     ]
+    cmd[1:1] = extra_args or []
     env = os.environ.copy()
     env["SPACEKNIFE_LANGUAGE"] = "en"
     env.update({k: str(v) for k, v in scanner.get("env", {}).items()})
+    env.update(extra_env or {})
     proc_stats: Dict[str, float] = {}
     stop = threading.Event()
     t0 = dt.datetime.now()
@@ -261,7 +282,26 @@ def main() -> int:
     )
     ap.add_argument("--md-out", default="")
     ap.add_argument("--json-out", default="")
+    ap.add_argument(
+        "--configs",
+        default="",
+        help="Comma-separated labels of the configurations to run (default: the standard set; thread variants too)",
+    )
+    ap.add_argument(
+        "--shuffle-seed",
+        type=int,
+        default=-1,
+        help="Shuffle the order of every round with this seed instead of alternating forward and reverse",
+    )
     args = ap.parse_args()
+    configs = CONFIGS
+    if args.configs:
+        by_label = {c[0]: c for c in CONFIGS + THREAD_VARIANTS}
+        wanted = [s.strip() for s in args.configs.split(",") if s.strip()]
+        unknown = [w for w in wanted if w not in by_label]
+        if unknown:
+            ap.error(f"unknown configuration(s): {', '.join(unknown)}; known: {', '.join(by_label)}")
+        configs = [by_label[w] for w in wanted]
     # the runner's console is cp1252: the Markdown table has Chinese headers
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
@@ -272,15 +312,21 @@ def main() -> int:
     print(f"[io-profile] {os_key}/{arch_key}, psutil {'on' if psutil else 'off'}, work dir {work}")
 
     results: List[Dict[str, Any]] = []
+    rng = random.Random(args.shuffle_seed)
     for rnd in range(args.rounds):
-        order = CONFIGS if rnd % 2 == 0 else list(reversed(CONFIGS))
-        for label, sid, threads in order:
+        if args.shuffle_seed >= 0:
+            order = list(configs)
+            rng.shuffle(order)
+        else:
+            order = configs if rnd % 2 == 0 else list(reversed(configs))
+        print(f"[io-profile] round {rnd + 1} order: {', '.join(c[0] for c in order)}", flush=True)
+        for label, sid, threads, extra_env, extra_args in order:
             scanner = by_id[sid]
             bin_path = rcs.resolve_installed_scanner(scanner, os_key, arch_key, Path(args.bin_dir))
             if not bin_path:
                 print(f"[io-profile] {label}: not installed for {os_key}/{arch_key}, skipped")
                 continue
-            r = run_config(label, scanner, threads, bin_path, args.path, work, args.purge)
+            r = run_config(label, scanner, threads, bin_path, args.path, work, args.purge, extra_env, extra_args)
             r["round"] = rnd + 1
             results.append(r)
             print(

@@ -17,6 +17,8 @@ run-name: "Scanner I/O profile ${{ inputs.preset }} | ${{ inputs.backings }}${{ 
 #             takes ~6 GiB of RAM (small files, $MFT and directory indexes) with the same names and layout
 # A physical drive or RAM disk cannot hold a preset's preallocated size (low: ~500 GB), so with logical_gb set the tree
 # keeps the preset's file count and seed and only its total size shrinks; every backing then gets the same tree.
+# configs picks configurations, among them thread-count variants of gdu / dua-cli / SpaceKnife (fewer reads in flight);
+# replicas runs that many identical jobs in parallel on separate runners, each in its own shuffled order.
 on:
   workflow_dispatch:
     inputs:
@@ -41,9 +43,24 @@ on:
         default: '["vhdx","folder","ramdisk"]'
         type: string
       rounds:
-        description: "Rounds over all configurations (every second round in reverse order)"
+        description: "Rounds over all configurations (every second round in reverse order; shuffled with replicas)"
         required: true
         default: "2"
+        type: string
+      configs:
+        description: 'Comma-separated configuration labels (empty = gdu, dua-cli, SpaceKnife, 4 WinDirStat ones); thread variants e.g. "gdu 1 core", "dua-cli 2 threads", "SpaceKnife 4 threads"'
+        required: false
+        default: ""
+        type: string
+      replicas:
+        description: 'JSON list of replica ids: identical parallel jobs on separate runners, each in its own shuffled order (e.g. ["1","2","3"])'
+        required: false
+        default: '["1"]'
+        type: string
+      targets:
+        description: 'JSON list of targets: "windows-x86_64", "windows-arm64"'
+        required: false
+        default: '["windows-x86_64","windows-arm64"]'
         type: string
 
 permissions:
@@ -54,14 +71,15 @@ env:
 
 jobs:
   profile:
-    name: "I/O profile ${{ matrix.target }} | ${{ matrix.backing }} | ${{ inputs.preset }}"
+    name: "I/O profile ${{ matrix.target }} | ${{ matrix.backing }} | ${{ inputs.preset }} | r${{ matrix.replica }}"
     runs-on: ${{ matrix.target == 'windows-arm64' && 'windows-11-arm' || 'windows-latest' }}
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        target: [windows-x86_64, windows-arm64]
+        target: ${{ fromJSON(inputs.targets) }}
         backing: ${{ fromJSON(inputs.backings) }}
+        replica: ${{ fromJSON(inputs.replicas) }}
         exclude:
           - target: windows-arm64
             backing: ramdisk  # ImDisk has no ARM64 driver
@@ -178,11 +196,17 @@ jobs:
 
       - name: Cold Scans With Per-Second I/O Sampling
         shell: bash
+        env:
+          CONFIGS: ${{ inputs.configs }}
         run: |
+          EXTRA=()
+          if [ -n "$CONFIGS" ]; then EXTRA+=(--configs "$CONFIGS"); fi
+          # one replica keeps the forward / reverse alternation; several each shuffle with their own seed
+          if [ "${{ inputs.replicas }}" != '["1"]' ]; then EXTRA+=(--shuffle-seed "${{ matrix.replica }}"); fi
           python ./scripts/profile/scanner_io_profile.py --path "$ROOT" --purge "$PURGE" --bin-dir ./bin \
-            --rounds "${{ inputs.rounds }}" --md-out out/io_profile.md --json-out out/io_profile.json
+            --rounds "${{ inputs.rounds }}" --md-out out/io_profile.md --json-out out/io_profile.json "${EXTRA[@]}"
           {
-            echo "## ${{ matrix.target }} | ${{ matrix.backing }} (${{ inputs.preset }}, $GEN_ARGS)"
+            echo "## ${{ matrix.target }} | ${{ matrix.backing }} | replica ${{ matrix.replica }} (${{ inputs.preset }}, $GEN_ARGS)"
             echo
             cat out/rand_sweep.md
             echo
@@ -203,6 +227,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: io-profile-${{ matrix.target }}-${{ matrix.backing }}-${{ inputs.preset }}
+          name: io-profile-${{ matrix.target }}-${{ matrix.backing }}-${{ inputs.preset }}-r${{ matrix.replica }}
           path: out/
           retention-days: 14
