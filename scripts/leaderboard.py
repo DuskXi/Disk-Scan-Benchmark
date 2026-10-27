@@ -13,6 +13,11 @@ result was valid.
   index = geomean(cold, warm balanced index / best)   (per platform, x100)
   overall = geomean(cold, warm, index), each first averaged (geometric mean) over the platforms
 
+Side scores, not part of overall:
+  mem  = least peak RAM / own peak RAM x 100                    (per platform)
+  io   = fewest cold-scan device reads / own cold reads x 100    (per platform; 1 / (IOPS x time) = 1 / reads)
+  write_mb = median over the platforms of the bytes the scanned disk wrote per scan
+
 The JSON payload holds everything the Markdown needs, so scripts/readme_board.py can render the same tables into
 README.md later from the stored payload alone.
 """
@@ -110,6 +115,17 @@ def status_of(row: Dict[str, Any]) -> str:
     return "invalid"
 
 
+def _first_count(runs: Optional[List[Optional[float]]]) -> Optional[float]:
+    """The cold run's value of a per-run counter list, if measured."""
+    v = (runs or [None])[0]
+    return float(v) if v is not None and v >= 0 else None
+
+
+def _mean_count(runs: Optional[List[Optional[float]]]) -> Optional[float]:
+    vals = [float(v) for v in (runs or []) if v is not None and v >= 0]
+    return statistics.fmean(vals) if vals else None
+
+
 def balanced_score(row: Dict[str, Any], key: str) -> Optional[float]:
     data = row.get(key) or {}
     score = data.get("score") if isinstance(data, dict) else None
@@ -143,6 +159,9 @@ def score_platform(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                 "index_rel": index_rel,
                 "platform_score": geomean([cold_rel, warm_rel, index_rel]),
                 "rss_mb": float(r["peak_rss_mb"]) if r.get("peak_rss_mb") else None,
+                # device reads of the cold scan (scan efficiency) and bytes the scanned disk wrote per scan
+                "cold_reads": _first_count(r.get("device_reads_runs")),
+                "write_bytes": _mean_count(r.get("device_written_bytes_runs")),
                 "verification": r.get("verification"),
                 "warnings": list(r.get("warnings") or []),  # reported more than the tree holds: counted anyway
                 # GUI scanners report no size of their own (the monitor fills in the ground truth), so no accuracy
@@ -277,10 +296,36 @@ def merge_platforms(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, An
     return merged
 
 
+def side_scores(
+    per_platform: Dict[str, Dict[str, Dict[str, Any]]], labels: List[str]
+) -> Dict[str, Dict[str, Dict[str, Optional[float]]]]:
+    """
+    label -> scanner id -> {"mem", "io"}: relative scores inside the platform (x100, the best is 100). mem: least peak
+    RAM / own; io: fewest cold-scan device reads / own (a cold scan that read nothing has no score: its counter
+    failed or its caches were not dropped).
+    """
+    out: Dict[str, Dict[str, Dict[str, Optional[float]]]] = {}
+    for lbl in labels:
+        ok = {sid: e for sid, e in per_platform[lbl].items() if e.get("status") == "ok"}
+        rss = {sid: float(e["rss_mb"]) for sid, e in ok.items() if e.get("rss_mb")}
+        reads = {sid: float(e["cold_reads"]) for sid, e in ok.items() if e.get("cold_reads")}
+        best_rss = min(rss.values()) if rss else 0.0
+        best_reads = min(reads.values()) if reads else 0.0
+        out[lbl] = {
+            sid: {
+                "mem": best_rss / rss[sid] * 100.0 if sid in rss else None,
+                "io": best_reads / reads[sid] * 100.0 if sid in reads else None,
+            }
+            for sid in ok
+        }
+    return out
+
+
 def aggregate_overall(payload: Dict[str, Any]) -> None:
     """Fills payload['overall'] and payload['unranked'] from its per-platform entries (geometric means across them)."""
     labels: List[str] = payload["platforms"]
     per_platform: Dict[str, Dict[str, Dict[str, Any]]] = payload["per_platform"]
+    side = side_scores(per_platform, labels)
     overall: List[Dict[str, Any]] = []
     unranked: List[str] = []
     for sid, meta in payload["scanners"].items():
@@ -292,6 +337,8 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
         cold = geomean([e["cold_rel"] for e in ok])
         warm = geomean([e["warm_rel"] for e in ok])
         index = geomean([e["index_rel"] for e in ok])
+        ok_labels = [lbl for lbl in labels if per_platform[lbl].get(sid, {}).get("status") == "ok"]
+        writes = [e["write_bytes"] for e in ok if e.get("write_bytes") is not None]
         accs = [abs(e["acc_pct"]) for e in ok if e.get("acc_pct") is not None]
         levels = [e.get("verification") for e in ok if e.get("verification")]
         overall.append(
@@ -304,6 +351,9 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
                 "warm": warm,
                 "index": index,
                 "rss_mb": _median([e.get("rss_mb") for e in ok]),
+                "mem": geomean([side[lbl][sid]["mem"] for lbl in ok_labels]),
+                "io": geomean([side[lbl][sid]["io"] for lbl in ok_labels]),
+                "write_mb": statistics.median(writes) / 1e6 if writes else None,
                 "abs_acc_pct": statistics.median(accs) if accs else None,
                 "verification": max(set(levels), key=levels.count) if levels else None,
                 "valid_platforms": len(ok),
@@ -435,6 +485,7 @@ def render_kings(p: Dict[str, Any], bi: bool = False) -> List[str]:
         ("热扫", "Warm", "warm", False, lambda v: f"{v:.1f}"),
         ("均衡", "Balanced", "index", False, lambda v: f"{v:.1f}"),
         ("最省内存", "Least RAM", "rss_mb", True, lambda v: f"{v:,.0f} MB"),
+        ("扫描效率", "I/O efficiency", "io", False, lambda v: f"{v:.1f}"),
         ("最准", "Most accurate", "abs_acc_pct", True, lambda v: f"±{v:.2f}%"),
     ):
         o = best(key, low)

@@ -102,7 +102,9 @@
      "verification": "size+files+zones",
      "warnings": [],
      "acc_pct": 35.54,
-     "rank": 1
+     "rank": 1,
+     "cold_reads": 34188.0,
+     "write_bytes": null
     },
     "squirreldisk": {
      "status": "ok",
@@ -116,7 +118,9 @@
      "verification": "size+files+zones",
      "warnings": [],
      "acc_pct": 35.32,
-     "rank": 3
+     "rank": 3,
+     "cold_reads": 33969.0,
+     "write_bytes": null
     },
     "windirstat": {
      "status": "ok",
@@ -130,7 +134,9 @@
      "verification": "size+files+zones",
      "warnings": [],
      "acc_pct": 0.58,
-     "rank": 6
+     "rank": 6,
+     "cold_reads": 33985.0,
+     "write_bytes": null
     },
     "wiztree": {
      "status": "ok",
@@ -144,7 +150,9 @@
      "verification": "size+files+zones",
      "warnings": [],
      "acc_pct": 0.58,
-     "rank": 4
+     "rank": 4,
+     "cold_reads": 33962.0,
+     "write_bytes": null
     },
     "gdu": {
      "status": "ok",
@@ -158,7 +166,9 @@
      "verification": "size+zones",
      "warnings": [],
      "acc_pct": 0.58,
-     "rank": 2
+     "rank": 2,
+     "cold_reads": 33983.0,
+     "write_bytes": null
     },
     "dua": {
      "status": "ok",
@@ -172,7 +182,9 @@
      "verification": "size+zones",
      "warnings": [],
      "acc_pct": 34.78,
-     "rank": 5
+     "rank": 5,
+     "cold_reads": 33951.0,
+     "write_bytes": null
     },
     "spacesniffer": {
      "status": "ok",
@@ -186,7 +198,9 @@
      "verification": "io-only",
      "warnings": [],
      "acc_pct": null,
-     "rank": 7
+     "rank": 7,
+     "cold_reads": 62020.0,
+     "write_bytes": null
     },
     "diskus": {
      "status": "ok",
@@ -200,7 +214,9 @@
      "verification": "size",
      "warnings": [],
      "acc_pct": 0.58,
-     "rank": 8
+     "rank": 8,
+     "cold_reads": 120163.0,
+     "write_bytes": null
     },
     "dust": {
      "status": "ok",
@@ -214,7 +230,9 @@
      "verification": "size+zones",
      "warnings": [],
      "acc_pct": 0.5,
-     "rank": 9
+     "rank": 9,
+     "cold_reads": 115620.0,
+     "write_bytes": null
     },
     "erdtree": {
      "status": "ok",
@@ -228,7 +246,9 @@
      "verification": "size+files+zones",
      "warnings": [],
      "acc_pct": 35.23,
-     "rank": 11
+     "rank": 11,
+     "cold_reads": 136033.0,
+     "write_bytes": null
     },
     "pdu": {
      "status": "ok",
@@ -242,7 +262,9 @@
      "verification": "size+zones",
      "warnings": [],
      "acc_pct": 0.58,
-     "rank": 10
+     "rank": 10,
+     "cold_reads": 134538.0,
+     "write_bytes": null
     },
     "sysinternals-du": {
      "status": "ok",
@@ -256,7 +278,9 @@
      "verification": "size+files+zones",
      "warnings": [],
      "acc_pct": 34.7,
-     "rank": 12
+     "rank": 12,
+     "cold_reads": 130651.0,
+     "write_bytes": null
     }
    }
   },

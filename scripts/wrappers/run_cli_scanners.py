@@ -759,11 +759,13 @@ class WindowsJob:
             self.job = None
 
 
-def device_read_count(path: str, os_key: str) -> Optional[int]:
+def device_io_counters(path: str, os_key: str) -> Optional[Tuple[int, int]]:
     """
-    Cumulative read requests completed by the device holding `path`, for the I/O term of the balanced index.
+    Cumulative (read requests completed, bytes written) of the device holding `path`: the reads feed the I/O term of
+    the balanced index and the scan-efficiency score, the bytes written show how much a scan writes to the disk.
     Windows: the volume's IOCTL_DISK_PERFORMANCE counters; Linux: /sys/dev/block/<major>:<minor>/stat (the loop
-    device of the benchmark image); macOS: the sum of "Operations (Read)" of all block storage drivers.
+    device of the benchmark image); macOS: the sums of "Operations (Read)" and "Bytes (Write)" of all block storage
+    drivers (the whole machine: the benchmark tree lives on the system volume there).
     """
     try:
         if os_key == "windows":
@@ -796,23 +798,33 @@ def device_read_count(path: str, os_key: str) -> Optional[int]:
             try:
                 buf = ctypes.create_string_buffer(128)
                 returned = ctypes.c_uint32(0)
-                # IOCTL_DISK_PERFORMANCE -> DISK_PERFORMANCE: five LARGE_INTEGERs, then DWORD ReadCount
+                # IOCTL_DISK_PERFORMANCE -> DISK_PERFORMANCE: BytesRead, BytesWritten, ReadTime, WriteTime, IdleTime
+                # (LARGE_INTEGERs), then DWORD ReadCount
                 if not k32.DeviceIoControl(handle, 0x70020, None, 0, buf, 128, ctypes.byref(returned), None):
                     return None
-                return int.from_bytes(buf.raw[40:44], "little")
+                return int.from_bytes(buf.raw[40:44], "little"), int.from_bytes(buf.raw[8:16], "little")
             finally:
                 k32.CloseHandle(handle)
         if os_key == "linux":
             st_dev = os.stat(path).st_dev
             major, minor = getattr(os, "major"), getattr(os, "minor")  # Unix only
             stat_path = Path(f"/sys/dev/block/{major(st_dev)}:{minor(st_dev)}/stat")
-            return int(stat_path.read_text().split()[0])
+            if not stat_path.exists():
+                # Btrfs and ZFS report an anonymous device number: use the loop device of the benchmark image, as
+                # recorded by linux_loop.sh (image|mount path|ramdisk|loop device|fs)
+                state = Path("/tmp/disk_scanner_bench_linux.state").read_text().strip().split("|")
+                if len(state) < 4 or not state[3] or not Path(path).resolve().is_relative_to(Path(state[1]).resolve()):
+                    return None
+                stat_path = Path(f"/sys/class/block/{Path(state[3]).name}/stat")
+            fields = stat_path.read_text().split()
+            return int(fields[0]), int(fields[6]) * 512  # reads completed, sectors written
         if os_key == "macos":
             out = subprocess.run(
                 ["ioreg", "-c", "IOBlockStorageDriver", "-r", "-w", "0"], capture_output=True, text=True
             ).stdout
             counts = [int(m) for m in re.findall(r'"Operations \(Read\)"=(\d+)', out)]
-            return sum(counts) if counts else None
+            written = [int(m) for m in re.findall(r'"Bytes \(Write\)"=(\d+)', out)]
+            return (sum(counts), sum(written)) if counts else None
     except Exception:
         return None
     return None
@@ -1652,13 +1664,19 @@ def main() -> int:
         def execute_once() -> Tuple[float, float, int, int, Dict[str, Dict[str, Any]]]:
             if export_file.exists():
                 export_file.unlink()
-            # device reads issued during this run (outside the timed window), for the balanced resource index
-            reads0 = device_read_count(scan_path, os_key)
+            # device reads and bytes written during this run (outside the timed window): the balanced resource index,
+            # the scan-efficiency score and the disk-write column
+            io0 = device_io_counters(scan_path, os_key)
             try:
                 return execute_scan()
             finally:
-                reads1 = device_read_count(scan_path, os_key)
-                run_reads.append(reads1 - reads0 if reads0 is not None and reads1 is not None else None)
+                io1 = device_io_counters(scan_path, os_key)
+                if io0 is not None and io1 is not None:
+                    run_reads.append(io1[0] - io0[0])
+                    run_written.append(io1[1] - io0[1])
+                else:
+                    run_reads.append(None)
+                    run_written.append(None)
 
         def execute_scan() -> Tuple[float, float, int, int, Dict[str, Dict[str, Any]]]:
             if scanner["runner_type"] == "win_gui":
@@ -1778,6 +1796,7 @@ def main() -> int:
         sk_mft_fallbacks: List[Optional[str]] = []
         run_cpu: List[Optional[float]] = []  # per run, cold first: CPU seconds of the scanner's process tree
         run_reads: List[Optional[int]] = []  # per run, cold first: read requests completed by the device
+        run_written: List[Optional[int]] = []  # per run, cold first: bytes the device wrote
         configure_windows_gui_scanner(scanner_id, os_key, bin_path, args.mft_mode)
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
@@ -1972,6 +1991,7 @@ def main() -> int:
                 "cold_purged": cold_purged,
                 "cpu_seconds_runs": [None if c is None else round(c, 3) for c in run_cpu],
                 "device_reads_runs": run_reads,
+                "device_written_bytes_runs": run_written,
                 "valid": valid,
                 "invalid_reason": invalid_reason,
                 "structure_samples": accumulated_zones,

@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from leaderboard import (
     MEDALS,
     NB,
+    aggregate_overall,
     apply_display_names,
     display_names,
     fmt_s,
@@ -75,6 +76,8 @@ def load_data(data_dir: Path, kind: str) -> Dict[str, Dict[str, Any]]:
             sup = json.loads(sup_path.read_text(encoding="utf-8"))
             record["payload"] = merge_platforms(record["payload"], sup["payload"])
             record["supplements"].append(dict(sup["meta"], platforms=sup["payload"]["platforms"]))
+        # recomputed from the per-platform entries, so payloads stored before a side score existed get it too
+        aggregate_overall(record["payload"])
         apply_display_names(record["payload"], names)
         found[preset] = record
     return found
@@ -120,6 +123,67 @@ def cross_size(standard: Dict[str, Dict[str, Any]], key: str = "overall") -> Lis
     for pos, row in enumerate(ordered, start=1):
         row["rank"] = pos
     return ordered
+
+
+def cross_size_writes(standard: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    One row per scanner: MB the scanned disk wrote per scan, per million items of the tree (median over the
+    platforms), averaged over the sizes >= low (small sizes only when it has nothing else); fewest first.
+    """
+    rows: Dict[str, Dict[str, Any]] = {}
+    for preset, rec in standard.items():
+        payload = rec["payload"]
+        items = (int(payload.get("files") or 0) + int(payload.get("dirs") or 0)) / 1e6
+        if items <= 0:
+            continue
+        for o in payload["overall"]:
+            if o.get("write_mb") is None:
+                continue
+            row = rows.setdefault(o["id"], {"id": o["id"], "name": o["scanner"], "presets": {}})
+            row["presets"][preset] = o["write_mb"] / items
+    for row in rows.values():
+        big = [v for p, v in row["presets"].items() if p not in SMALL]
+        small = [v for p, v in row["presets"].items() if p in SMALL]
+        vals = big or small
+        row["combined"] = sum(vals) / len(vals)
+        row["combined_from_small_only"] = not big
+    ordered = sorted(rows.values(), key=lambda r: (r["combined_from_small_only"], r["combined"]))
+    for pos, row in enumerate(ordered, start=1):
+        row["rank"] = pos
+    return ordered
+
+
+TOP_COLUMNS = [
+    ("overall", "综合", "Overall"),
+    ("cold", "冷扫", "Cold"),
+    ("warm", "热扫", "Warm"),
+    ("mem", "内存", "RAM"),
+    ("io", "扫描效率", "I/O efficiency"),
+    ("write", "写盘量", "Disk writes"),
+]
+
+
+def top_table(standard: Dict[str, Dict[str, Any]], places: int = 4) -> List[str]:
+    """The first `places` scanners of every category, one category per column, each ranked across sizes."""
+    columns = {key: cross_size(standard, key) for key, _, _ in TOP_COLUMNS if key != "write"}
+    columns["write"] = cross_size_writes(standard)
+    lines = [
+        "| " + " | ".join([head("名次", "Rank", True)] + [head(zh, en, True) for _, zh, en in TOP_COLUMNS]) + " |",
+        "| " + " | ".join([":---:"] + [":---:" for _ in TOP_COLUMNS]) + " |",
+    ]
+    for pos in range(places):
+        cells = []
+        for key, _, _ in TOP_COLUMNS:
+            ranked = columns[key]
+            if pos < len(ranked) and ranked[pos].get("combined") is not None:
+                r = ranked[pos]
+                value = f"{r['combined']:,.2f}{NB}MB" if key == "write" else fmt_score(r["combined"])
+                star = "\\*" if r["combined_from_small_only"] else ""
+                cells.append(f"**{nobreak(r['name'])}**<br><sub>{value}{star}</sub>")
+            else:
+                cells.append("—")
+        lines.append(f"| {MEDALS.get(pos + 1, str(pos + 1))} | " + " | ".join(cells) + " |")
+    return lines
 
 
 def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
@@ -271,6 +335,29 @@ def render_section(
 
     # Across sizes: no badge column, so the table stays narrow and nothing wraps inside a cell
     present = [p for p in PRESETS if p in standard]
+    lines += ["### 各项前四名 · Top 4 of each category", ""] + top_table(standard)
+    lines += [
+        "",
+        "<sub>每列单独排名，都按 `low` 及以上各体量合并（\\* = 只有小体量成绩）；综合、冷扫、热扫同下方各榜。"
+        "内存 = 该平台最低峰值内存 ÷ 自己 × 100。"
+        "扫描效率 = 1 ÷ (扫描时 IOPS × 扫描时间)，IOPS 乘时间就是冷扫时盘上完成的读次数，所以它等于 1 ÷ 读次数："
+        "扫同一棵树，读盘次数越少越高效，同样的时间里 IOPS 越低越好；按该平台最少读次数 ÷ 自己 × 100 计分。"
+        "这两项和冷扫、热扫一样，先跨平台、再跨体量取几何平均。"
+        "写盘量 = 每次扫描时被扫描的盘写入的数据量（每百万项，各平台中位数，跨体量平均），越少越好；"
+        "只计被扫描的那块盘（macOS 上是整台机器，含系统自身的写入），扫描器写到其他盘的缓存不在内。"
+        "测试盘都关了访问时间更新，正常扫描应接近 0；这一项从 2026-10-27 起才开始记录，之前的运行显示 —。<br><br>"
+        "Each column is ranked on its own, combined over the sizes from `low` up (\\* = small sizes only); Overall, "
+        "Cold and Warm are the boards below. RAM = the platform's least peak RAM / own x 100. I/O efficiency = "
+        "1 / (IOPS during the scan x scan time); IOPS times time is the number of reads the disk completed in the cold "
+        "scan, so this is 1 / reads: fewer disk reads for the same tree, or a lower IOPS in the same time, is more "
+        "efficient; scored as the platform's fewest reads / own x 100. Both are averaged like Cold and Warm "
+        "(geometric mean across platforms, then across sizes). Disk writes = data the scanned disk wrote per scan "
+        "(per million items, median over platforms, mean over sizes), fewer is better; only the scanned disk counts "
+        "(on macOS the whole machine, system writes included), caches written to other disks do not. The test disks "
+        "keep no access times, so a well-behaved scan writes close to nothing; recorded from 2026-10-27 on, older "
+        "runs show —.</sub>",
+        "",
+    ]
     lines += ["### 跨体量总榜 · Overall across sizes", ""] + cross_size_table(standard, present, "overall")
     lines += [
         "",

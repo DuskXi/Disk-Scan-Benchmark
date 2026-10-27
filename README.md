@@ -18,6 +18,17 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 >
 > Each size runs and updates on its own: a finished run refreshes its column and the others keep their last result. `very-lite` and `lite` are so small that process start-up dominates the wall clock, so they are for reference only and stay out of the overall score. Scoring and test-data design: [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
+### 各项前四名 · Top 4 of each category
+
+| 名⁠次<br>Rank | 综⁠合<br>Overall | 冷⁠扫<br>Cold | 热⁠扫<br>Warm | 内⁠存<br>RAM | 扫⁠描⁠效⁠率<br>I/O&nbsp;efficiency | 写⁠盘⁠量<br>Disk&nbsp;writes |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| 🥇 | **SpaceKnife**<br><sub>96.2</sub> | **WinDirStat**<br><sub>96.9</sub> | **SpaceKnife**<br><sub>97.0</sub> | **ncdu**<br><sub>58.2</sub> | **GNU&nbsp;du**<br><sub>100.0</sub> | — |
+| 🥈 | **gdu**<br><sub>70.8</sub> | **SpaceKnife**<br><sub>93.5</sub> | **gdu**<br><sub>68.5</sub> | **GNU&nbsp;du**<br><sub>26.3</sub> | **WizTree**<br><sub>99.9</sub> | — |
+| 🥉 | **SquirrelDisk**<br><sub>64.2</sub> | **WizTree**<br><sub>75.6</sub> | **SquirrelDisk**<br><sub>57.0</sub> | **dua‑cli**<br><sub>18.1</sub> | **SpaceKnife**<br><sub>98.2</sub> | — |
+| 4 | **diskus**<br><sub>55.9</sub> | **dua‑cli**<br><sub>72.1</sub> | **diskus**<br><sub>44.3</sub> | **diskus**<br><sub>12.8</sub> | **ncdu**<br><sub>97.7</sub> | — |
+
+<sub>每列单独排名，都按 `low` 及以上各体量合并（\* = 只有小体量成绩）；综合、冷扫、热扫同下方各榜。内存 = 该平台最低峰值内存 ÷ 自己 × 100。扫描效率 = 1 ÷ (扫描时 IOPS × 扫描时间)，IOPS 乘时间就是冷扫时盘上完成的读次数，所以它等于 1 ÷ 读次数：扫同一棵树，读盘次数越少越高效，同样的时间里 IOPS 越低越好；按该平台最少读次数 ÷ 自己 × 100 计分。这两项和冷扫、热扫一样，先跨平台、再跨体量取几何平均。写盘量 = 每次扫描时被扫描的盘写入的数据量（每百万项，各平台中位数，跨体量平均），越少越好；只计被扫描的那块盘（macOS 上是整台机器，含系统自身的写入），扫描器写到其他盘的缓存不在内。测试盘都关了访问时间更新，正常扫描应接近 0；这一项从 2026-10-27 起才开始记录，之前的运行显示 —。<br><br>Each column is ranked on its own, combined over the sizes from `low` up (\* = small sizes only); Overall, Cold and Warm are the boards below. RAM = the platform's least peak RAM / own x 100. I/O efficiency = 1 / (IOPS during the scan x scan time); IOPS times time is the number of reads the disk completed in the cold scan, so this is 1 / reads: fewer disk reads for the same tree, or a lower IOPS in the same time, is more efficient; scored as the platform's fewest reads / own x 100. Both are averaged like Cold and Warm (geometric mean across platforms, then across sizes). Disk writes = data the scanned disk wrote per scan (per million items, median over platforms, mean over sizes), fewer is better; only the scanned disk counts (on macOS the whole machine, system writes included), caches written to other disks do not. The test disks keep no access times, so a well-behaved scan writes close to nothing; recorded from 2026-10-27 on, older runs show —.</sub>
+
 ### 跨体量总榜 · Overall across sizes
 
 | # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | very‑lite\* | lite\* | low | mid | high |
@@ -109,7 +120,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | 14 | **SpaceSniffer** | 23.3 | 31.3<br><sub>302&nbsp;s</sub> | 12.1<br><sub>167&nbsp;s</sub> | 33.5 | 2,246&nbsp;MB | n/a | IO | 2/2 |
 | 15 | **Sysinternals&nbsp;du** | 9.5 | 15.5<br><sub>655&nbsp;s</sub> | 3.9<br><sub>397&nbsp;s</sub> | 14.1 | 253&nbsp;MB | 1.00% | S·F·Z | 3/3 |
 
-单项第一 · Category winners：**冷扫 Cold** WinDirStat (100.0) · **热扫 Warm** SpaceKnife (98.8) · **均衡 Balanced** SpaceKnife (98.8) · **最省内存 Least RAM** ncdu (4 MB) · **最准 Most accurate** diskus (±0.00%)
+单项第一 · Category winners：**冷扫 Cold** WinDirStat (100.0) · **热扫 Warm** SpaceKnife (98.8) · **均衡 Balanced** SpaceKnife (98.8) · **最省内存 Least RAM** ncdu (4 MB) · **扫描效率 I/O efficiency** GNU du (100.0) · **最准 Most accurate** diskus (±0.00%)
 
 **各平台名次 · Per platform**
 
@@ -199,7 +210,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | 14 | **SpaceSniffer** | 22.3 | 33.4<br><sub>191&nbsp;s</sub> | 10.5<br><sub>77.0&nbsp;s</sub> | 31.5 | 1,590&nbsp;MB | n/a | IO | 2/2 |
 | 15 | **Sysinternals&nbsp;du** | 9.1 | 16.1<br><sub>407&nbsp;s</sub> | 3.5<br><sub>208&nbsp;s</sub> | 13.4 | 155&nbsp;MB | 1.22% | S·F·Z | 3/3 |
 
-单项第一 · Category winners：**冷扫 Cold** WinDirStat (94.7) · **热扫 Warm** SpaceKnife (99.6) · **均衡 Balanced** SpaceKnife (99.5) · **最省内存 Least RAM** ncdu (4 MB) · **最准 Most accurate** diskus (±0.00%)
+单项第一 · Category winners：**冷扫 Cold** WinDirStat (94.7) · **热扫 Warm** SpaceKnife (99.6) · **均衡 Balanced** SpaceKnife (99.5) · **最省内存 Least RAM** ncdu (4 MB) · **扫描效率 I/O efficiency** GNU du (100.0) · **最准 Most accurate** diskus (±0.00%)
 
 **各平台名次 · Per platform**
 
@@ -289,7 +300,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | 14 | **SpaceSniffer** | 18.7 | 32.0<br><sub>71.4&nbsp;s</sub> | 7.8<br><sub>36.2&nbsp;s</sub> | 26.0 | 552&nbsp;MB | n/a | IO | 3/3 |
 | 15 | **Sysinternals&nbsp;du** | 7.9 | 14.8<br><sub>155&nbsp;s</sub> | 2.9<br><sub>87.3&nbsp;s</sub> | 11.4 | 57&nbsp;MB | 0.86% | S·F·Z | 4/4 |
 
-单项第一 · Category winners：**冷扫 Cold** WinDirStat (96.1) · **热扫 Warm** SpaceKnife (92.8) · **均衡 Balanced** SpaceKnife (96.2) · **最省内存 Least RAM** ncdu (3 MB) · **最准 Most accurate** dua-cli (±0.00%)
+单项第一 · Category winners：**冷扫 Cold** WinDirStat (96.1) · **热扫 Warm** SpaceKnife (92.8) · **均衡 Balanced** SpaceKnife (96.2) · **最省内存 Least RAM** ncdu (3 MB) · **扫描效率 I/O efficiency** GNU du (100.0) · **最准 Most accurate** dua-cli (±0.00%)
 
 **各平台名次 · Per platform**
 
@@ -379,7 +390,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | 14 | **SpaceSniffer** | 21.5 | 32.9<br><sub>27.4&nbsp;s</sub> | 9.8<br><sub>13.3&nbsp;s</sub> | 30.9 | 242&nbsp;MB | n/a | IO | 3/3 |
 | 15 | **Sysinternals&nbsp;du** | 8.9 | 15.3<br><sub>61.4&nbsp;s</sub> | 3.5<br><sub>33.4&nbsp;s</sub> | 13.0 | 28&nbsp;MB | 0.47% | S·F·Z | 4/4 |
 
-单项第一 · Category winners：**冷扫 Cold** WinDirStat (93.9) · **热扫 Warm** SquirrelDisk (91.1) · **均衡 Balanced** SpaceKnife (91.9) · **最省内存 Least RAM** ncdu (3 MB) · **最准 Most accurate** dua-cli (±0.00%)
+单项第一 · Category winners：**冷扫 Cold** WinDirStat (93.9) · **热扫 Warm** SquirrelDisk (91.1) · **均衡 Balanced** SpaceKnife (91.9) · **最省内存 Least RAM** ncdu (3 MB) · **扫描效率 I/O efficiency** WizTree (100.0) · **最准 Most accurate** dua-cli (±0.00%)
 
 **各平台名次 · Per platform**
 
@@ -469,7 +480,7 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | 14 | **SpaceSniffer** | 24.9 | 41.8<br><sub>5.73&nbsp;s</sub> | 10.2<br><sub>3.06&nbsp;s</sub> | 36.0 | 86&nbsp;MB | n/a | IO | 3/3 |
 | 15 | **Sysinternals&nbsp;du** | 12.1 | 20.3<br><sub>12.1&nbsp;s</sub> | 5.1<br><sub>5.50&nbsp;s</sub> | 17.0 | 13&nbsp;MB | 0.33% | S·F·Z | 4/4 |
 
-单项第一 · Category winners：**冷扫 Cold** WinDirStat (98.4) · **热扫 Warm** SquirrelDisk (87.4) · **均衡 Balanced** BSD du (95.4) · **最省内存 Least RAM** ncdu (3 MB) · **最准 Most accurate** dua-cli (±0.00%)
+单项第一 · Category winners：**冷扫 Cold** WinDirStat (98.4) · **热扫 Warm** SquirrelDisk (87.4) · **均衡 Balanced** BSD du (95.4) · **最省内存 Least RAM** ncdu (3 MB) · **扫描效率 I/O efficiency** WizTree (99.9) · **最准 Most accurate** dua-cli (±0.00%)
 
 **各平台名次 · Per platform**
 
