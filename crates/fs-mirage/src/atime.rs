@@ -3,7 +3,7 @@
 //! Every cold scan must meet access times two days old on every file and folder, so every daily-use policy (Linux
 //! relatime: older than a day; Windows: more than an hour off) updates whatever the scan touches, and no scanner
 //! inherits fresh access times from the one before it. On Windows the CI sets them back once and then gives each
-//! scanner a fresh differencing disk on top of that volume (scripts/disk-mgr/windows_vhd.ps1 freeze). On Linux and
+//! scanner a fresh copy of that volume (scripts/disk-mgr/windows_vhd.ps1 freeze). On Linux and
 //! macOS this runs before every cold scan, so it only rewrites what moved: the scans there update the folders they
 //! list, while reading a file's metadata leaves its access time alone.
 

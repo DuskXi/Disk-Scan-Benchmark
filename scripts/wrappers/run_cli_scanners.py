@@ -1327,10 +1327,10 @@ def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge
 
 def freeze_volume(os_key: str, mount_path: str, repo_root: Path, skip_purge: bool, mode: str = "vdisk") -> bool:
     """
-    Windows CI: the benchmark volume (its access times just set back) becomes the read-only parent of a differencing
-    disk, and every purge-cache from now on mounts a fresh one (windows_vhd.ps1 freeze). Each cold scan then meets the
-    same old access times without setting them back first, which took minutes per scanner there. Returns whether the
-    volume is frozen; if not, it is mounted as before.
+    Windows CI: the benchmark volume (its access times just set back) is kept as it is, and every purge-cache from now
+    on mounts a fresh copy of it (windows_vhd.ps1 freeze). Each cold scan then meets the same old access times without
+    setting them back first, which took minutes per scanner there. Returns whether the volume is frozen; if not (no
+    room for a copy), it is mounted as before.
     """
     if os_key != "windows" or skip_purge or mode != "vdisk":
         return False
@@ -1875,7 +1875,7 @@ def main() -> int:
     gui_monitor_ps1 = repo_root / "scripts" / "wrappers" / "win_gui_monitor.ps1"
 
     atime_active: Optional[bool] = None
-    fresh_disks = False  # each purge mounts a fresh differencing disk over a volume whose access times are old
+    fresh_disks = False  # each purge mounts a fresh copy of a volume whose access times are old
     if args.reset_atime:
         atime_active = probe_access_time_updates(scan_path, os_key, repo_root, args.skip_purge, args.purge_mode)
         if atime_active and os_key == "windows":
@@ -1884,7 +1884,7 @@ def main() -> int:
         print(
             f"[runner] Access times: this volume {'updates' if atime_active else 'does not update'} them"
             + ("; each cold scan starts from access times two days old" if atime_active else "")
-            + (" (set back once, then a fresh differencing disk per scanner)" if fresh_disks else "")
+            + (" (set back once, then a fresh copy of the volume per scanner)" if fresh_disks else "")
         )
 
     for scanner in registry_data.get("scanners", []):
@@ -1998,7 +1998,8 @@ def main() -> int:
                     gui_args,
                 ]
                 # win_gui_monitor.ps1 gives up after 90 s by default, which is far too short for millions of files
-                gui_timeout = max(90, int(gt_data.get("total_files", 0)) // 4000 + 90)
+                # twice as long with access-time updates on (ReFS cold scans take up to 14x as long then)
+                gui_timeout = max(90, int(gt_data.get("total_files", 0)) // (2000 if atime_active else 4000) + 90)
                 ps_cmd.extend(["-TimeoutSec", str(gui_timeout)])
                 if args.with_gui_render:
                     ps_cmd.append("-WithGuiRender")
@@ -2025,7 +2026,10 @@ def main() -> int:
 
             cmd_tokens = build_cmd()
             # Large presets (millions of files) need far more than the 15 minute default per scan run
-            cli_timeout = args.timeout or max(900, int(gt_data.get("total_files", 0)) // 1000)
+            # 1 ms per file, 2 ms with access-time updates on: a ReFS cold scan then takes up to 0.9 ms per file
+            cli_timeout = args.timeout or max(
+                900, int(gt_data.get("total_files", 0)) // (500 if atime_active else 1000)
+            )
             io_out: Dict[str, Any] = {}
             elapsed, rss, stdout_text, cpu_s = run_monitored_cli(
                 cmd_tokens, os_key, cli_timeout, {k: str(v) for k, v in scanner.get("env", {}).items()}, io_out

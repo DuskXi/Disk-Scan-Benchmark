@@ -106,8 +106,8 @@ env:
   # Timed scans with the daily-use access-time setting (linux_loop.sh mounts relatime and creates the ZFS pool with
   # atime + relatime, windows_vhd.ps1 turns last-access updates on, which NTFS and ReFS follow; macOS keeps its default).
   # run_cli_scanners.py --reset-atime makes every cold scan meet access times two days old: on Linux and macOS it sets
-  # back what moved before each scanner, on Windows it sets them back once and gives each scanner a fresh
-  # differencing disk on top (windows_vhd.ps1 freeze).
+  # back what moved before each scanner, on Windows it sets them back once and gives each scanner a fresh copy of
+  # the volume (windows_vhd.ps1 freeze).
   BENCH_ATIME: daily
 
 jobs:

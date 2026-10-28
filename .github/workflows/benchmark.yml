@@ -86,8 +86,8 @@ env:
   # Timed scans with the daily-use access-time setting (linux_loop.sh mounts relatime and creates the ZFS pool with
   # atime + relatime, windows_vhd.ps1 turns last-access updates on, which NTFS and ReFS follow; macOS keeps its default).
   # run_cli_scanners.py --reset-atime makes every cold scan meet access times two days old: on Linux and macOS it sets
-  # back what moved before each scanner, on Windows it sets them back once and gives each scanner a fresh
-  # differencing disk on top (windows_vhd.ps1 freeze).
+  # back what moved before each scanner, on Windows it sets them back once and gives each scanner a fresh copy of
+  # the volume (windows_vhd.ps1 freeze).
   BENCH_ATIME: daily
 
 jobs:
@@ -887,8 +887,8 @@ jobs:
   # ReFS: their cold scans take 2-14x as long as with them off) run them in shards (benchmark-sharded.yml). Each shard
   # also runs the anchor scanner (dua) so the shards' runners can be scaled to one another; the merged result is the
   # usual benchmark-results-<label>-<preset> artifact. Generation minutes per million items come from high; "reset" is
-  # the minutes per million items of setting access times back before each scanner (Linux and macOS: what moved),
-  # "once" those of setting the whole tree back once before the scans (Windows: then a fresh differencing disk each).
+  # the minutes per million items of restoring old access times before each scanner (Linux and macOS: setting back
+  # what moved; Windows: copying the frozen volume), "once" those of setting the whole tree back once first (Windows).
   sharded-macos:
     name: "Sharded ${{ matrix.label }}"
     if: ${{ !inputs.windows_only && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
@@ -933,7 +933,7 @@ jobs:
             fs_label: NTFS
             share: false  # its NTFS image (~70 GB at very-high) does not fit twice on the runner
             gen: "16.4"
-            once: "20"  # Defender's real-time scanning stays on there (tamper protection)
+            once: "26"  # Defender's real-time scanning stays on there (tamper protection)
             normalize: true
             python_arch: arm64
           - label: windows-x86_64-refs
@@ -954,7 +954,7 @@ jobs:
       fs_label: ${{ matrix.fs_label }}
       share: ${{ matrix.share }}
       gen_min_per_million: ${{ matrix.gen }}
-      reset_min_per_million: "0"
+      reset_min_per_million: "1"  # copying the frozen volume before each scanner (~9 GB per million items)
       reset_once_min_per_million: ${{ matrix.once }}
       normalize: ${{ matrix.normalize }}
       python_arch: ${{ matrix.python_arch }}

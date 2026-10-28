@@ -6,8 +6,8 @@
       .\windows_vhd.ps1 create <size_gb> <mount_path> [ntfs|refs|btrfs]
       .\windows_vhd.ps1 attach <vhdx_path> <mount_path> btrfs|refs   (an image built elsewhere, e.g. btrfs_image.sh)
       .\windows_vhd.ps1 detach <mount_path> <dest_path>   (flush, dismount and move the VHDX to dest_path, kept)
-      .\windows_vhd.ps1 freeze <mount_path>   (the volume becomes the read-only parent of a differencing disk)
-      .\windows_vhd.ps1 purge-cache <mount_path>   (after freeze: a fresh differencing disk each time)
+      .\windows_vhd.ps1 freeze <mount_path>   (the volume is kept as it is and a copy of it mounted instead)
+      .\windows_vhd.ps1 purge-cache <mount_path>   (after freeze: a fresh copy each time)
       .\windows_vhd.ps1 teardown <mount_path>
       .\windows_vhd.ps1 defender-on <mount_path>
 #>
@@ -172,8 +172,8 @@ function Wait-BenchVolume([string]$Letter, [string]$FileSystem) {
     }
 }
 
-function Get-ParentState([string]$Letter) {
-    return (Join-Path $env:TEMP "disk_scanner_bench_${Letter}.parent")
+function Get-MasterState([string]$Letter) {
+    return (Join-Path $env:TEMP "disk_scanner_bench_${Letter}.master")
 }
 
 function Purge-HostCache([string]$Path) {
@@ -192,30 +192,40 @@ function Purge-HostCache([string]$Path) {
     } catch {}
 }
 
-function Mount-FreshChild([string]$Letter, [string]$Parent) {
-    # A new, empty differencing disk over the frozen volume: it reads the parent's blocks and keeps its own writes
-    # (one scanner's access-time updates), and the next purge-cache throws it away.
-    $Child = [System.IO.Path]::ChangeExtension($Parent, ".child.vhdx")
-    if (Test-Path $Child) {
-        Dismount-VHD -Path $Child -ErrorAction SilentlyContinue
-        Remove-Item -Path $Child -Force
+function Mount-FreshCopy([string]$Letter, [string]$Master) {
+    # A new byte-for-byte copy of the frozen volume (unbuffered, robocopy /J), so a scan reads and writes the same
+    # blocks as on the volume itself, and the next purge-cache throws the copy away. (A differencing disk is quicker to
+    # make, but every write then allocates blocks in the child: on NTFS the cold scans that update access times took
+    # 1.3x as long on Windows x64 and 1.7x on ARM64, and WinDirStat's 2.3x on ReFS.)
+    $WorkDir = Join-Path (Split-Path -Parent $Master) "bench_copy"
+    $Work = Join-Path $WorkDir (Split-Path -Leaf $Master)
+    if (Test-Path $Work) {
+        Dismount-VHD -Path $Work -ErrorAction SilentlyContinue
+        Remove-Item -Path $Work -Force
     }
-    New-VHD -Path $Child -ParentPath $Parent -Differencing | Out-Null
-    Set-Content -Path (Get-ParentState $Letter) -Value $Parent -Encoding ASCII
-    Set-Content -Path (Join-Path $env:TEMP "disk_scanner_bench_${Letter}.vhdpath") -Value $Child -Encoding ASCII
-    Mount-VHD -Path $Child | Out-Null
-    $disk = Get-Disk | Where-Object { $_.Location -eq $Child } | Select-Object -First 1
-    if (-not $disk) { throw "no disk found for $Child after mounting it" }
+    New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    & robocopy (Split-Path -Parent $Master) $WorkDir (Split-Path -Leaf $Master) /J /R:1 /W:1 /NJH /NJS /NP /NFL /NDL | Out-Null
+    $rc = $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    if ($rc -ge 8 -or -not (Test-Path $Work)) { throw "copying $Master failed (robocopy exit $rc)" }
+    Purge-HostCache $Work
+    Write-Host ("[windows_vhd] fresh copy of the frozen volume ({0:N1} GB) in {1:N0} s" -f ((Get-Item $Work).Length / 1GB), $sw.Elapsed.TotalSeconds)
+    Set-Content -Path (Get-MasterState $Letter) -Value $Master -Encoding ASCII
+    Set-Content -Path (Join-Path $env:TEMP "disk_scanner_bench_${Letter}.vhdpath") -Value $Work -Encoding ASCII
+    Mount-VHD -Path $Work | Out-Null
+    $disk = Get-Disk | Where-Object { $_.Location -eq $Work } | Select-Object -First 1
+    if (-not $disk) { throw "no disk found for $Work after mounting it" }
     if ($disk.IsOffline) { Set-Disk -Number $disk.Number -IsOffline $false }
     if ($disk.IsReadOnly) { Set-Disk -Number $disk.Number -IsReadOnly $false }
-    # the mount manager gives the letter back to the same partition (the child has the parent's partition GUID); if it
+    # the mount manager gives the letter back to the same partition (the copy has the volume's partition GUID); if it
     # does not, the volume gets it here
     for ($i = 0; $i -lt 10 -and -not (Test-Path "${Letter}:\"); $i++) { Start-Sleep -Seconds 1 }
     if (-not (Test-Path "${Letter}:\")) {
         $part = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.Type -eq "Basic" } | Select-Object -First 1
         if ($part) {
             $part | Set-Partition -NewDriveLetter $Letter
-            Write-Host "[windows_vhd] gave ${Letter}: to the volume of the differencing disk"
+            Write-Host "[windows_vhd] gave ${Letter}: to the volume of the copy"
         }
     }
     $FsState = Join-Path $env:TEMP "disk_scanner_bench_${Letter}.fs"
@@ -333,39 +343,47 @@ assign letter=$DriveLetter
     "freeze" {
         # Daily-use access times without setting them back before every scan (a million files took 3-5 minutes, on
         # Windows ARM64, where Defender's real-time scanning can not be turned off, over 20): the volume, whose access
-        # times the caller set back once, becomes the read-only parent of a differencing disk, and from now on each
-        # purge-cache mounts a fresh child, so every cold scan meets the same old access times on the same blocks.
+        # times the caller set back once, is kept as it is, and from now on each purge-cache mounts a fresh copy of it,
+        # so every cold scan meets the same old access times on the same blocks. Needs room for one copy; without it
+        # (exit 1) the caller sets the access times back before each scan instead.
         $DriveLetter = Get-DriveLetterFromPath $Arg1
         $Base = Get-VhdPath $DriveLetter
-        if (-not $HasHyperVCmdlets) { throw "freeze needs the Hyper-V cmdlets (New-VHD -Differencing)" }
-        if (Test-Path (Get-ParentState $DriveLetter)) { throw "${DriveLetter}: is frozen already" }
+        if (-not $HasHyperVCmdlets) { throw "freeze needs the Hyper-V cmdlets (Mount-VHD)" }
+        if (Test-Path (Get-MasterState $DriveLetter)) { throw "${DriveLetter}: is frozen already" }
+        $Size = (Get-Item $Base).Length
+        $Free = (Get-PSDrive -Name (Split-Path -Qualifier $Base).TrimEnd(":")).Free
+        if ($Free -lt $Size + 10GB) {
+            Write-Warning ("[windows_vhd] not freezing ${DriveLetter}: a copy of the {0:N1} GB volume needs more than the {1:N1} GB free" -f ($Size / 1GB), ($Free / 1GB))
+            exit 1
+        }
         if (Get-Command Write-VolumeCache -ErrorAction SilentlyContinue) {
             Write-VolumeCache -DriveLetter $DriveLetter -ErrorAction SilentlyContinue
         }
         Dismount-VHD -Path $Base
         try {
-            Mount-FreshChild $DriveLetter $Base
+            Mount-FreshCopy $DriveLetter $Base
         } catch {
             Write-Warning "[windows_vhd] freeze failed ($($_.Exception.Message)); mounting $Base again as it was"
-            $Child = [System.IO.Path]::ChangeExtension($Base, ".child.vhdx")
-            Dismount-VHD -Path $Child -ErrorAction SilentlyContinue
-            Remove-Item -Path $Child -Force -ErrorAction SilentlyContinue
-            Remove-Item -Path (Get-ParentState $DriveLetter) -Force -ErrorAction SilentlyContinue
+            $Copy = Join-Path (Join-Path (Split-Path -Parent $Base) "bench_copy") (Split-Path -Leaf $Base)
+            Dismount-VHD -Path $Copy -ErrorAction SilentlyContinue
+            Remove-Item -Path $Copy -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path (Get-MasterState $DriveLetter) -Force -ErrorAction SilentlyContinue
             Set-Content -Path (Join-Path $env:TEMP "disk_scanner_bench_${DriveLetter}.vhdpath") -Value $Base -Encoding ASCII
             Mount-VHD -Path $Base | Out-Null
             Wait-BenchVolume $DriveLetter ""
             exit 1
         }
-        Write-Host "[windows_vhd] ${DriveLetter}: frozen: $Base is a read-only parent now, each purge-cache mounts a fresh differencing disk on it"
+        Write-Host "[windows_vhd] ${DriveLetter}: frozen: $Base is kept as it is, each purge-cache mounts a fresh copy of it"
+        exit 0
     }
 
     "purge-cache" {
         $DriveLetter = Get-DriveLetterFromPath $Arg1
         $VhdPath = Get-VhdPath $DriveLetter
-        $ParentState = Get-ParentState $DriveLetter
-        $Parent = if (Test-Path $ParentState) { (Get-Content $ParentState -Raw).Trim() } else { "" }
-        if ($Parent) {
-            Write-Host "[windows_vhd] Evicting the cache via Dismount-VHD + host cache purge of the frozen parent + a fresh differencing disk on ${DriveLetter}:..."
+        $MasterState = Get-MasterState $DriveLetter
+        $Master = if (Test-Path $MasterState) { (Get-Content $MasterState -Raw).Trim() } else { "" }
+        if ($Master) {
+            Write-Host "[windows_vhd] Evicting the cache via Dismount-VHD + a fresh, unbuffered copy of the frozen volume on ${DriveLetter}:..."
         } else {
             Write-Host "[windows_vhd] Evicting Windows NTFS cache via Dismount-VHD + Host VHDX Unbuffered Cache Purge + Mount-VHD on ${DriveLetter}:..."
         }
@@ -374,8 +392,8 @@ assign letter=$DriveLetter
             exit 0
         }
 
-        # (a differencing disk is thrown away: what it holds need not be written first)
-        if (-not $Parent -and (Get-Command Write-VolumeCache -ErrorAction SilentlyContinue)) {
+        # (the copy is thrown away: what it holds need not be written first)
+        if (-not $Master -and (Get-Command Write-VolumeCache -ErrorAction SilentlyContinue)) {
             Write-VolumeCache -DriveLetter $DriveLetter -ErrorAction SilentlyContinue
         }
 
@@ -389,15 +407,14 @@ detach vdisk
             Invoke-DiskpartScript $dp
         }
 
-        # While the VHDX is dismounted and has no open cached handles, its pages leave the host's RAM
-        # (Purge-HostCache); a frozen volume is read from its parent
-        Purge-HostCache $(if ($Parent) { $Parent } else { $VhdPath })
-
-        if ($Parent) {
-            Mount-FreshChild $DriveLetter $Parent
-            Write-Host "[windows_vhd] Cold cache state restored for ${DriveLetter}:\ (fresh differencing disk)"
+        if ($Master) {
+            Mount-FreshCopy $DriveLetter $Master  # (its pages leave the host's RAM there)
+            Write-Host "[windows_vhd] Cold cache state restored for ${DriveLetter}:\ (fresh copy)"
             exit 0
         }
+        # While the VHDX is dismounted and has no open cached handles, its pages leave the host's RAM
+        Purge-HostCache $VhdPath
+
         if ($HasHyperVCmdlets) {
             Mount-VHD -Path $VhdPath | Out-Null
         } else {
@@ -451,12 +468,12 @@ attach vdisk
             } catch {}
             Remove-Item -Path $VhdPath -Force -ErrorAction SilentlyContinue
         }
-        $ParentState = Get-ParentState $DriveLetter
-        if (Test-Path $ParentState) {
-            # frozen: $VhdPath was the differencing disk, the volume itself is its parent
-            $Parent = (Get-Content $ParentState -Raw).Trim()
-            Remove-Item -Path $Parent -Force -ErrorAction SilentlyContinue
-            Remove-Item -Path $ParentState -Force -ErrorAction SilentlyContinue
+        $MasterState = Get-MasterState $DriveLetter
+        if (Test-Path $MasterState) {
+            # frozen: $VhdPath was the copy, the volume itself is kept here
+            $Master = (Get-Content $MasterState -Raw).Trim()
+            Remove-Item -Path $Master -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $MasterState -Force -ErrorAction SilentlyContinue
         }
         Write-Host "[windows_vhd] Teardown complete."
     }
