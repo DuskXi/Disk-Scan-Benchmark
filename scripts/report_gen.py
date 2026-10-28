@@ -528,23 +528,16 @@ def main() -> int:
     with open(args.raw_results, "r", encoding="utf-8") as f:
         raw_results = json.load(f)
 
-    # The access-time audit (run_cli_scanners.py --reset-atime over a small tree, the platform's daily-use access-time
-    # setting on) sits next to raw_results.json when the workflow ran it: the bytes the disk wrote during each
-    # scanner's cold scan of that tree, i.e. the access-time updates its scan caused
-    audit_path = Path(args.raw_results).with_name("atime_audit.json")
-    audit_gt_path = Path(args.raw_results).with_name("atime_audit_gt.json")
-    if audit_path.exists() and audit_gt_path.exists():
-        audit_gt = json.loads(audit_gt_path.read_text(encoding="utf-8"))
-        audit_items = int(audit_gt.get("total_files", 0)) + int(audit_gt.get("total_dirs", 0))
-        audit = {r.get("id"): r for r in json.loads(audit_path.read_text(encoding="utf-8"))}
-        for entry in raw_results:
-            a = audit.get(entry.get("id"))
-            runs = (a or {}).get("device_written_bytes_runs") or []
-            # only where the probe saw access times move: elsewhere (ReFS, a setting that needs a reboot) there is
-            # nothing the audit could have measured
-            if a and a.get("atime_updates_active") and audit_items and runs and runs[0] is not None:
-                entry["atime_written_bytes"] = runs[0]
-                entry["atime_audit_items"] = audit_items
+    # Timed with the daily-use access-time setting on (run_cli_scanners.py --reset-atime): the cold run started from
+    # stale access times and was flushed before its write counter was read, so what the scanned disk wrote during it
+    # is the access-time updates the scan caused, over the whole tree. Where the volume keeps no access times (ReFS)
+    # that is about nothing, which is the daily-use answer there.
+    tree_items = int(gt.get("total_files", 0)) + int(gt.get("total_dirs", 0))
+    for entry in raw_results:
+        runs = entry.get("device_written_bytes_runs") or []
+        if entry.get("atime_mode") == "daily" and tree_items and runs and runs[0] is not None:
+            entry["atime_written_bytes"] = runs[0]
+            entry["atime_audit_items"] = tree_items
 
     # layout.json (scripts/profile/layout_probe.py) sits next to raw_results.json when the workflow measured it
     layout_path = Path(args.raw_results).with_name("layout.json")

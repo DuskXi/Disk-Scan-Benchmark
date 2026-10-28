@@ -74,6 +74,7 @@ def plan(
     max_shards: int,
     safety: float,
     min_shards: int = 1,
+    reset_s: float = 0.0,
 ) -> Tuple[List[List[str]], Dict[str, float]]:
     est: Dict[str, float] = {}
     for sid in scanners:
@@ -86,6 +87,8 @@ def plan(
     slow = max(known) if known else 3600.0
     for sid in scanners:
         est.setdefault(sid, slow if (sid in seen or not seen) else 60.0)
+    for sid in scanners:
+        est[sid] += reset_s  # the access times are set back before each scanner's cold scan
     anchor_s = est.get(anchor, 0.0)
     rest = sorted((s for s in scanners if s != anchor), key=lambda s: -est[s])
     total = sum(est[s] for s in rest)
@@ -121,9 +124,17 @@ def main() -> int:
     ap.add_argument("--job-minutes", type=float, default=350.0, help="Time limit of a shard job")
     ap.add_argument("--setup-min", type=float, default=20.0, help="Checkout, build, install, download, hw-probe")
     ap.add_argument("--overhead", type=float, default=1.25, help="Real scan time / estimate (purges, prewarms)")
+    ap.add_argument(
+        "--reset-min-per-million",
+        type=float,
+        default=0.0,
+        help="Minutes the access-time reset before each scanner's cold scan takes per million items",
+    )
     ap.add_argument("--max-shards", type=int, default=6)
     ap.add_argument("--min-shards", type=int, default=1, help="Split at least this far (to test the sharded path)")
-    ap.add_argument("--safety", type=float, default=1.15, help="Factor on the estimates (bigger trees scale worse)")
+    # 1.5: the estimates come from runs with access times off; with them on, cold scans on Windows ARM64 and macOS ARM64
+    # took 2-3x as long in the very-lite audit
+    ap.add_argument("--safety", type=float, default=1.5, help="Factor on the estimates (bigger trees scale worse)")
     ap.add_argument("--registry", default=str(REPO / "scripts" / "wrappers" / "scanners_registry.json"))
     ap.add_argument("--data-dir", default=str(REPO / "leaderboard" / "data"))
     ap.add_argument("--github-output", default="", help="Append matrix=<json> to this file (GitHub Actions)")
@@ -151,6 +162,7 @@ def main() -> int:
         args.max_shards,
         args.safety,
         args.min_shards,
+        args.reset_min_per_million * items_m * 60,
     )
     print(
         f"[plan] {args.label} | {args.preset} ({files:,} files) | {len(scanners)} scanners -> {len(shards)} shard(s)"

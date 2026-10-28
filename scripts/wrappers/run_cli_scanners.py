@@ -997,15 +997,36 @@ def reset_access_times(root: str, os_key: str) -> int:
     return count
 
 
+def reset_access_times_fast(scan_path: str, os_key: str, repo_root: Path) -> None:
+    """Stale access times before a cold scan: fs-mirage --reset-atime (parallel), else reset_access_times."""
+    exe = repo_root / "target" / "release" / ("fs-mirage.exe" if os_key == "windows" else "fs-mirage")
+    t0 = time.perf_counter()
+    if exe.exists():
+        try:
+            out = subprocess.run(
+                [str(exe), "--root", scan_path, "--reset-atime"], capture_output=True, text=True, timeout=3600
+            )
+            if out.returncode == 0:
+                print(f"  [atime] {out.stdout.strip()}")
+                return
+            print(f"  [warn] fs-mirage --reset-atime failed ({out.returncode}): {out.stderr.strip()[:200]}")
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"  [warn] fs-mirage --reset-atime failed: {exc}")
+    n = reset_access_times(scan_path, os_key)
+    print(f"  [atime] access times of {n:,} entries set two days back in {time.perf_counter() - t0:.1f} s (Python)")
+
+
 def probe_access_time_updates(
     scan_path: str, os_key: str, repo_root: Path, skip_purge: bool, purge_mode: str
 ) -> Optional[bool]:
     """
-    Whether this volume updates access times now (the audit's setting, or the platform's default): a folder and a
-    file next to the audit tree get stale access times, the caches are dropped, both are read, and their access times
-    must have moved. A platform whose daily-use setting keeps access times (ReFS) has nothing to measure.
+    Whether this volume updates access times now (the daily-use setting the caller mounted it with, or the platform's
+    default): a folder and a file inside the tree (removed again before any scan) get stale access times, the caches
+    are dropped, both are read, and their access times must have moved. Where the daily-use setting keeps no access
+    times (ReFS) the reset and flush before each scan are skipped.
     """
-    probe = Path(scan_path).resolve().parent / "_atime_probe"
+    # inside the tree: on Linux the tree is the volume's mount point, and its parent another volume
+    probe = Path(scan_path).resolve() / "_atime_probe"
     try:
         probe.mkdir(exist_ok=True)
         f = probe / "probe.bin"
@@ -1784,9 +1805,10 @@ def main() -> int:
     parser.add_argument(
         "--reset-atime",
         action="store_true",
-        help="Access-time audit: before each scanner, set every access time under --path two days back, and flush "
-        "the volume after each run before reading its write counter, so the access-time updates a scan causes "
-        "(with the platform's daily-use atime setting turned on by the caller) are counted",
+        help="Timed scans with the daily-use access-time setting on (the caller mounts the volume that way): if the "
+        "volume updates access times, every access time under --path is set two days back before each scanner's cold "
+        "scan (fs-mirage --reset-atime), so each one meets the same stale times, and the volume is flushed after "
+        "each run before its write counter is read, so the cold scan's writes are its access-time updates",
     )
     parser.add_argument(
         "--mft-mode",
@@ -1840,7 +1862,8 @@ def main() -> int:
     if args.reset_atime:
         atime_active = probe_access_time_updates(scan_path, os_key, repo_root, args.skip_purge, args.purge_mode)
         print(
-            f"[runner] Access-time audit: this volume {'updates' if atime_active else 'does not update'} access times"
+            f"[runner] Access times: this volume {'updates' if atime_active else 'does not update'} them"
+            + ("; each cold scan starts from access times two days old" if atime_active else "")
         )
 
     for scanner in registry_data.get("scanners", []):
@@ -1925,7 +1948,7 @@ def main() -> int:
             try:
                 return execute_scan()
             finally:
-                if args.reset_atime:
+                if atime_active:
                     # access-time updates are written lazily: flush them into this run's window
                     flush_volume(scan_path, os_key)
                 io1 = device_io_counters(scan_path, os_key)
@@ -2072,9 +2095,8 @@ def main() -> int:
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
         # 1. Cold Cache Run
-        if args.reset_atime:
-            n = reset_access_times(scan_path, os_key)
-            print(f"  [Audit] access times of {n:,} entries set two days back")
+        if atime_active:
+            reset_access_times_fast(scan_path, os_key, repo_root)
         cold_purged = invoke_purge_cache(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
         cold_ms, cold_rss, scanned_bytes, scanned_files, last_zones = execute_once()
         accumulated_zones = dict(last_zones)
@@ -2296,6 +2318,7 @@ def main() -> int:
             entry["defender"] = defender
     if args.reset_atime:
         for entry in results:
+            entry["atime_mode"] = "daily"  # timed with access-time updates on: the cold run's writes are those updates
             entry["atime_updates_active"] = atime_active
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

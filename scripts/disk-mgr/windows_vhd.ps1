@@ -219,11 +219,14 @@ assign letter=$DriveLetter
         }
         New-Item -ItemType Directory -Path "${DriveLetter}:\bench" -Force | Out-Null
 
+        # last-access updates off for clean timings, or on (the daily-use setting) with BENCH_ATIME=daily; NTFS reads
+        # it when a volume is mounted, so every remount of purge-cache applies it
+        $LastAccessOff = if ($env:BENCH_ATIME -eq "daily") { 0 } else { 1 }
         try {
             & fsutil 8dot3name set "${DriveLetter}:" 1 | Out-Null
-            & fsutil behavior set disablelastaccess 1 | Out-Null
+            & fsutil behavior set disablelastaccess $LastAccessOff | Out-Null
         } catch {}
-        Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (8.3 names and last-access updates disabled)"
+        Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (8.3 names off, last-access updates $(if ($LastAccessOff) { 'off' } else { 'on' }))"
     }
 
     "attach" {
@@ -251,7 +254,8 @@ assign letter=$DriveLetter
         }
         $FsName = if ($FsType -eq "btrfs") { "Btrfs" } else { $FsType.ToUpper() }
         Wait-BenchVolume $DriveLetter $FsName
-        try { & fsutil behavior set disablelastaccess 1 | Out-Null } catch {}
+        $LastAccessOff = if ($env:BENCH_ATIME -eq "daily") { 0 } else { 1 }
+        try { & fsutil behavior set disablelastaccess $LastAccessOff | Out-Null } catch {}
         Write-Host "[windows_vhd] $FsName volume from $VhdPath mounted at ${DriveLetter}:\"
     }
 

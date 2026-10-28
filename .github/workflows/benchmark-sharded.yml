@@ -93,6 +93,10 @@ on:
 
 env:
   PYTHONUNBUFFERED: "1"
+  # Timed scans with the daily-use access-time setting (linux_loop.sh mounts relatime and creates the ZFS pool with
+  # atime + relatime, windows_vhd.ps1 turns NTFS last-access updates on; ReFS and macOS keep what they ship with).
+  # run_cli_scanners.py --reset-atime sets every access time two days back before each scanner's cold scan.
+  BENCH_ATIME: daily
 
 jobs:
   plan:
@@ -119,6 +123,7 @@ jobs:
             --warm-runs "${{ inputs.warm_runs }}" \
             --gen-min-per-million "${{ inputs.share && '0' || inputs.gen_min_per_million }}" \
             --max-shards 8 \
+            --reset-min-per-million 1 \
             --min-shards "${{ inputs.min_shards }}" \
             --github-output "$GITHUB_OUTPUT"
 
@@ -303,15 +308,8 @@ jobs:
             --out "$OUT/raw_results.json" \
             --bin-dir "./bin" \
             --scanners "${{ matrix.scanners }}" \
-            --warm-runs "${{ inputs.warm_runs }}"
-
-      # Windows only: the macOS shards need all their time for the scans
-      - name: Access-Time Write Audit (this shard's scanners)
-        if: ${{ inputs.platform == 'windows' }}
-        shell: bash
-        timeout-minutes: 45
-        continue-on-error: true
-        run: bash ./scripts/ci/atime_audit.sh windows "${{ inputs.fs }}" "$MOUNT" "$OUT" "${{ matrix.scanners }}"
+            --warm-runs "${{ inputs.warm_runs }}" \
+            --reset-atime
 
       # before the teardown, so a job that runs out of time later still keeps its results
       - name: Upload Shard Results

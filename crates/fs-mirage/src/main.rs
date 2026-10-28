@@ -1,3 +1,4 @@
+mod atime;
 mod materializer;
 mod profile;
 mod topology;
@@ -126,6 +127,11 @@ struct Args {
     /// Make every ballast file empty: same names and folder shape, no allocation, much faster to create.
     #[arg(long)]
     ballast_empty: bool,
+
+    /// Set the access time of every file and folder under --root two days back (modification times kept) and exit,
+    /// without generating anything: run before each scanner's cold scan, which runs with access-time updates on.
+    #[arg(long)]
+    reset_atime: bool,
 }
 
 /// Ballast plan: the same generator as the benchmark tree (other seed), optionally with every file emptied.
@@ -198,6 +204,17 @@ fn ballast_plan(
 fn main() -> Result<()> {
     let args = Args::parse();
     let t0 = Instant::now();
+
+    if args.reset_atime {
+        let (ok, failed) =
+            atime::reset_access_times(&args.root, std::time::Duration::from_secs(2 * 86_400));
+        println!(
+            "[fs-mirage] access times of {ok} entries under {} set two days back in {:.2?} ({failed} failed)",
+            args.root.display(),
+            t0.elapsed()
+        );
+        return Ok(());
+    }
 
     let scale_preset: ScalePreset = match args.preset {
         Some(p) => p.into(),

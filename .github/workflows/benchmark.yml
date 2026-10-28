@@ -83,10 +83,15 @@ env:
   # Each scanner's progress reaches the log as it happens: block-buffered output on a pipe was lost whenever a
   # job hit its time limit, which left no trace of how far the scans had got
   PYTHONUNBUFFERED: "1"
+  # Timed scans with the daily-use access-time setting (linux_loop.sh mounts relatime and creates the ZFS pool with
+  # atime + relatime, windows_vhd.ps1 turns NTFS last-access updates on; ReFS and macOS keep what they ship with).
+  # run_cli_scanners.py --reset-atime sets every access time two days back before each scanner's cold scan.
+  BENCH_ATIME: daily
 
 jobs:
-  # The Linux / macOS targets of the benchmark job. very-high and up leave macOS out: its scans run past the 6-hour job
-  # limit there, so benchmark-sharded.yml splits them over several jobs (sharded-macos below). A matrix exclude cannot
+  # The Linux / macOS targets of the benchmark job. high and up leave macOS out: its scans (and the access-time reset
+  # before each cold scan) run past the 6-hour job limit there, so benchmark-sharded.yml splits them over several jobs
+  # (sharded-macos below). A matrix exclude cannot
   # drop entries added by include, hence this job.
   targets:
     name: "Targets (${{ inputs.preset }})"
@@ -102,7 +107,7 @@ jobs:
         id: pick
         shell: bash
         env:
-          SHARDED: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+          SHARDED: ${{ contains(fromJSON('["high","very-high","before-death"]'), inputs.preset) }}
         run: |
           # Linux x86_64 & ARM64 (ext4), macOS x86_64 (Intel) & ARM64 (Apple Silicon) on their native APFS volume,
           # then the Linux filesystems beyond ext4 (same loop device, same tree).
@@ -288,16 +293,8 @@ jobs:
             --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
             --out "results/${{ matrix.target_label }}/raw_results.json" \
             --bin-dir "./bin" \
-            --warm-runs "$WARM_RUNS"
-
-      # Untimed, after the timed scans: the access-time updates a scan writes with the daily-use access-time setting
-      # (scripts/ci/atime_audit.sh). Not on macOS from mid up, whose jobs need all their time for the scans.
-      - name: Access-Time Write Audit
-        if: ${{ !(matrix.platform == 'macos' && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset)) }}
-        shell: bash
-        timeout-minutes: 45
-        continue-on-error: true
-        run: bash ./scripts/ci/atime_audit.sh "${{ matrix.platform }}" "${{ matrix.fs }}" "${{ matrix.mount_path }}" "results/${{ matrix.target_label }}"
+            --warm-runs "$WARM_RUNS" \
+            --reset-atime
 
       - name: Generate Normalized Report
         shell: bash
@@ -510,14 +507,8 @@ jobs:
             --path "X:/bench" \
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
-            --bin-dir "./bin"
-
-      # Untimed, after the timed scans: the access-time updates a scan writes with the daily-use setting
-      - name: Access-Time Write Audit
-        shell: bash
-        timeout-minutes: 45
-        continue-on-error: true
-        run: bash ./scripts/ci/atime_audit.sh windows ntfs "X:/bench" "results/$LABEL"
+            --bin-dir "./bin" \
+            --reset-atime
 
       - name: Disk Space Monitor Report
         if: always()
@@ -654,14 +645,8 @@ jobs:
             --path "X:/bench" \
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
-            --bin-dir "./bin"
-
-      # Untimed, after the timed scans: the access-time updates a scan writes with the daily-use setting
-      - name: Access-Time Write Audit
-        shell: bash
-        timeout-minutes: 45
-        continue-on-error: true
-        run: bash ./scripts/ci/atime_audit.sh windows ntfs "X:/bench" "results/$LABEL"
+            --bin-dir "./bin" \
+            --reset-atime
 
       - name: Disk Space Monitor Report
         if: always()
@@ -866,14 +851,8 @@ jobs:
             --path "X:/bench" \
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
-            --bin-dir "./bin"
-
-      # Untimed, after the timed scans: the access-time updates a scan writes with the daily-use setting
-      - name: Access-Time Write Audit
-        shell: bash
-        timeout-minutes: 45
-        continue-on-error: true
-        run: bash ./scripts/ci/atime_audit.sh windows refs "X:/bench" "results/$LABEL"
+            --bin-dir "./bin" \
+            --reset-atime
 
       - name: Teardown ReFS Virtual Disk
         if: always()
@@ -908,7 +887,7 @@ jobs:
   # the usual benchmark-results-<label>-<preset> artifact. Generation minutes per million items come from high.
   sharded-macos:
     name: "Sharded ${{ matrix.label }}"
-    if: ${{ !inputs.windows_only && contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+    if: ${{ !inputs.windows_only && contains(fromJSON('["high","very-high","before-death"]'), inputs.preset) }}
     strategy:
       fail-fast: false
       matrix:

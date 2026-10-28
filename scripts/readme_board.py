@@ -154,10 +154,26 @@ TOP_COLUMNS = [
     ("overall", "综合", "Overall"),
     ("cold", "冷扫", "Cold"),
     ("warm", "热扫", "Warm"),
-    ("mem", "内存", "RAM"),
+    ("mem", "内存峰值", "Peak RAM"),
     ("io", "扫描效率", "I/O efficiency"),
-    ("write", "写盘量", "Disk writes"),
+    ("write", "写盘量/百万项", "Writes per 1M items"),
 ]
+
+
+def median_peak_mb(standard: Dict[str, Dict[str, Any]], sid: str) -> Optional[float]:
+    """A scanner's peak memory: the median over the sizes >= low (small ones only if it has nothing else) of its
+    per-size peak (itself the median over the platforms)."""
+    big: List[float] = []
+    small: List[float] = []
+    for preset, rec in standard.items():
+        o = next((x for x in rec["payload"]["overall"] if x["id"] == sid), None)
+        if o and o.get("rss_mb"):
+            (small if preset in SMALL else big).append(float(o["rss_mb"]))
+    vals = sorted(big or small)
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    return vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
 
 
 def top_table(standard: Dict[str, Dict[str, Any]], places: int = 4) -> List[str]:
@@ -174,7 +190,14 @@ def top_table(standard: Dict[str, Dict[str, Any]], places: int = 4) -> List[str]
             ranked = columns[key]
             if pos < len(ranked) and ranked[pos].get("combined") is not None:
                 r = ranked[pos]
-                value = f"{r['combined']:,.2f}{NB}MB" if key == "write" else fmt_score(r["combined"])
+                if key == "write":
+                    value = f"{r['combined']:,.2f}{NB}MB"
+                elif key == "mem":
+                    # the peak itself, not the relative score: a bare score here read as megabytes in reverse order
+                    mb = median_peak_mb(standard, r["id"])
+                    value = "—" if mb is None else f"{mb:,.1f}{NB}MB" if mb < 10 else f"{mb:,.0f}{NB}MB"
+                else:
+                    value = fmt_score(r["combined"])
                 star = "\\*" if r["combined_from_small_only"] else ""
                 cells.append(f"**{nobreak(r['name'])}**<br><sub>{value}{star}</sub>")
             else:
@@ -336,7 +359,8 @@ def render_section(
     lines += [
         "",
         "<sub>每列单独排名，都按 `low` 及以上各体量合并（\\* = 只有小体量成绩）；综合、冷扫、热扫同下方各榜。"
-        "内存 = 该平台最低峰值内存 ÷ 自己 × 100；峰值内存把挪出常驻内存的部分也算上："
+        "内存按相对分排名（该平台最低峰值内存 ÷ 自己 × 100），格子里是峰值内存本身（各平台、各体量的中位数）；"
+        "峰值内存把挪出常驻内存的部分也算上："
         "Linux 上放进 tmpfs（`/dev/shm`、tmpfs 的 `/tmp`）的数据，macOS 上被压缩的内存（`phys_footprint`）。"
         "扫描效率 = 1 ÷ (扫描时 IOPS × 扫描时间)，IOPS 乘时间就是冷扫时盘上完成的读次数，所以它等于 1 ÷ 读次数："
         "扫同一棵树，读盘次数越少越高效，同样的时间里 IOPS 越低越好；按该平台最少读次数 ÷ 自己 × 100 计分。"
@@ -344,11 +368,13 @@ def render_section(
         "写盘量 = 每次扫描写了多少数据（每百万项，各平台中位数，跨体量平均），越少越好，两部分相加："
         "① 扫描器进程自己写进文件的数据，用磁盘缓存压低内存（例如写到磁盘上的 `/tmp`）就会算在这里，"
         "测试要求的导出文件和输出到终端的内容不算（macOS 是逻辑写入量）；"
-        "② 日常使用的访问时间设置下（Linux `relatime`、Windows NTFS 开启、ReFS 和 macOS 用系统默认），"
-        "扫一棵固定的 10 万项小树时，因为更新文件和文件夹的访问时间而写盘的数据量，每个扫描器扫之前都把访问时间调回两天前。"
-        "正式计时的扫描关着访问时间更新，不受影响。从 2026-10-28 起才开始记录，之前的运行显示 —。<br><br>"
+        "② 冷扫时因为更新文件和文件夹的访问时间而写进测试盘的数据：正式计时就用日常的访问时间设置"
+        "（Linux `relatime`、Windows NTFS 开启、ReFS 和 macOS 用系统默认），每个扫描器冷扫前都把访问时间调回两天前，"
+        "所以每个扫描器都从同样的状态开始，也都付同样的代价（见下方怎么算分）。从 2026-10-28 起才开始记录，之前的运行显示 —。"
+        "<br><br>"
         "Each column is ranked on its own, combined over the sizes from `low` up (\\* = small sizes only); Overall, "
-        "Cold and Warm are the boards below. RAM = the platform's least peak RAM / own x 100; the peak includes "
+        "Cold and Warm are the boards below. RAM is ranked by the platform's least peak RAM / own x 100, and each cell "
+        "shows the peak itself (median over platforms, then sizes); the peak includes "
         "memory moved out of the resident set: data parked in tmpfs on Linux (`/dev/shm`, a tmpfs `/tmp`), compressed "
         "memory on macOS (`phys_footprint`). I/O efficiency = "
         "1 / (IOPS during the scan x scan time); IOPS times time is the number of reads the disk completed in the cold "
@@ -358,10 +384,11 @@ def render_section(
         "median over platforms, mean over sizes), fewer is better, two parts added up: (1) what the scanner's processes "
         "wrote to files themselves, where a disk cache that keeps memory low (e.g. on a disk-backed `/tmp`) shows up, "
         "not counting the export the benchmark asks for or the output to the terminal (logical writes on macOS); "
-        "(2) with the daily-use access-time setting (Linux `relatime`, Windows NTFS on, ReFS and macOS as shipped), "
-        "the data written for the access-time updates of files and folders while scanning a fixed 100k-item tree, "
-        "whose access times are set two days back before each scanner. The timed scans keep access times off and are "
-        "not affected. Recorded from 2026-10-28 on, older runs show —.</sub>",
+        "(2) the data the cold scan wrote to the test disk for the access-time updates of files and folders: the timed "
+        "scans run with the daily-use access-time setting (Linux `relatime`, Windows NTFS on, ReFS and macOS as "
+        "shipped) and the access times are set two days back before every scanner's cold scan, so each one starts from "
+        "the same state and pays the same way (see How scoring works). Recorded from 2026-10-28 on, older runs show "
+        "—.</sub>",
         "",
     ]
     lines += ["### 跨体量总榜 · Overall across sizes", ""] + cross_size_table(standard, present, "overall")

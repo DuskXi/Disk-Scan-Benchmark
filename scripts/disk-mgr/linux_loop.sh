@@ -20,9 +20,12 @@ shift
 STATE_FILE="/tmp/disk_scanner_bench_linux.state"
 POOL="benchpool"
 
-# Access times: off for the timed scans (noatime); the access-time audit sets BENCH_ATIME=relatime, the daily-use
-# default, before its remounts (ZFS: the pool's atime / relatime properties, set by the caller)
-ATIME="${BENCH_ATIME:-noatime}"
+# Access times: BENCH_ATIME=daily (the benchmark workflows) mounts with relatime, the daily-use default of every
+# distribution, and creates the ZFS pool with atime + relatime; unset keeps them off (noatime)
+case "${BENCH_ATIME:-}" in
+    daily | relatime) ATIME="relatime" ;;
+    *) ATIME="noatime" ;;
+esac
 
 mount_fs() {
     # mount_fs <fs> <loop device> <mount path>
@@ -106,8 +109,11 @@ case "$CMD" in
                 sudo modprobe zfs
                 # A 16 GB runner would otherwise let the ARC grow to most of its memory
                 echo $((4 << 30)) | sudo tee /sys/module/zfs/parameters/zfs_arc_max >/dev/null
+                # access times as the other filesystems: off, or relatime (the daily-use setting) with BENCH_ATIME
+                ZFS_ATIME=$([[ "$ATIME" == "noatime" ]] && echo "-O atime=off" || echo "-O atime=on -O relatime=on")
+                # shellcheck disable=SC2086
                 sudo zpool create -f -o ashift=12 -o cachefile=none \
-                    -O atime=off -O compression=off -O xattr=sa -O mountpoint="$MOUNT_PATH" "$POOL" "$LOOP_DEV"
+                    $ZFS_ATIME -O compression=off -O xattr=sa -O mountpoint="$MOUNT_PATH" "$POOL" "$LOOP_DEV"
                 ;;
         esac
         if [[ "$FS" != "zfs" ]]; then
