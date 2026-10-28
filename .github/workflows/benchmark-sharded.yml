@@ -1,0 +1,360 @@
+name: Benchmark Shards (reusable)
+
+# One platform's scanners split over several jobs, for the presets whose scans do not fit in one 6-hour job
+# (called from benchmark.yml for very-high and before-death).
+#
+#   plan   picks the shards: every scanner's time is estimated from the published results of this platform, the
+#          scanners are packed into as few shards as fit (scripts/ci/plan_shards.py), and the anchor scanner (dua)
+#          runs in every shard
+#   build  share = true only: builds the disk once and hands it to the shards as a VHDX (ReFS: its image is small,
+#          and generating on ReFS alone takes hours)
+#   shard  one job per shard: the disk (downloaded, or generated here with the same seed when share = false),
+#          hw-probe, then only this shard's scanners. macOS cannot share: disk images there go through the
+#          user-space diskimagesiod at ~87 files/s, so each shard builds the tree on the native APFS volume again.
+#          Windows ARM64 cannot either: its NTFS image reaches ~70 GB at very-high, more than the runner holds twice
+#   merge  joins the shards into the platform's raw_results.json; runners of the same kind differ (up to 2x on the CI
+#          disks), so each shard's times are scaled by how fast the anchor ran there (scripts/ci/merge_shards.py),
+#          then the usual report and the usual benchmark-results-<label>-<preset> artifact
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: "Target label (macos-x86_64, macos-arm64, windows-arm64, windows-x86_64-refs)"
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      build_runner:
+        description: "Runner of the build job (share = true)"
+        required: false
+        default: windows-latest
+        type: string
+      platform:
+        description: "macos or windows"
+        required: true
+        type: string
+      fs:
+        description: "apfs, ntfs or refs"
+        required: true
+        type: string
+      fs_label:
+        required: true
+        type: string
+      share:
+        description: "Build the disk once and download it in every shard (otherwise every shard generates it)"
+        required: false
+        default: false
+        type: boolean
+      gen_min_per_million:
+        description: "Minutes a shard spends generating the tree per million items (share = false), for the plan"
+        required: false
+        default: "0"
+        type: string
+      warm_runs:
+        required: false
+        default: "3"
+        type: string
+      normalize:
+        description: "Write normalized_results.json in the merge (false: another job does, e.g. the NTFS+ReFS audit)"
+        required: false
+        default: true
+        type: boolean
+      python_arch:
+        description: "Python architecture on the runner (arm64 on windows-11-arm)"
+        required: false
+        default: ""
+        type: string
+      preset:
+        required: true
+        type: string
+      disk_size_gb:
+        required: true
+        type: string
+      max_physical_mb:
+        required: true
+        type: string
+      seed:
+        required: true
+        type: string
+      aging:
+        required: true
+        type: boolean
+      defender_scan:
+        required: false
+        default: false
+        type: boolean
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  plan:
+    name: "Plan ${{ inputs.label }} shards"
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Split The Scanners Into Shards
+        id: plan
+        shell: bash
+        run: |
+          python ./scripts/ci/plan_shards.py \
+            --label "${{ inputs.label }}" \
+            --preset "${{ inputs.preset }}" \
+            --warm-runs "${{ inputs.warm_runs }}" \
+            --gen-min-per-million "${{ inputs.share && '0' || inputs.gen_min_per_million }}" \
+            --max-shards 8 \
+            --github-output "$GITHUB_OUTPUT"
+
+  build:
+    name: "Build ${{ inputs.label }} disk (${{ inputs.preset }})"
+    if: ${{ inputs.share }}
+    runs-on: ${{ inputs.build_runner }}
+    timeout-minutes: 355
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build fs-mirage
+        shell: bash
+        run: cargo build --release -p fs-mirage
+
+      - name: Resolve Virtual Disk Capacity
+        shell: bash
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb "${{ inputs.disk_size_gb }}")
+          echo "VDISK_GB=$VDISK_GB" >> "$GITHUB_ENV"
+          echo "Virtual disk capacity: ${VDISK_GB} GiB"
+
+      - name: Create & Mount Dynamic VHDX (${{ inputs.fs_label }})
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 create "${{ env.VDISK_GB }}" "X:/bench" "${{ inputs.fs }}"
+
+      # 8 threads on ReFS like build-refs in benchmark.yml (fastest there on the runner's 4 cores)
+      - name: Materialize Deterministic Synthetic Filesystem (fs-mirage)
+        shell: bash
+        env:
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
+          FSM_THREADS: ${{ inputs.fs == 'refs' && '8' || '' }}
+        run: |
+          mkdir -p handoff
+          ./target/release/fs-mirage \
+            --root "X:/bench" \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "handoff/ground_truth.json"
+
+      - name: Detach The Volume For The Shards
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 detach "X:/bench" "$env:GITHUB_WORKSPACE/handoff/volume.vhdx"
+
+      - name: Upload The Volume
+        uses: actions/upload-artifact@v4
+        with:
+          name: volume-${{ inputs.label }}-${{ inputs.preset }}
+          path: handoff/
+          compression-level: 1
+          retention-days: 1
+
+  shard:
+    name: "Bench (${{ inputs.label }} | ${{ inputs.preset }} | shard ${{ matrix.shard }})"
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      OUT: shard-out/${{ inputs.label }}-shard-${{ matrix.shard }}
+      MOUNT: ${{ inputs.platform == 'macos' && '/tmp/BenchVol' || 'X:/bench' }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_arch == 'arm64' && '3.12' || '3.11' }}
+          architecture: ${{ inputs.python_arch }}
+
+      - name: Cache Cargo Registry & Build Artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-${{ runner.arch }}
+
+      - name: Build Core Engines (fs-mirage & hw-probe)
+        shell: bash
+        run: cargo build --release --workspace
+
+      - name: Cache Pinned Scanner Binaries
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: scanners-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wrappers/scanners_registry.json') }}
+
+      - name: Install Pinned Target Scanners
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$OUT"
+          python ./scripts/wrappers/run_cli_scanners.py --install-only --bin-dir ./bin
+
+      - name: Download The Volume
+        if: ${{ inputs.share }}
+        uses: actions/download-artifact@v4
+        with:
+          name: volume-${{ inputs.label }}-${{ inputs.preset }}
+          path: ${{ runner.temp }}/volume
+
+      - name: Attach The Volume
+        if: ${{ inputs.share }}
+        shell: pwsh
+        run: |
+          Copy-Item "$env:RUNNER_TEMP/volume/ground_truth.json" "$env:OUT/ground_truth.json"
+          ./scripts/disk-mgr/windows_vhd.ps1 attach "$env:RUNNER_TEMP/volume/volume.vhdx" "X:/bench" "${{ inputs.fs }}"
+
+      - name: Create The Volume And Materialize The Tree (fs-mirage)
+        if: ${{ !inputs.share }}
+        shell: bash
+        env:
+          FSM_AGING: ${{ inputs.aging && '1' || '0' }}
+        run: |
+          VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb "${{ inputs.disk_size_gb }}")
+          if [ "${{ inputs.platform }}" = "macos" ]; then
+            chmod +x scripts/disk-mgr/*.sh
+            ./scripts/disk-mgr/macos_dmg.sh create "$VDISK_GB" "$MOUNT"
+          else
+            powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 create "$VDISK_GB" "$MOUNT" "${{ inputs.fs }}"
+          fi
+          ./target/release/fs-mirage \
+            --root "$MOUNT" \
+            --preset "${{ inputs.preset }}" \
+            --seed "${{ inputs.seed }}" \
+            --max-physical-mb "${{ inputs.max_physical_mb }}" \
+            --manifest-out "$OUT/ground_truth.json"
+
+      # the slow macOS walks skip it at these sizes, as in benchmark.yml; Windows probes once, in the first shard
+      - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
+        if: ${{ inputs.platform == 'windows' && matrix.shard == 1 }}
+        shell: bash
+        timeout-minutes: 10
+        continue-on-error: true
+        run: python ./scripts/profile/layout_probe.py "$MOUNT" --json-out "$OUT/layout.json" > /dev/null || true
+
+      - name: Measure Hardware Ceiling Baseline (hw-probe)
+        shell: bash
+        run: |
+          SKIP_META=()
+          if [ "${{ inputs.platform }}" = "macos" ]; then
+            ./scripts/disk-mgr/macos_dmg.sh purge-cache "$MOUNT"
+            SKIP_META=(--skip-meta)
+          else
+            powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 purge-cache "$MOUNT"
+          fi
+          ./target/release/hw-probe --root "$MOUNT" --out "$OUT/baseline.json" "${SKIP_META[@]}"
+
+      - name: Defender On For Scans
+        if: ${{ inputs.platform == 'windows' && inputs.defender_scan }}
+        shell: pwsh
+        run: ./scripts/disk-mgr/windows_vhd.ps1 defender-on "X:/bench"
+
+      - name: Run This Shard's Scanners (${{ matrix.scanners }})
+        shell: bash
+        run: |
+          echo '{"shard": ${{ matrix.shard }}, "scanners": "${{ matrix.scanners }}"}' > "$OUT/shard.json"
+          python ./scripts/wrappers/run_cli_scanners.py \
+            --path "$MOUNT" \
+            --ground-truth "$OUT/ground_truth.json" \
+            --out "$OUT/raw_results.json" \
+            --bin-dir "./bin" \
+            --scanners "${{ matrix.scanners }}" \
+            --warm-runs "${{ inputs.warm_runs }}"
+
+      # before the teardown, so a job that runs out of time later still keeps its results
+      - name: Upload Shard Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ inputs.label }}-${{ inputs.preset }}-${{ matrix.shard }}
+          path: shard-out/
+          retention-days: 7
+
+      # Windows only: removing millions of files from the macOS system volume is what used to run past the job limit,
+      # and the runner is thrown away anyway
+      - name: Teardown The Virtual Disk
+        if: ${{ always() && inputs.platform == 'windows' }}
+        shell: bash
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 teardown "X:/bench" || true
+
+  merge:
+    name: "Merge ${{ inputs.label }} shards (${{ inputs.preset }})"
+    needs: shard
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download The Shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shard-${{ inputs.label }}-${{ inputs.preset }}-*
+          path: shards/
+
+      - name: Merge The Shards And Report
+        shell: bash
+        run: |
+          R="results/${{ inputs.label }}"
+          python ./scripts/ci/merge_shards.py --shards-dir shards --anchor dua --out-dir "$R"
+          if [ "${{ inputs.normalize }}" = "true" ]; then
+            python ./scripts/report_gen.py \
+              --ground-truth "$R/ground_truth.json" \
+              --baseline "$R/baseline.json" \
+              --raw-results "$R/raw_results.json" \
+              --out "$R/benchmark_report.md" \
+              --json-out "$R/normalized_results.json" \
+              --title-suffix "(${{ inputs.label }} · ${{ inputs.fs_label }} | ${{ inputs.preset }}, sharded${{ inputs.defender_scan && ' · Defender on' || '' }})"
+            cat "$R/shards.md" >> "$R/benchmark_report.md"
+            cat "$R/benchmark_report.md"
+          fi
+
+      - name: Upload Benchmark Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ inputs.label }}-${{ inputs.preset }}
+          path: results/
+          retention-days: 30

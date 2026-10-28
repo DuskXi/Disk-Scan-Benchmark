@@ -85,98 +85,52 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
+  # The Linux / macOS targets of the benchmark job. very-high and up leave macOS out: its scans run past the 6-hour job
+  # limit there, so benchmark-sharded.yml splits them over several jobs (sharded-macos below). A matrix exclude cannot
+  # drop entries added by include, hence this job.
+  targets:
+    name: "Targets (${{ inputs.preset }})"
+    if: ${{ !inputs.windows_only }}
+    runs-on: ubuntu-24.04
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - name: Pick The Targets
+        id: pick
+        shell: bash
+        env:
+          SHARDED: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+        run: |
+          # Linux x86_64 & ARM64 (ext4), macOS x86_64 (Intel) & ARM64 (Apple Silicon) on their native APFS volume,
+          # then the Linux filesystems beyond ext4 (same loop device, same tree).
+          # TODO (Windows ARM64 here): once windows-11-arm runners can loop-mount VHDX elevated and native ARM64
+          # builds of WizTree / SpaceSniffer exist; until then benchmark-ntfs-arm64 below runs it.
+          cat > targets.json <<'JSON'
+          [
+            {"os": "ubuntu-24.04", "platform": "linux", "arch": "x86_64", "target_label": "linux-x86_64", "fs": "ext4", "fs_label": "ext4", "mount_path": "/mnt/bench"},
+            {"os": "ubuntu-24.04-arm", "platform": "linux", "arch": "aarch64", "target_label": "linux-arm64", "fs": "ext4", "fs_label": "ext4", "mount_path": "/mnt/bench"},
+            {"os": "macos-15-intel", "platform": "macos", "arch": "x86_64", "target_label": "macos-x86_64", "fs": "apfs", "fs_label": "APFS", "mount_path": "/tmp/BenchVol"},
+            {"os": "macos-15", "platform": "macos", "arch": "aarch64", "target_label": "macos-arm64", "fs": "apfs", "fs_label": "APFS", "mount_path": "/tmp/BenchVol"},
+            {"os": "ubuntu-24.04", "platform": "linux", "arch": "x86_64", "target_label": "linux-x86_64-btrfs", "fs": "btrfs", "fs_label": "Btrfs", "mount_path": "/mnt/bench"},
+            {"os": "ubuntu-24.04", "platform": "linux", "arch": "x86_64", "target_label": "linux-x86_64-xfs", "fs": "xfs", "fs_label": "XFS", "mount_path": "/mnt/bench"},
+            {"os": "ubuntu-24.04", "platform": "linux", "arch": "x86_64", "target_label": "linux-x86_64-zfs", "fs": "zfs", "fs_label": "ZFS", "mount_path": "/mnt/bench"},
+            {"os": "ubuntu-24.04-arm", "platform": "linux", "arch": "aarch64", "target_label": "linux-arm64-btrfs", "fs": "btrfs", "fs_label": "Btrfs", "mount_path": "/mnt/bench"},
+            {"os": "ubuntu-24.04-arm", "platform": "linux", "arch": "aarch64", "target_label": "linux-arm64-xfs", "fs": "xfs", "fs_label": "XFS", "mount_path": "/mnt/bench"},
+            {"os": "ubuntu-24.04-arm", "platform": "linux", "arch": "aarch64", "target_label": "linux-arm64-zfs", "fs": "zfs", "fs_label": "ZFS", "mount_path": "/mnt/bench"}
+          ]
+          JSON
+          python3 ./scripts/ci/pick_targets.py targets.json "$SHARDED" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
   benchmark:
+    needs: targets
     if: ${{ !inputs.windows_only }}
     name: "Bench (${{ matrix.target_label }} | ${{ inputs.preset }})"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Linux x86_64 & ARM64
-          - os: ubuntu-24.04
-            platform: linux
-            arch: x86_64
-            target_label: linux-x86_64
-            fs: ext4
-            fs_label: ext4
-            mount_path: /mnt/bench
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: aarch64
-            target_label: linux-arm64
-            fs: ext4
-            fs_label: ext4
-            mount_path: /mnt/bench
-
-          # macOS x86_64 (Intel) & ARM64 (Apple Silicon)
-          - os: macos-15-intel
-            platform: macos
-            arch: x86_64
-            target_label: macos-x86_64
-            fs: apfs
-            fs_label: APFS
-            mount_path: /tmp/BenchVol
-          - os: macos-15
-            platform: macos
-            arch: aarch64
-            target_label: macos-arm64
-            fs: apfs
-            fs_label: APFS
-            mount_path: /tmp/BenchVol
-
-          # Linux filesystems beyond ext4 (same loop device, same tree)
-          - os: ubuntu-24.04
-            platform: linux
-            arch: x86_64
-            target_label: linux-x86_64-btrfs
-            fs: btrfs
-            fs_label: Btrfs
-            mount_path: /mnt/bench
-          - os: ubuntu-24.04
-            platform: linux
-            arch: x86_64
-            target_label: linux-x86_64-xfs
-            fs: xfs
-            fs_label: XFS
-            mount_path: /mnt/bench
-          - os: ubuntu-24.04
-            platform: linux
-            arch: x86_64
-            target_label: linux-x86_64-zfs
-            fs: zfs
-            fs_label: ZFS
-            mount_path: /mnt/bench
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: aarch64
-            target_label: linux-arm64-btrfs
-            fs: btrfs
-            fs_label: Btrfs
-            mount_path: /mnt/bench
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: aarch64
-            target_label: linux-arm64-xfs
-            fs: xfs
-            fs_label: XFS
-            mount_path: /mnt/bench
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: aarch64
-            target_label: linux-arm64-zfs
-            fs: zfs
-            fs_label: ZFS
-            mount_path: /mnt/bench
-
-          # TODO (Windows ARM64):
-          # Once GitHub Actions public windows-11-arm runners support elevated VHDX loop mounting
-          # and native ARM64 builds for WizTree / SpaceSniffer / WinDirStat are published, uncomment:
-          # - os: windows-11-arm
-          #   platform: windows
-          #   arch: aarch64
-          #   target_label: windows-arm64
-          #   mount_path: "X:/"
+        include: ${{ fromJSON(needs.targets.outputs.include) }}
 
     steps:
       - name: Checkout Repository
@@ -571,6 +525,8 @@ jobs:
   # rather than timed under emulation). A job of its own so the x64 NTFS+ReFS summary never waits for it.
   benchmark-ntfs-arm64:
     name: "Bench (windows-arm64 | ${{ inputs.preset }})"
+    # very-high and up: sharded-windows
+    if: ${{ !contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
     runs-on: windows-11-arm
     env:
       LABEL: windows-arm64
@@ -723,6 +679,8 @@ jobs:
   # own 6 hours, and the scanning job starts on a cold, freshly attached volume.
   build-refs:
     name: "Build ReFS Volume (${{ inputs.preset }})"
+    # very-high and up: sharded-windows (one build, the scans over several jobs)
+    if: ${{ !contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
     runs-on: windows-latest
     timeout-minutes: 355
     env:
@@ -805,6 +763,7 @@ jobs:
   benchmark-refs:
     name: "Bench (windows-x86_64-refs | ${{ inputs.preset }})"
     needs: build-refs
+    if: ${{ !contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
     runs-on: windows-latest
     timeout-minutes: 355
     env:
@@ -911,9 +870,84 @@ jobs:
       max_physical_mb: ${{ inputs.max_physical_mb }}
       aging: ${{ inputs.aging }}
 
+  # very-high and up: the platforms whose scans outgrow a 6-hour job run them in shards (benchmark-sharded.yml). Each
+  # shard also runs the anchor scanner (dua) so the shards' runners can be scaled to one another; the merged result is
+  # the usual benchmark-results-<label>-<preset> artifact. Generation minutes per million items come from high.
+  sharded-macos:
+    name: "Sharded ${{ matrix.label }}"
+    if: ${{ !inputs.windows_only && contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-x86_64
+            runner: macos-15-intel
+            gen: "11.6"
+            warm: "1"  # one warm scan from high up, as in the benchmark job
+          - label: macos-arm64
+            runner: macos-15
+            gen: "5.7"
+            warm: "3"
+    uses: ./.github/workflows/benchmark-sharded.yml
+    with:
+      label: ${{ matrix.label }}
+      runner: ${{ matrix.runner }}
+      platform: macos
+      fs: apfs
+      fs_label: APFS
+      share: false  # disk images on the macOS runners crawl (see benchmark-sharded.yml): every shard generates
+      gen_min_per_million: ${{ matrix.gen }}
+      warm_runs: ${{ matrix.warm }}
+      preset: ${{ inputs.preset }}
+      disk_size_gb: ${{ inputs.disk_size_gb }}
+      max_physical_mb: ${{ inputs.max_physical_mb }}
+      seed: ${{ inputs.seed }}
+      aging: ${{ inputs.aging }}
+
+  sharded-windows:
+    name: "Sharded ${{ matrix.label }}"
+    if: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-arm64
+            runner: windows-11-arm
+            fs: ntfs
+            fs_label: NTFS
+            share: false  # its NTFS image (~70 GB at very-high) does not fit twice on the runner
+            gen: "16.4"
+            normalize: true
+            python_arch: arm64
+          - label: windows-x86_64-refs
+            runner: windows-latest
+            fs: refs
+            fs_label: ReFS
+            share: true
+            gen: "0"
+            normalize: false  # windows-summary writes it, after the NTFS vs ReFS audit
+            python_arch: ""
+    uses: ./.github/workflows/benchmark-sharded.yml
+    with:
+      label: ${{ matrix.label }}
+      runner: ${{ matrix.runner }}
+      platform: windows
+      fs: ${{ matrix.fs }}
+      fs_label: ${{ matrix.fs_label }}
+      share: ${{ matrix.share }}
+      gen_min_per_million: ${{ matrix.gen }}
+      normalize: ${{ matrix.normalize }}
+      python_arch: ${{ matrix.python_arch }}
+      preset: ${{ inputs.preset }}
+      disk_size_gb: ${{ inputs.disk_size_gb }}
+      max_physical_mb: ${{ inputs.max_physical_mb }}
+      seed: ${{ inputs.seed }}
+      aging: ${{ inputs.aging }}
+      defender_scan: ${{ inputs.defender_scan }}
+
   windows-summary:
     name: "Windows NTFS+ReFS Summary (${{ inputs.preset }})"
-    needs: [benchmark-ntfs, benchmark-refs]
+    needs: [benchmark-ntfs, benchmark-refs, sharded-windows]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
@@ -992,7 +1026,7 @@ jobs:
   leaderboard:
     name: "Overall Leaderboard (${{ inputs.preset }})"
     # WinBtrfs is not waited for: it publishes its own supplement (see the winbtrfs job)
-    needs: [benchmark, benchmark-ntfs-arm64, windows-summary]
+    needs: [benchmark, benchmark-ntfs-arm64, windows-summary, sharded-macos, sharded-windows]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:
