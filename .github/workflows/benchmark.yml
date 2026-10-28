@@ -95,6 +95,9 @@ jobs:
     outputs:
       include: ${{ steps.pick.outputs.include }}
     steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
       - name: Pick The Targets
         id: pick
         shell: bash
