@@ -169,6 +169,7 @@ $PrevReadOps = [uint64]0
 $PrevReadBytes = [uint64]0
 $PrevOtherOps = [uint64]0
 $PrevOtherBytes = [uint64]0
+$PrevWriteBytes = [uint64]0
 $PrevCpuMs = [double]0.0
 $PrevWallMs = [double]0.0
 $QuietDurationMs = 0
@@ -211,6 +212,7 @@ try {
             $PrevReadBytes = $Io.ReadTransferCount
             $PrevOtherOps = $Io.OtherOperationCount
             $PrevOtherBytes = $Io.OtherTransferCount
+            $PrevWriteBytes = $Io.WriteTransferCount
         }
 
         # Calculate CPU usage percentage across all logical cores over this 100ms window
@@ -270,6 +272,8 @@ $ResultObj = [ordered]@{
     # NtQueryDirectoryFile calls, so near-zero OtherOps means the GUI never actually scanned (e.g. blocked by a dialog).
     other_ops_total = [uint64]$PrevOtherOps
     read_ops_total = [uint64]$PrevReadOps
+    # bytes the process wrote to files (its own caches; run_cli_scanners.py subtracts the requested export)
+    write_bytes_total = [uint64]$PrevWriteBytes
     with_gui_render = [bool]$WithGuiRender
     elapsed_ms = [Math]::Round($DeductedMs, 2)
     raw_elapsed_ms = [Math]::Round($TotalRawMs, 2)

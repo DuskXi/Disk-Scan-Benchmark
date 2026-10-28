@@ -16,7 +16,11 @@ result was valid.
 Side scores, not part of overall:
   mem  = least peak RAM / own peak RAM x 100                    (per platform)
   io   = fewest cold-scan device reads / own cold reads x 100    (per platform; 1 / (IOPS x time) = 1 / reads)
-  write_mb = median over the platforms of the bytes the scanned disk wrote per scan
+  write_mb = median over the platforms of MB written per million items: what the scanner's processes wrote to files
+             per scan (a disk cache keeping its memory low) + the access-time updates its scan caused (audit tree,
+             daily-use access-time setting)
+  RAM uses the effective peak: resident memory plus tmpfs / shared memory it filled (Linux) or its phys_footprint
+  (macOS), so memory parked in /dev/shm or a tmpfs /tmp still counts
 
 The JSON payload holds everything the Markdown needs, so scripts/readme_board.py can render the same tables into
 README.md later from the stored payload alone.
@@ -132,7 +136,17 @@ def balanced_score(row: Dict[str, Any], key: str) -> Optional[float]:
     return float(score) if score else None
 
 
-def score_platform(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+def write_parts(r: Dict[str, Any], items: int) -> Tuple[Optional[float], Optional[float]]:
+    """(MB the scanner's processes wrote per scan, MB of access-time updates), both per million items."""
+    spill_b = _mean_count(r.get("proc_written_bytes_runs"))
+    spill = spill_b / 1e6 / (items / 1e6) if spill_b is not None and items > 0 else None
+    audit_items = int(r.get("atime_audit_items") or 0)
+    atime_b = r.get("atime_written_bytes")
+    atime = float(atime_b) / 1e6 / (audit_items / 1e6) if atime_b is not None and audit_items > 0 else None
+    return spill, atime
+
+
+def score_platform(rows: List[Dict[str, Any]], items: int = 0) -> Dict[str, Dict[str, Any]]:
     """Per-scanner relative scores inside one platform, keyed by scanner id."""
     ok = [r for r in rows if status_of(r) == "ok"]
     out: Dict[str, Dict[str, Any]] = {}
@@ -147,6 +161,7 @@ def score_platform(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
             cold_rel = best_cold / float(r["cold_time_ms"]) * 100.0
             warm_rel = best_warm / float(r["warm_time_ms"]) * 100.0
             bc, bw = balanced_score(r, "balanced_cold"), balanced_score(r, "balanced_warm")
+            spill, atime = write_parts(r, items)
             index_rel = None
             if bc and bw and best_bal_cold and best_bal_warm:
                 index_rel = math.sqrt((bc / best_bal_cold) * (bw / best_bal_warm)) * 100.0
@@ -158,10 +173,13 @@ def score_platform(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
                 "warm_rel": warm_rel,
                 "index_rel": index_rel,
                 "platform_score": geomean([cold_rel, warm_rel, index_rel]),
-                "rss_mb": float(r["peak_rss_mb"]) if r.get("peak_rss_mb") else None,
+                # effective peak memory when measured (tmpfs / compressed memory included), else the resident peak
+                "rss_mb": float(r.get("peak_mem_mb") or r["peak_rss_mb"]) if r.get("peak_rss_mb") else None,
                 # device reads of the cold scan (scan efficiency) and bytes the scanned disk wrote per scan
                 "cold_reads": _first_count(r.get("device_reads_runs")),
                 "write_bytes": _mean_count(r.get("device_written_bytes_runs")),
+                "spill_mb_per_m": spill,
+                "atime_mb_per_m": atime,
                 "verification": r.get("verification"),
                 "warnings": list(r.get("warnings") or []),  # reported more than the tree holds: counted anyway
                 # GUI scanners report no size of their own (the monitor fills in the ground truth), so no accuracy
@@ -245,7 +263,10 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
         data = json.loads((dirs[label] / "normalized_results.json").read_text(encoding="utf-8"))
         rows = data.get("results", [])
         gt = gt or data.get("ground_truth", {})
-        plat = score_platform(rows)
+        items = int(data.get("ground_truth", {}).get("total_files", 0)) + int(
+            data.get("ground_truth", {}).get("total_dirs", 0)
+        )
+        plat = score_platform(rows, items)
         per_platform[label] = plat
         for r in rows:
             scanners.setdefault(r["id"], {"name": r.get("scanner", r["id"]), "version": str(r.get("version", "-"))})
@@ -338,7 +359,11 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
         warm = geomean([e["warm_rel"] for e in ok])
         index = geomean([e["index_rel"] for e in ok])
         ok_labels = [lbl for lbl in labels if per_platform[lbl].get(sid, {}).get("status") == "ok"]
-        writes = [e["write_bytes"] for e in ok if e.get("write_bytes") is not None]
+        writes = [
+            (e.get("spill_mb_per_m") or 0.0) + (e.get("atime_mb_per_m") or 0.0)
+            for e in ok
+            if e.get("spill_mb_per_m") is not None or e.get("atime_mb_per_m") is not None
+        ]
         accs = [abs(e["acc_pct"]) for e in ok if e.get("acc_pct") is not None]
         levels = [e.get("verification") for e in ok if e.get("verification")]
         overall.append(
@@ -353,7 +378,9 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
                 "rss_mb": _median([e.get("rss_mb") for e in ok]),
                 "mem": geomean([side[lbl][sid]["mem"] for lbl in ok_labels]),
                 "io": geomean([side[lbl][sid]["io"] for lbl in ok_labels]),
-                "write_mb": statistics.median(writes) / 1e6 if writes else None,
+                "write_mb": statistics.median(writes) if writes else None,  # per million items
+                "spill_mb": _median([e.get("spill_mb_per_m") for e in ok]),
+                "atime_mb": _median([e.get("atime_mb_per_m") for e in ok]),
                 "abs_acc_pct": statistics.median(accs) if accs else None,
                 "verification": max(set(levels), key=levels.count) if levels else None,
                 "valid_platforms": len(ok),

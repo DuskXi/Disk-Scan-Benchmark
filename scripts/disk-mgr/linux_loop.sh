@@ -20,12 +20,16 @@ shift
 STATE_FILE="/tmp/disk_scanner_bench_linux.state"
 POOL="benchpool"
 
+# Access times: off for the timed scans (noatime); the access-time audit sets BENCH_ATIME=relatime, the daily-use
+# default, before its remounts (ZFS: the pool's atime / relatime properties, set by the caller)
+ATIME="${BENCH_ATIME:-noatime}"
+
 mount_fs() {
     # mount_fs <fs> <loop device> <mount path>
     case "$1" in
-        btrfs) sudo mount -o noatime,nodiscard "$2" "$3" ;;
+        btrfs) sudo mount -o "$ATIME",nodiscard "$2" "$3" ;;
         zfs) sudo zpool import -d "$2" "$POOL" ;;  # mounts at the pool's mountpoint
-        *) sudo mount -o noatime "$2" "$3" ;;
+        *) sudo mount -o "$ATIME" "$2" "$3" ;;
     esac
     sudo chmod 777 "$3"
 }
@@ -43,9 +47,11 @@ read_state() {
     IMG_PATH="/tmp/bench.img"
     LOOP_DEV=""
     FS="ext4"
+    STATE_MOUNT=""
     if [[ -f "$STATE_FILE" ]]; then
-        IFS='|' read -r SAVED_IMG _ _ SAVED_LOOP SAVED_FS < "$STATE_FILE" || true
+        IFS='|' read -r SAVED_IMG SAVED_MOUNT _ SAVED_LOOP SAVED_FS < "$STATE_FILE" || true
         IMG_PATH="${SAVED_IMG:-$IMG_PATH}"
+        STATE_MOUNT="${SAVED_MOUNT:-}"
         LOOP_DEV="${SAVED_LOOP:-}"
         FS="${SAVED_FS:-ext4}"
     fi
@@ -117,6 +123,8 @@ case "$CMD" in
     purge-cache)
         MOUNT_PATH="${1:-/mnt/bench}"
         read_state
+        # a folder inside the volume (the access-time audit tree) remounts the volume itself
+        MOUNT_PATH="${STATE_MOUNT:-$MOUNT_PATH}"
         echo "[linux_loop] Purging caches of the ${FS} volume at ${MOUNT_PATH}..."
         sync
         unmount_fs "$FS" "$MOUNT_PATH"
@@ -124,7 +132,7 @@ case "$CMD" in
         if [[ -n "$LOOP_DEV" && -b "$LOOP_DEV" ]]; then
             mount_fs "$FS" "$LOOP_DEV" "$MOUNT_PATH"
         else
-            sudo mount -o loop,noatime "$IMG_PATH" "$MOUNT_PATH"
+            sudo mount -o loop,"$ATIME" "$IMG_PATH" "$MOUNT_PATH"
             sudo chmod 777 "$MOUNT_PATH"
         fi
         ;;

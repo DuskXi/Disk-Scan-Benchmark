@@ -712,6 +712,78 @@ def children_cpu_seconds() -> float:
         return 0.0
 
 
+def children_written_bytes() -> Optional[int]:
+    """
+    Linux: bytes all waited-for children sent to the storage layer so far (ru_oublock counts 512-byte units there).
+    Pipes and tmpfs never reach the storage layer, so the captured output is not in it (tmpfs: see shmem_kib).
+    """
+    try:
+        import resource
+
+        return int(resource.getrusage(resource.RUSAGE_CHILDREN).ru_oublock) * 512  # type: ignore[attr-defined]
+    except Exception:
+        return None
+
+
+def shmem_kib() -> Optional[int]:
+    """Linux: RAM held by tmpfs files (/dev/shm, a tmpfs /tmp) and shared anonymous memory, system-wide."""
+    try:
+        with open("/proc/meminfo", encoding="ascii") as f:
+            for line in f:
+                if line.startswith("Shmem:"):
+                    return int(line.split()[1])
+    except Exception:
+        return None
+    return None
+
+
+class MacRusage:
+    """
+    macOS proc_pid_rusage (RUSAGE_INFO_V4) of a process and its descendants: phys_footprint (the memory Activity
+    Monitor shows: resident plus compressed and purgeable memory, which the resident size leaves out) and the bytes
+    written to files (logical writes, so a temporary file counts even if it is deleted before reaching the disk).
+    """
+
+    def __init__(self) -> None:
+        self.lib = ctypes.CDLL("/usr/lib/libproc.dylib")  # type: ignore[attr-defined]
+        self.lib.proc_pid_rusage.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+        self.lib.proc_listchildpids.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
+        self.written: Dict[int, int] = {}  # pid -> last seen bytes written
+        self.peak_footprint = 0
+
+    def _info(self, pid: int) -> Optional[Tuple[int, int, int, int]]:
+        # rusage_info_v4: a 16-byte uuid, then 64-bit fields; phys_footprint is the 8th, diskio_byteswritten the 18th,
+        # logical_writes the 28th and lifetime_max_phys_footprint the 29th
+        buf = (ctypes.c_uint64 * 48)()
+        if self.lib.proc_pid_rusage(pid, 4, buf) != 0:
+            return None
+        f = list(buf)[2:]
+        return f[7], f[17], f[27], f[28]
+
+    def _tree(self, pid: int) -> List[int]:
+        out, todo = [], [pid]
+        while todo:
+            p = todo.pop()
+            out.append(p)
+            arr = (ctypes.c_int * 512)()
+            n = self.lib.proc_listchildpids(p, arr, ctypes.sizeof(arr))
+            todo.extend(arr[i] for i in range(max(0, min(n, 512))) if arr[i] > 0)
+        return out
+
+    def sample(self, pid: int) -> None:
+        total = 0
+        for p in self._tree(pid):
+            info = self._info(p)
+            if info is None:
+                continue
+            footprint, disk_written, logical_written, lifetime_max = info
+            total += footprint
+            self.written[p] = max(disk_written, logical_written)
+            if p == pid:
+                self.peak_footprint = max(self.peak_footprint, lifetime_max)
+        self.peak_footprint = max(self.peak_footprint, total)
+
+
 class WindowsJob:
     """
     A job object the scanner process is put in right after it starts, so the CPU time of everything it spawns
@@ -745,6 +817,18 @@ class WindowsJob:
         self.job = self.k32.CreateJobObjectW(None, None)
         self.ok = bool(self.job) and bool(self.k32.AssignProcessToJobObject(self.job, process_handle))
 
+    class _IoAccounting(ctypes.Structure):
+        # JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION: the basic accounting, then IO_COUNTERS
+        _fields_ = [
+            ("Basic", ctypes.c_byte * 48),
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
     def cpu_seconds(self) -> Optional[float]:
         if not self.ok:
             return None
@@ -752,6 +836,15 @@ class WindowsJob:
         if not self.k32.QueryInformationJobObject(self.job, 1, ctypes.byref(info), ctypes.sizeof(info), None):
             return None
         return (info.TotalUserTime + info.TotalKernelTime) / 1e7
+
+    def write_bytes(self) -> Optional[int]:
+        """Bytes every process of the job wrote (files, and also pipes: the caller subtracts its captured output)."""
+        if not self.ok:
+            return None
+        info = self._IoAccounting()
+        if not self.k32.QueryInformationJobObject(self.job, 8, ctypes.byref(info), ctypes.sizeof(info), None):
+            return None
+        return int(info.WriteTransferCount)
 
     def close(self) -> None:
         if self.job:
@@ -830,6 +923,110 @@ def device_io_counters(path: str, os_key: str) -> Optional[Tuple[int, int]]:
     return None
 
 
+def flush_volume(path: str, os_key: str) -> None:
+    """Writes the volume's pending metadata (e.g. access-time updates) out, so the device write counter sees them."""
+    time.sleep(1.0)  # updates made when the scanner closed its handles
+    try:
+        if os_key == "windows":
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+            k32.CreateFileW.restype = ctypes.c_void_p
+            k32.CreateFileW.argtypes = [
+                ctypes.c_wchar_p,
+                ctypes.c_uint32,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+                ctypes.c_uint32,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+            ]
+            k32.FlushFileBuffers.argtypes = [ctypes.c_void_p]
+            k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            drive = Path(path).resolve().drive  # "X:"
+            # GENERIC_READ | GENERIC_WRITE on the volume (administrator): FlushFileBuffers then flushes the whole volume
+            handle = k32.CreateFileW(f"\\\\.\\{drive}", 0xC0000000, 3, None, 3, 0, None)
+            if handle and handle != ctypes.c_void_p(-1).value:
+                try:
+                    k32.FlushFileBuffers(handle)
+                finally:
+                    k32.CloseHandle(handle)
+        else:
+            getattr(os, "sync")()  # Unix only
+    except Exception as exc:
+        print(f"  [warn] could not flush the volume: {exc}")
+    time.sleep(1.0)
+
+
+def reset_access_times(root: str, os_key: str) -> int:
+    """
+    Sets the access time of every file and directory under root two days back (modification times kept), so the next
+    scan meets stale access times everywhere: every daily-use policy (Linux relatime: older than a day; Windows: more
+    than an hour off) then updates whatever the scan touches, and no scanner inherits fresh times from the one before.
+    """
+    # list everything first: listing a folder updates its access time, so no folder may be listed after its time is set
+    targets: List[Tuple[str, int]] = []
+    stack = [root]
+    try:
+        targets.append((root, os.stat(root).st_mtime_ns))
+    except OSError:
+        pass
+    while stack:
+        try:
+            with os.scandir(stack.pop()) as it:
+                entries = list(it)
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                if e.is_symlink():
+                    continue
+                targets.append((e.path, e.stat(follow_symlinks=False).st_mtime_ns))
+                if e.is_dir(follow_symlinks=False):
+                    stack.append(e.path)
+            except OSError:
+                continue
+    old_ns = time.time_ns() - 2 * 86400 * 10**9
+    count = 0
+    # contents before their folder (a folder is listed before what it holds): on NTFS setting a file's times updates
+    # its folder's index, which counts as an access to the folder
+    for path, mtime_ns in reversed(targets):
+        try:
+            os.utime(path, ns=(old_ns, mtime_ns))
+            count += 1
+        except OSError:
+            continue
+    return count
+
+
+def probe_access_time_updates(
+    scan_path: str, os_key: str, repo_root: Path, skip_purge: bool, purge_mode: str
+) -> Optional[bool]:
+    """
+    Whether this volume updates access times now (the audit's setting, or the platform's default): a folder and a
+    file next to the audit tree get stale access times, the caches are dropped, both are read, and their access times
+    must have moved. A platform whose daily-use setting keeps access times (ReFS) has nothing to measure.
+    """
+    probe = Path(scan_path).resolve().parent / "_atime_probe"
+    try:
+        probe.mkdir(exist_ok=True)
+        f = probe / "probe.bin"
+        f.write_bytes(b"x" * 65536)
+        old = time.time_ns() - 2 * 86400 * 10**9
+        for p in (probe, f):
+            os.utime(p, ns=(old, os.stat(p).st_mtime_ns))
+        flush_volume(scan_path, os_key)
+        invoke_purge_cache(os_key, scan_path, repo_root, skip_purge, purge_mode)
+        os.listdir(probe)
+        f.read_bytes()
+        flush_volume(scan_path, os_key)
+        newest = max(os.stat(probe).st_atime_ns, os.stat(f).st_atime_ns)
+        return newest > old + 3600 * 10**9
+    except OSError as exc:
+        print(f"  [warn] access-time probe failed: {exc}")
+        return None
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
+
 def save_scanner_output(out_dir: Path, scanner_id: str, text: str, keep: int = 200_000) -> None:
     """
     The scanner's own output of the cold run, next to raw_results.json (scanner_output/<id>.txt), so a result that
@@ -846,15 +1043,28 @@ def save_scanner_output(out_dir: Path, scanner_id: str, text: str, keep: int = 2
 
 
 def run_monitored_cli(
-    cmd: List[str], os_key: str, timeout_sec: int = 900, extra_env: Optional[Dict[str, str]] = None
+    cmd: List[str],
+    os_key: str,
+    timeout_sec: int = 900,
+    extra_env: Optional[Dict[str, str]] = None,
+    io_out: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, float, str, Optional[float]]:
     """
     Executes a CLI command and returns (elapsed_ms, peak_rss_mb, stdout_text, cpu_seconds).
     cpu_seconds is the user + kernel CPU time of the process and everything it started (None if unknown).
     Drains stdout concurrently on a background thread so OS pipe buffers (e.g. 64KB on macOS)
     can never fill up and deadlock while polling process memory.
+
+    io_out, if given, receives what the scanner kept outside its own resident memory:
+      written_bytes   bytes its process tree wrote to files (Windows: minus its captured output; Linux: sent to the
+                      storage layer; macOS: logical writes), e.g. a disk cache that keeps its memory low
+      shmem_peak_mb   Linux: the largest rise of tmpfs / shared memory during the run (files in /dev/shm or a tmpfs
+                      /tmp are RAM the resident size does not show)
+      footprint_mb    macOS: peak phys_footprint of the process tree (resident plus compressed memory)
     """
     cpu0 = children_cpu_seconds()
+    written0 = children_written_bytes() if os_key == "linux" else None
+    shmem0 = shmem_kib() if os_key == "linux" else None
     t0 = time.perf_counter()
     child_env = os.environ.copy()
     child_env["SPACEKNIFE_LANGUAGE"] = "en"
@@ -874,28 +1084,26 @@ def run_monitored_cli(
             job = WindowsJob(int(proc._handle))  # type: ignore[attr-defined]
         except Exception:
             job = None
+    mac: Optional[MacRusage] = None
+    if os_key == "macos":
+        try:
+            mac = MacRusage()
+        except Exception:
+            mac = None
 
     peak_rss_mb = 0.0
-    if os_key == "windows" or os_key == "macos":
+    shmem_peak_kib = 0
+    if os_key == "windows":
         try:
             stdout_text, _ = proc.communicate(timeout=timeout_sec)
         except subprocess.TimeoutExpired:
             proc.kill()
             stdout_text, _ = proc.communicate()
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        if os_key == "windows":
-            try:
-                peak_rss_mb = query_windows_peak_rss_mb(int(proc._handle))  # type: ignore[attr-defined]
-            except Exception:
-                peak_rss_mb = 0.0
-        else:
-            try:
-                import resource
-
-                rusage = resource.getrusage(resource.RUSAGE_CHILDREN)  # type: ignore[attr-defined]
-                peak_rss_mb = round(rusage.ru_maxrss / (1024.0 * 1024.0), 2)
-            except Exception:
-                peak_rss_mb = 0.0
+        try:
+            peak_rss_mb = query_windows_peak_rss_mb(int(proc._handle))  # type: ignore[attr-defined]
+        except Exception:
+            peak_rss_mb = 0.0
     else:
         stdout_chunks: List[str] = []
 
@@ -909,14 +1117,15 @@ def run_monitored_cli(
         reader_thread = threading.Thread(target=_drain_stdout, daemon=True)
         reader_thread.start()
 
-        # Poll /proc/<pid>/status VmHWM on Linux while stdout is concurrently drained
+        # Poll while stdout is concurrently drained: Linux /proc/<pid>/status VmHWM and the system's Shmem,
+        # macOS the process tree's footprint and writes
         pid = proc.pid
         proc_status_path = Path(f"/proc/{pid}/status")
         while proc.poll() is None:
             if (time.perf_counter() - t0) > timeout_sec:
                 proc.kill()
                 break
-            if proc_status_path.exists():
+            if os_key == "linux" and proc_status_path.exists():
                 try:
                     content = proc_status_path.read_text(encoding="utf-8", errors="ignore")
                     for line in content.splitlines():
@@ -927,6 +1136,15 @@ def run_monitored_cli(
                                 peak_rss_mb = mb
                 except Exception:
                     pass
+            if shmem0 is not None:
+                now_kib = shmem_kib()
+                if now_kib is not None:
+                    shmem_peak_kib = max(shmem_peak_kib, now_kib - shmem0)
+            if mac is not None:
+                try:
+                    mac.sample(pid)
+                except Exception:
+                    mac = None
             time.sleep(0.015)
 
         proc.wait()
@@ -938,16 +1156,32 @@ def run_monitored_cli(
                 import resource
 
                 rusage = resource.getrusage(resource.RUSAGE_CHILDREN)  # type: ignore[attr-defined]
-                peak_rss_mb = round(rusage.ru_maxrss / 1024.0, 2)
+                # ru_maxrss is in bytes on macOS and in KiB on Linux
+                divisor = 1024.0 * 1024.0 if os_key == "macos" else 1024.0
+                peak_rss_mb = round(rusage.ru_maxrss / divisor, 2)
             except Exception:
                 pass
 
     cpu_seconds: Optional[float]
+    written: Optional[int] = None
     if job is not None:
         cpu_seconds = job.cpu_seconds()
+        total = job.write_bytes()
+        if total is not None:
+            # the job's writes include its output into our pipe
+            written = max(0, total - len((stdout_text or "").encode("utf-8", errors="replace")))
         job.close()
     else:
         cpu_seconds = children_cpu_seconds() - cpu0 if os_key != "windows" else None
+        if os_key == "linux":
+            written1 = children_written_bytes()
+            written = written1 - written0 if written0 is not None and written1 is not None else None
+        elif mac is not None:
+            written = sum(mac.written.values())
+    if io_out is not None:
+        io_out["written_bytes"] = written
+        io_out["shmem_peak_mb"] = round(shmem_peak_kib / 1024.0, 2) if shmem0 is not None else None
+        io_out["footprint_mb"] = round(mac.peak_footprint / (1024.0 * 1024.0), 2) if mac is not None else None
     return round(elapsed_ms, 2), round(peak_rss_mb, 2), stdout_text, cpu_seconds
 
 
@@ -1548,6 +1782,13 @@ def main() -> int:
     )
     parser.add_argument("--scanners", default=None, help="Optional comma-separated filter of scanner IDs to run")
     parser.add_argument(
+        "--reset-atime",
+        action="store_true",
+        help="Access-time audit: before each scanner, set every access time under --path two days back, and flush "
+        "the volume after each run before reading its write counter, so the access-time updates a scan causes "
+        "(with the platform's daily-use atime setting turned on by the caller) are counted",
+    )
+    parser.add_argument(
         "--mft-mode",
         action="store_true",
         help="Windows/NTFS only: run just the scanners that support raw $MFT scanning, scanning the volume root",
@@ -1594,6 +1835,13 @@ def main() -> int:
 
     results: List[Dict[str, Any]] = []
     gui_monitor_ps1 = repo_root / "scripts" / "wrappers" / "win_gui_monitor.ps1"
+
+    atime_active: Optional[bool] = None
+    if args.reset_atime:
+        atime_active = probe_access_time_updates(scan_path, os_key, repo_root, args.skip_purge, args.purge_mode)
+        print(
+            f"[runner] Access-time audit: this volume {'updates' if atime_active else 'does not update'} access times"
+        )
 
     for scanner in registry_data.get("scanners", []):
         if not scanner.get("enabled", True):
@@ -1652,6 +1900,13 @@ def main() -> int:
 
         cmd_template = scanner["mft"]["command_template"] if args.mft_mode else command_template_for(scanner, os_key)
 
+        def export_size() -> int:
+            """Size of the export the benchmark asked for (CSV of the GUI tools): not the scanner's own writing."""
+            try:
+                return export_file.stat().st_size if export_file.exists() else 0
+            except OSError:
+                return 0
+
         def build_cmd() -> List[str]:
             return [
                 tok.replace("{bin}", bin_path)
@@ -1670,6 +1925,9 @@ def main() -> int:
             try:
                 return execute_scan()
             finally:
+                if args.reset_atime:
+                    # access-time updates are written lazily: flush them into this run's window
+                    flush_volume(scan_path, os_key)
                 io1 = device_io_counters(scan_path, os_key)
                 if io0 is not None and io1 is not None:
                     run_reads.append(io1[0] - io0[0])
@@ -1714,16 +1972,25 @@ def main() -> int:
                 gui_io_samples.append(
                     (int(payload.get(ops_key, 0) or 0), bool(payload.get("launched_non_admin", False)))
                 )
+                gui_written = payload.get("write_bytes_total")
+                run_proc_written.append(None if gui_written is None else max(0, int(gui_written) - export_size()))
+                run_shmem.append(None)
+                run_footprint.append(None)
                 # GUI tools export no totals: size and file count stay unreported (0), never the ground truth
                 return elapsed, rss, 0, 0, {}
 
             cmd_tokens = build_cmd()
             # Large presets (millions of files) need far more than the 15 minute default per scan run
             cli_timeout = args.timeout or max(900, int(gt_data.get("total_files", 0)) // 1000)
+            io_out: Dict[str, Any] = {}
             elapsed, rss, stdout_text, cpu_s = run_monitored_cli(
-                cmd_tokens, os_key, cli_timeout, {k: str(v) for k, v in scanner.get("env", {}).items()}
+                cmd_tokens, os_key, cli_timeout, {k: str(v) for k, v in scanner.get("env", {}).items()}, io_out
             )
             run_cpu.append(cpu_s)
+            proc_written = io_out.get("written_bytes")
+            run_proc_written.append(None if proc_written is None else max(0, int(proc_written) - export_size()))
+            run_shmem.append(io_out.get("shmem_peak_mb"))
+            run_footprint.append(io_out.get("footprint_mb"))
             run_outputs.append(stdout_text)
             parser_kind = scanner.get("output_parser", "human_last_line")
             effective_metric = effective_size_metric(scanner, os_key)
@@ -1797,10 +2064,17 @@ def main() -> int:
         run_cpu: List[Optional[float]] = []  # per run, cold first: CPU seconds of the scanner's process tree
         run_reads: List[Optional[int]] = []  # per run, cold first: read requests completed by the device
         run_written: List[Optional[int]] = []  # per run, cold first: bytes the device wrote
+        # per run, cold first: what the scanner kept outside its resident memory (see run_monitored_cli)
+        run_proc_written: List[Optional[int]] = []  # bytes its processes wrote to files, the requested export excluded
+        run_shmem: List[Optional[float]] = []  # Linux: MB of tmpfs / shared memory it added
+        run_footprint: List[Optional[float]] = []  # macOS: peak phys_footprint MB
         configure_windows_gui_scanner(scanner_id, os_key, bin_path, args.mft_mode)
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
         # 1. Cold Cache Run
+        if args.reset_atime:
+            n = reset_access_times(scan_path, os_key)
+            print(f"  [Audit] access times of {n:,} entries set two days back")
         cold_purged = invoke_purge_cache(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
         cold_ms, cold_rss, scanned_bytes, scanned_files, last_zones = execute_once()
         accumulated_zones = dict(last_zones)
@@ -1808,10 +2082,12 @@ def main() -> int:
 
         # 2. Warm Cache Runs (3x consecutive without purging cache)
         warm_times: List[float] = []
+        rss_runs: List[float] = [cold_rss]
         peak_rss = cold_rss
         for w_idx in range(max(1, args.warm_runs)):
             w_ms, w_rss, w_bytes, w_files, w_zones = execute_once()
             warm_times.append(w_ms)
+            rss_runs.append(w_rss)
             if w_zones and not accumulated_zones:
                 accumulated_zones = dict(w_zones)
             if w_rss > peak_rss:
@@ -1821,6 +2097,17 @@ def main() -> int:
             print(f"  [Warm #{w_idx + 1}]   {w_ms:.2f} ms | Peak RSS: {w_rss:.2f} MB")
 
         warm_avg_ms = round(sum(warm_times) / len(warm_times), 2)
+
+        # memory the resident size does not show: tmpfs / shared memory it filled (Linux) and its compressed memory
+        # (macOS phys_footprint); the GUI monitor and Windows report the working set as before
+        def effective_mb(i: int) -> float:
+            sh = run_shmem[i] if i < len(run_shmem) else None
+            fp = run_footprint[i] if i < len(run_footprint) else None
+            return max(rss_runs[i] + (sh or 0.0), fp or 0.0)
+
+        peak_mem = max(effective_mb(i) for i in range(len(rss_runs)))
+        if peak_mem > peak_rss * 1.05 + 1:
+            print(f"  [Memory] {peak_mem:.2f} MB with tmpfs / compressed memory (resident peak {peak_rss:.2f} MB)")
 
         # Untimed verification pass for tools whose timed command prints nothing to check (ncdu -o /dev/null)
         if scanner.get("verify_command_template") and not args.mft_mode:
@@ -1992,6 +2279,10 @@ def main() -> int:
                 "cpu_seconds_runs": [None if c is None else round(c, 3) for c in run_cpu],
                 "device_reads_runs": run_reads,
                 "device_written_bytes_runs": run_written,
+                "peak_mem_mb": round(peak_mem, 2),
+                "proc_written_bytes_runs": run_proc_written,
+                "shmem_peak_mb_runs": run_shmem,
+                "footprint_mb_runs": run_footprint,
                 "valid": valid,
                 "invalid_reason": invalid_reason,
                 "structure_samples": accumulated_zones,
@@ -2003,6 +2294,9 @@ def main() -> int:
         print(f"[runner] Windows Defender during the scans: {defender}")
         for entry in results:
             entry["defender"] = defender
+    if args.reset_atime:
+        for entry in results:
+            entry["atime_updates_active"] = atime_active
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:

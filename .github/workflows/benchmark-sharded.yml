@@ -305,6 +305,14 @@ jobs:
             --scanners "${{ matrix.scanners }}" \
             --warm-runs "${{ inputs.warm_runs }}"
 
+      # Windows only: the macOS shards need all their time for the scans
+      - name: Access-Time Write Audit (this shard's scanners)
+        if: ${{ inputs.platform == 'windows' }}
+        shell: bash
+        timeout-minutes: 45
+        continue-on-error: true
+        run: bash ./scripts/ci/atime_audit.sh windows "${{ inputs.fs }}" "$MOUNT" "$OUT" "${{ matrix.scanners }}"
+
       # before the teardown, so a job that runs out of time later still keeps its results
       - name: Upload Shard Results
         if: always()

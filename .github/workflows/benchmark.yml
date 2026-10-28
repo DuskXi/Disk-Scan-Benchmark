@@ -290,6 +290,15 @@ jobs:
             --bin-dir "./bin" \
             --warm-runs "$WARM_RUNS"
 
+      # Untimed, after the timed scans: the access-time updates a scan writes with the daily-use access-time setting
+      # (scripts/ci/atime_audit.sh). Not on macOS from mid up, whose jobs need all their time for the scans.
+      - name: Access-Time Write Audit
+        if: ${{ !(matrix.platform == 'macos' && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset)) }}
+        shell: bash
+        timeout-minutes: 45
+        continue-on-error: true
+        run: bash ./scripts/ci/atime_audit.sh "${{ matrix.platform }}" "${{ matrix.fs }}" "${{ matrix.mount_path }}" "results/${{ matrix.target_label }}"
+
       - name: Generate Normalized Report
         shell: bash
         run: |
@@ -503,6 +512,13 @@ jobs:
             --out "results/$LABEL/raw_results.json" \
             --bin-dir "./bin"
 
+      # Untimed, after the timed scans: the access-time updates a scan writes with the daily-use setting
+      - name: Access-Time Write Audit
+        shell: bash
+        timeout-minutes: 45
+        continue-on-error: true
+        run: bash ./scripts/ci/atime_audit.sh windows ntfs "X:/bench" "results/$LABEL"
+
       - name: Disk Space Monitor Report
         if: always()
         shell: pwsh
@@ -639,6 +655,13 @@ jobs:
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
             --bin-dir "./bin"
+
+      # Untimed, after the timed scans: the access-time updates a scan writes with the daily-use setting
+      - name: Access-Time Write Audit
+        shell: bash
+        timeout-minutes: 45
+        continue-on-error: true
+        run: bash ./scripts/ci/atime_audit.sh windows ntfs "X:/bench" "results/$LABEL"
 
       - name: Disk Space Monitor Report
         if: always()
@@ -844,6 +867,13 @@ jobs:
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
             --bin-dir "./bin"
+
+      # Untimed, after the timed scans: the access-time updates a scan writes with the daily-use setting
+      - name: Access-Time Write Audit
+        shell: bash
+        timeout-minutes: 45
+        continue-on-error: true
+        run: bash ./scripts/ci/atime_audit.sh windows refs "X:/bench" "results/$LABEL"
 
       - name: Teardown ReFS Virtual Disk
         if: always()
