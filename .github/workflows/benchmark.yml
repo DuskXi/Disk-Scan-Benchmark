@@ -85,14 +85,15 @@ env:
   PYTHONUNBUFFERED: "1"
   # Timed scans with the daily-use access-time setting (linux_loop.sh mounts relatime and creates the ZFS pool with
   # atime + relatime, windows_vhd.ps1 turns last-access updates on, which NTFS and ReFS follow; macOS keeps its default).
-  # run_cli_scanners.py --reset-atime sets every access time two days back before each scanner's cold scan.
+  # run_cli_scanners.py --reset-atime makes every cold scan meet access times two days old: on Linux and macOS it sets
+  # back what moved before each scanner, on Windows it sets them back once and gives each scanner a fresh
+  # differencing disk on top (windows_vhd.ps1 freeze).
   BENCH_ATIME: daily
 
 jobs:
-  # The Linux / macOS targets of the benchmark job. high and up leave macOS out: its scans (and the access-time reset
-  # before each cold scan) run past the 6-hour job limit there, so benchmark-sharded.yml splits them over several jobs
-  # (sharded-macos below). A matrix exclude cannot
-  # drop entries added by include, hence this job.
+  # The Linux / macOS targets of the benchmark job. mid and up leave macOS out: with access-time updates on its scans
+  # run past the 6-hour job limit there, so benchmark-sharded.yml splits them over several jobs (sharded-macos below).
+  # A matrix exclude cannot drop entries added by include, hence this job.
   targets:
     name: "Targets (${{ inputs.preset }})"
     if: ${{ !inputs.windows_only }}
@@ -107,7 +108,7 @@ jobs:
         id: pick
         shell: bash
         env:
-          SHARDED: ${{ contains(fromJSON('["high","very-high","before-death"]'), inputs.preset) }}
+          SHARDED: ${{ contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
         run: |
           # Linux x86_64 & ARM64 (ext4), macOS x86_64 (Intel) & ARM64 (Apple Silicon) on their native APFS volume,
           # then the Linux filesystems beyond ext4 (same loop device, same tree).
@@ -535,8 +536,8 @@ jobs:
   # rather than timed under emulation). A job of its own so the x64 NTFS+ReFS summary never waits for it.
   benchmark-ntfs-arm64:
     name: "Bench (windows-arm64 | ${{ inputs.preset }})"
-    # very-high and up: sharded-windows
-    if: ${{ !contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+    # mid and up: sharded-windows
+    if: ${{ !contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
     runs-on: windows-11-arm
     env:
       LABEL: windows-arm64
@@ -690,8 +691,8 @@ jobs:
   # own 6 hours, and the scanning job starts on a cold, freshly attached volume.
   build-refs:
     name: "Build ReFS Volume (${{ inputs.preset }})"
-    # very-high and up: sharded-windows (one build, the scans over several jobs)
-    if: ${{ !contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+    # mid and up: sharded-windows (one build, the scans over several jobs)
+    if: ${{ !contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
     runs-on: windows-latest
     timeout-minutes: 355
     env:
@@ -774,7 +775,7 @@ jobs:
   benchmark-refs:
     name: "Bench (windows-x86_64-refs | ${{ inputs.preset }})"
     needs: build-refs
-    if: ${{ !contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+    if: ${{ !contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
     runs-on: windows-latest
     timeout-minutes: 355
     env:
@@ -796,7 +797,7 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-${{ runner.arch }}
 
-      - name: Build hw-probe & fs-mirage (the access-time audit generates its tree)
+      - name: Build hw-probe & fs-mirage (fs-mirage sets the access times back before each scan)
         shell: bash
         run: cargo build --release -p hw-probe -p fs-mirage
 
@@ -882,12 +883,15 @@ jobs:
       max_physical_mb: ${{ inputs.max_physical_mb }}
       aging: ${{ inputs.aging }}
 
-  # very-high and up: the platforms whose scans outgrow a 6-hour job run them in shards (benchmark-sharded.yml). Each
-  # shard also runs the anchor scanner (dua) so the shards' runners can be scaled to one another; the merged result is
-  # the usual benchmark-results-<label>-<preset> artifact. Generation minutes per million items come from high.
+  # mid and up: the platforms whose scans outgrow a 6-hour job with access-time updates on (macOS, Windows ARM64,
+  # ReFS: their cold scans take 2-14x as long as with them off) run them in shards (benchmark-sharded.yml). Each shard
+  # also runs the anchor scanner (dua) so the shards' runners can be scaled to one another; the merged result is the
+  # usual benchmark-results-<label>-<preset> artifact. Generation minutes per million items come from high; "reset" is
+  # the minutes per million items of setting access times back before each scanner (Linux and macOS: what moved),
+  # "once" those of setting the whole tree back once before the scans (Windows: then a fresh differencing disk each).
   sharded-macos:
     name: "Sharded ${{ matrix.label }}"
-    if: ${{ !inputs.windows_only && contains(fromJSON('["high","very-high","before-death"]'), inputs.preset) }}
+    if: ${{ !inputs.windows_only && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
     strategy:
       fail-fast: false
       matrix:
@@ -895,11 +899,9 @@ jobs:
           - label: macos-x86_64
             runner: macos-15-intel
             gen: "11.6"
-            warm: "1"  # one warm scan from high up, as in the benchmark job
           - label: macos-arm64
             runner: macos-15
             gen: "5.7"
-            warm: "3"
     uses: ./.github/workflows/benchmark-sharded.yml
     with:
       label: ${{ matrix.label }}
@@ -909,7 +911,9 @@ jobs:
       fs_label: APFS
       share: false  # disk images on the macOS runners crawl (see benchmark-sharded.yml): every shard generates
       gen_min_per_million: ${{ matrix.gen }}
-      warm_runs: ${{ matrix.warm }}
+      reset_min_per_million: "2"
+      # one warm scan on macOS x64 from high up, as in the benchmark job
+      warm_runs: ${{ (matrix.label == 'macos-x86_64' && inputs.preset != 'mid') && '1' || '3' }}
       preset: ${{ inputs.preset }}
       disk_size_gb: ${{ inputs.disk_size_gb }}
       max_physical_mb: ${{ inputs.max_physical_mb }}
@@ -918,7 +922,7 @@ jobs:
 
   sharded-windows:
     name: "Sharded ${{ matrix.label }}"
-    if: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+    if: ${{ contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
     strategy:
       fail-fast: false
       matrix:
@@ -929,6 +933,7 @@ jobs:
             fs_label: NTFS
             share: false  # its NTFS image (~70 GB at very-high) does not fit twice on the runner
             gen: "16.4"
+            once: "20"  # Defender's real-time scanning stays on there (tamper protection)
             normalize: true
             python_arch: arm64
           - label: windows-x86_64-refs
@@ -937,6 +942,7 @@ jobs:
             fs_label: ReFS
             share: true
             gen: "0"
+            once: "5"
             normalize: false  # windows-summary writes it, after the NTFS vs ReFS audit
             python_arch: ""
     uses: ./.github/workflows/benchmark-sharded.yml
@@ -948,6 +954,8 @@ jobs:
       fs_label: ${{ matrix.fs_label }}
       share: ${{ matrix.share }}
       gen_min_per_million: ${{ matrix.gen }}
+      reset_min_per_million: "0"
+      reset_once_min_per_million: ${{ matrix.once }}
       normalize: ${{ matrix.normalize }}
       python_arch: ${{ matrix.python_arch }}
       preset: ${{ inputs.preset }}

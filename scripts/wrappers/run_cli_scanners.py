@@ -1325,6 +1325,22 @@ def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge
     return True
 
 
+def freeze_volume(os_key: str, mount_path: str, repo_root: Path, skip_purge: bool, mode: str = "vdisk") -> bool:
+    """
+    Windows CI: the benchmark volume (its access times just set back) becomes the read-only parent of a differencing
+    disk, and every purge-cache from now on mounts a fresh one (windows_vhd.ps1 freeze). Each cold scan then meets the
+    same old access times without setting them back first, which took minutes per scanner there. Returns whether the
+    volume is frozen; if not, it is mounted as before.
+    """
+    if os_key != "windows" or skip_purge or mode != "vdisk":
+        return False
+    script = repo_root / "scripts" / "disk-mgr" / "windows_vhd.ps1"
+    out = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "freeze", mount_path]
+    )
+    return out.returncode == 0
+
+
 def extract_zip_keep_modes(archive: Path, dest: Path) -> None:
     """
     zipfile.extractall drops Unix permission bits, so a macOS / Linux portable bundle came out with no executable
@@ -1859,11 +1875,16 @@ def main() -> int:
     gui_monitor_ps1 = repo_root / "scripts" / "wrappers" / "win_gui_monitor.ps1"
 
     atime_active: Optional[bool] = None
+    fresh_disks = False  # each purge mounts a fresh differencing disk over a volume whose access times are old
     if args.reset_atime:
         atime_active = probe_access_time_updates(scan_path, os_key, repo_root, args.skip_purge, args.purge_mode)
+        if atime_active and os_key == "windows":
+            reset_access_times_fast(scan_path, os_key, repo_root)
+            fresh_disks = freeze_volume(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
         print(
             f"[runner] Access times: this volume {'updates' if atime_active else 'does not update'} them"
             + ("; each cold scan starts from access times two days old" if atime_active else "")
+            + (" (set back once, then a fresh differencing disk per scanner)" if fresh_disks else "")
         )
 
     for scanner in registry_data.get("scanners", []):
@@ -2095,7 +2116,7 @@ def main() -> int:
         prewarm_scanner_binary(scanner, bin_path, os_key)
 
         # 1. Cold Cache Run
-        if atime_active:
+        if atime_active and not fresh_disks:
             reset_access_times_fast(scan_path, os_key, repo_root)
         cold_purged = invoke_purge_cache(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
         cold_ms, cold_rss, scanned_bytes, scanned_files, last_zones = execute_once()

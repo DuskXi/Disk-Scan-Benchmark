@@ -46,8 +46,12 @@ def history(label: str, data_dir: Path, preset: str) -> Tuple[Dict[str, Tuple[fl
     """
     (scanner id -> (cold, warm) seconds per million items from the largest stored preset up to `preset` with a valid
     result, ids that took part on this platform in any stored preset).
+
+    A result timed with access-time updates on (it carries their writes) beats any timed with them off, whatever the
+    size: on ReFS they make cold scans several times slower, so an older, larger preset would underestimate badly.
     """
-    out: Dict[str, Tuple[float, float]] = {}
+    daily: Dict[str, Tuple[float, float]] = {}
+    off: Dict[str, Tuple[float, float]] = {}
     seen: Set[str] = set()
     upto = PRESET_ORDER.index(preset) if preset in PRESET_ORDER else len(PRESET_ORDER) - 1
     for p in PRESET_ORDER[: upto + 1]:  # later (larger) presets overwrite smaller ones
@@ -59,8 +63,9 @@ def history(label: str, data_dir: Path, preset: str) -> Tuple[Dict[str, Tuple[fl
         for sid, e in payload.get("per_platform", {}).get(label, {}).items():
             seen.add(sid)
             if e.get("status") == "ok" and files > 0:
-                out[sid] = (e["cold_s"] / files, e["warm_s"] / files)
-    return out, seen
+                into = daily if e.get("atime_mb_per_m") is not None else off
+                into[sid] = (e["cold_s"] / files, e["warm_s"] / files)
+    return {**off, **daily}, seen
 
 
 def plan(
@@ -130,10 +135,17 @@ def main() -> int:
         default=0.0,
         help="Minutes the access-time reset before each scanner's cold scan takes per million items",
     )
+    ap.add_argument(
+        "--reset-once-min-per-million",
+        type=float,
+        default=0.0,
+        help="Minutes per million items of setting the access times back once before the scans (Windows)",
+    )
     ap.add_argument("--max-shards", type=int, default=6)
     ap.add_argument("--min-shards", type=int, default=1, help="Split at least this far (to test the sharded path)")
-    # 1.5: the estimates come from runs with access times off; with them on, cold scans on Windows ARM64 and macOS ARM64
-    # took 2-3x as long in the very-lite audit
+    # 1.5: a smaller preset scaled up by the item count underestimates the larger tree, and a scanner may still only
+    # have results timed with access times off (with them on, cold scans take 2-4x as long on Windows and macOS, ~14x
+    # on ReFS)
     ap.add_argument("--safety", type=float, default=1.5, help="Factor on the estimates (bigger trees scale worse)")
     ap.add_argument("--registry", default=str(REPO / "scripts" / "wrappers" / "scanners_registry.json"))
     ap.add_argument("--data-dir", default=str(REPO / "leaderboard" / "data"))
@@ -146,7 +158,8 @@ def main() -> int:
     items_m = files * 1.12 / 1e6  # directories add ~12% to the items of the stored presets
     scanners = scanners_for(args.label, Path(args.registry))
     per_million, seen = history(args.label, Path(args.data_dir), args.preset)
-    gen_min = args.gen_min_per_million * items_m
+    # what every shard does before its scans, besides the setup: generate the tree, set its access times back once
+    gen_min = (args.gen_min_per_million + args.reset_once_min_per_million) * items_m
     budget_min = min(args.budget_min, (args.job_minutes - args.setup_min - gen_min) / args.overhead)
     if budget_min < 30:
         print(f"[plan] WARNING: generating the tree takes ~{gen_min:.0f} min, leaving {budget_min:.0f} min to scan")

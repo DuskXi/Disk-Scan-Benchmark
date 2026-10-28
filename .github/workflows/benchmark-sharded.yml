@@ -1,7 +1,7 @@
 name: Benchmark Shards (reusable)
 
 # One platform's scanners split over several jobs, for the presets whose scans do not fit in one 6-hour job
-# (called from benchmark.yml for very-high and before-death).
+# (called from benchmark.yml from mid up for macOS, Windows ARM64 and ReFS).
 #
 #   plan   picks the shards: every scanner's time is estimated from the published results of this platform, the
 #          scanners are packed into as few shards as fit (scripts/ci/plan_shards.py), and the anchor scanner (dua)
@@ -52,6 +52,16 @@ on:
         required: false
         default: "0"
         type: string
+      reset_min_per_million:
+        description: "Minutes per million items of setting access times back before each scanner, for the plan"
+        required: false
+        default: "1"
+        type: string
+      reset_once_min_per_million:
+        description: "Minutes per million items of setting access times back once before the scans, for the plan"
+        required: false
+        default: "0"
+        type: string
       warm_runs:
         required: false
         default: "3"
@@ -95,7 +105,9 @@ env:
   PYTHONUNBUFFERED: "1"
   # Timed scans with the daily-use access-time setting (linux_loop.sh mounts relatime and creates the ZFS pool with
   # atime + relatime, windows_vhd.ps1 turns last-access updates on, which NTFS and ReFS follow; macOS keeps its default).
-  # run_cli_scanners.py --reset-atime sets every access time two days back before each scanner's cold scan.
+  # run_cli_scanners.py --reset-atime makes every cold scan meet access times two days old: on Linux and macOS it sets
+  # back what moved before each scanner, on Windows it sets them back once and gives each scanner a fresh
+  # differencing disk on top (windows_vhd.ps1 freeze).
   BENCH_ATIME: daily
 
 jobs:
@@ -123,7 +135,8 @@ jobs:
             --warm-runs "${{ inputs.warm_runs }}" \
             --gen-min-per-million "${{ inputs.share && '0' || inputs.gen_min_per_million }}" \
             --max-shards 8 \
-            --reset-min-per-million 1 \
+            --reset-min-per-million "${{ inputs.reset_min_per_million }}" \
+            --reset-once-min-per-million "${{ inputs.reset_once_min_per_million }}" \
             --min-shards "${{ inputs.min_shards }}" \
             --github-output "$GITHUB_OUTPUT"
 

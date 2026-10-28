@@ -128,8 +128,9 @@ struct Args {
     #[arg(long)]
     ballast_empty: bool,
 
-    /// Set the access time of every file and folder under --root two days back (modification times kept) and exit,
-    /// without generating anything: run before each scanner's cold scan, which runs with access-time updates on.
+    /// Set access times under --root two days back (modification times kept) and exit, without generating anything:
+    /// every folder, and every file whose access time moved since the last reset (Linux, macOS; Windows: every file).
+    /// For the timed scans, which run with access-time updates on.
     #[arg(long)]
     reset_atime: bool,
 }
@@ -206,12 +207,14 @@ fn main() -> Result<()> {
     let t0 = Instant::now();
 
     if args.reset_atime {
-        let (ok, failed) =
-            atime::reset_access_times(&args.root, std::time::Duration::from_secs(2 * 86_400));
+        let r = atime::reset_access_times(&args.root, std::time::Duration::from_secs(2 * 86_400));
         println!(
-            "[fs-mirage] access times of {ok} entries under {} set two days back in {:.2?} ({failed} failed)",
+            "[fs-mirage] access times of {} entries under {} set two days back in {:.2?} ({} failed, {} files untouched since the last reset)",
+            r.set,
             args.root.display(),
-            t0.elapsed()
+            t0.elapsed(),
+            r.failed,
+            r.unchanged
         );
         return Ok(());
     }
