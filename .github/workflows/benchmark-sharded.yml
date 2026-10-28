@@ -56,6 +56,11 @@ on:
         required: false
         default: "3"
         type: string
+      min_shards:
+        description: "Split into at least this many shards (to test the sharded path on a small preset)"
+        required: false
+        default: "1"
+        type: string
       normalize:
         description: "Write normalized_results.json in the merge (false: another job does, e.g. the NTFS+ReFS audit)"
         required: false
@@ -114,6 +119,7 @@ jobs:
             --warm-runs "${{ inputs.warm_runs }}" \
             --gen-min-per-million "${{ inputs.share && '0' || inputs.gen_min_per_million }}" \
             --max-shards 8 \
+            --min-shards "${{ inputs.min_shards }}" \
             --github-output "$GITHUB_OUTPUT"
 
   build:

@@ -73,6 +73,7 @@ def plan(
     budget_s: float,
     max_shards: int,
     safety: float,
+    min_shards: int = 1,
 ) -> Tuple[List[List[str]], Dict[str, float]]:
     est: Dict[str, float] = {}
     for sid in scanners:
@@ -90,6 +91,7 @@ def plan(
     total = sum(est[s] for s in rest)
     room = max(budget_s - anchor_s, budget_s * 0.25)
     n = max(1, min(max_shards, math.ceil(total / room)))
+    n = min(max(n, min_shards), max(1, len(rest)))  # at least min_shards (testing), never an empty shard
     shards: List[List[str]] = [[] for _ in range(n)]
     load = [0.0] * n
     for sid in rest:
@@ -120,6 +122,7 @@ def main() -> int:
     ap.add_argument("--setup-min", type=float, default=20.0, help="Checkout, build, install, download, hw-probe")
     ap.add_argument("--overhead", type=float, default=1.25, help="Real scan time / estimate (purges, prewarms)")
     ap.add_argument("--max-shards", type=int, default=6)
+    ap.add_argument("--min-shards", type=int, default=1, help="Split at least this far (to test the sharded path)")
     ap.add_argument("--safety", type=float, default=1.15, help="Factor on the estimates (bigger trees scale worse)")
     ap.add_argument("--registry", default=str(REPO / "scripts" / "wrappers" / "scanners_registry.json"))
     ap.add_argument("--data-dir", default=str(REPO / "leaderboard" / "data"))
@@ -147,6 +150,7 @@ def main() -> int:
         budget_min * 60,
         args.max_shards,
         args.safety,
+        args.min_shards,
     )
     print(
         f"[plan] {args.label} | {args.preset} ({files:,} files) | {len(scanners)} scanners -> {len(shards)} shard(s)"

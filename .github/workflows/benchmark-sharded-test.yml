@@ -1,0 +1,129 @@
+name: Benchmark Shards Test
+
+run-name: "Shards test ${{ inputs.preset }} | at least ${{ inputs.min_shards }} shards"
+
+# Runs the sharded path of benchmark.yml (benchmark-sharded.yml: plan, build, shards, merge) on a small preset, split
+# into at least min_shards shards, so a change to it can be checked without a very-high run. Nothing is published:
+# the leaderboard of the merged platforms only goes to the run summary.
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Preset to shard (small ones are cheap)"
+        required: true
+        default: "very-lite"
+        type: choice
+        options:
+          - very-lite
+          - lite
+          - low
+      min_shards:
+        description: "Split every platform into at least this many shards"
+        required: true
+        default: "2"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sharded-macos:
+    name: "Sharded ${{ matrix.label }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-x86_64
+            runner: macos-15-intel
+            gen: "11.6"
+          - label: macos-arm64
+            runner: macos-15
+            gen: "5.7"
+    uses: ./.github/workflows/benchmark-sharded.yml
+    with:
+      label: ${{ matrix.label }}
+      runner: ${{ matrix.runner }}
+      platform: macos
+      fs: apfs
+      fs_label: APFS
+      share: false
+      gen_min_per_million: ${{ matrix.gen }}
+      min_shards: ${{ inputs.min_shards }}
+      preset: ${{ inputs.preset }}
+      disk_size_gb: "60"
+      max_physical_mb: "1500"
+      seed: "42"
+      aging: true
+
+  sharded-windows:
+    name: "Sharded ${{ matrix.label }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: windows-arm64
+            runner: windows-11-arm
+            fs: ntfs
+            fs_label: NTFS
+            share: false
+            gen: "16.4"
+            python_arch: arm64
+          - label: windows-x86_64-refs
+            runner: windows-latest
+            fs: refs
+            fs_label: ReFS
+            share: true
+            gen: "0"
+            python_arch: ""
+    uses: ./.github/workflows/benchmark-sharded.yml
+    with:
+      label: ${{ matrix.label }}
+      runner: ${{ matrix.runner }}
+      platform: windows
+      fs: ${{ matrix.fs }}
+      fs_label: ${{ matrix.fs_label }}
+      share: ${{ matrix.share }}
+      gen_min_per_million: ${{ matrix.gen }}
+      min_shards: ${{ inputs.min_shards }}
+      normalize: true  # no NTFS+ReFS audit job here
+      python_arch: ${{ matrix.python_arch }}
+      preset: ${{ inputs.preset }}
+      disk_size_gb: "60"
+      max_physical_mb: "1500"
+      seed: "42"
+      aging: true
+
+  summary:
+    name: "Sharded Leaderboard (${{ inputs.preset }}, not published)"
+    needs: [sharded-macos, sharded-windows]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download The Merged Platforms
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-results-*-${{ inputs.preset }}
+          path: artifacts/
+
+      - name: Build The Leaderboard Of The Sharded Platforms
+        shell: bash
+        run: |
+          mkdir -p lb-out
+          python ./scripts/leaderboard.py \
+            --artifacts artifacts \
+            --preset "${{ inputs.preset }} · sharded test" \
+            --sha "${{ github.sha }}" \
+            --out lb-out/leaderboard.md \
+            --json-out lb-out/leaderboard.json \
+            --summary-out lb-out/summary.md
+          for f in artifacts/*/*/shards.md; do echo; cat "$f"; done >> lb-out/summary.md
+          cat lb-out/summary.md >> "$GITHUB_STEP_SUMMARY"
