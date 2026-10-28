@@ -359,10 +359,11 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
         warm = geomean([e["warm_rel"] for e in ok])
         index = geomean([e["index_rel"] for e in ok])
         ok_labels = [lbl for lbl in labels if per_platform[lbl].get(sid, {}).get("status") == "ok"]
+        # only platforms where the access-time part was measured: a platform without it (a separate workflow such as
+        # WinBtrfs, a run before the measurement) is not a zero, and counting it as one pulled the median of the
+        # Windows-only tools (NTFS 584 MB/M, ReFS and WinBtrfs unmeasured) down to 0
         writes = [
-            (e.get("spill_mb_per_m") or 0.0) + (e.get("atime_mb_per_m") or 0.0)
-            for e in ok
-            if e.get("spill_mb_per_m") is not None or e.get("atime_mb_per_m") is not None
+            (e.get("spill_mb_per_m") or 0.0) + e["atime_mb_per_m"] for e in ok if e.get("atime_mb_per_m") is not None
         ]
         accs = [abs(e["acc_pct"]) for e in ok if e.get("acc_pct") is not None]
         levels = [e.get("verification") for e in ok if e.get("verification")]
