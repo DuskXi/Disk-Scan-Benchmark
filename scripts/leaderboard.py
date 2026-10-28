@@ -317,9 +317,10 @@ def merge_platforms(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, An
     return merged
 
 
-# A platform whose typical scanner writes less than this per million items keeps its access times (ReFS) or barely
-# writes them for a scan (macOS), and its write counter's noise (machine-wide on macOS) outweighs what is left: such a
-# platform has no typical scanner to compare against and stays out of the disk-write ranking.
+# A platform whose typical scanner writes less than this per million items has no typical scanner to compare against
+# (the counter's noise outweighs the scan) and stays out of the disk-write ranking. macOS always does: its write
+# counter covers the whole machine (the benchmark tree is on the system volume), so a scan's writes cannot be told
+# apart from everything else's.
 WRITE_FLOOR_MB = 20.0
 
 
@@ -348,7 +349,7 @@ def write_ratios(
             for sid, e in per_platform[lbl].items()
             if e.get("status") == "ok" and (w := write_total(e)) is not None
         }
-        if not vals:
+        if not vals or lbl.startswith("macos"):
             continue
         med = statistics.median(vals.values())
         if med < WRITE_FLOOR_MB:

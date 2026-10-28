@@ -84,7 +84,7 @@ env:
   # job hit its time limit, which left no trace of how far the scans had got
   PYTHONUNBUFFERED: "1"
   # Timed scans with the daily-use access-time setting (linux_loop.sh mounts relatime and creates the ZFS pool with
-  # atime + relatime, windows_vhd.ps1 turns NTFS last-access updates on; ReFS and macOS keep what they ship with).
+  # atime + relatime, windows_vhd.ps1 turns last-access updates on, which NTFS and ReFS follow; macOS keeps its default).
   # run_cli_scanners.py --reset-atime sets every access time two days back before each scanner's cold scan.
   BENCH_ATIME: daily
 

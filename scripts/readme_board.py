@@ -374,7 +374,7 @@ def render_section(
         "**写盘量**：扫描器自己写的文件（如磁盘缓存）+ 冷扫时更新访问时间写的盘"
         "（[按日常设置开着](#怎么算分--how-scoring-works)）。百分比 = 自己 ÷ 同平台典型扫描器，排名按它"
         "（NTFS 每项写的是 ext4 的近 4 倍，平台内比才公平）；MB 是每百万项实测值。"
-        "macOS、ReFS 扫描几乎不写访问时间，不参与<br><br>"
+        "macOS 的写入计数是整台机器的，不参与<br><br>"
         "**\\* For reference, not in the overall score** (overall = cold, warm, balanced index) · † small sizes only · "
         "each column combines the sizes from `low` up<br>"
         "**Peak RAM**: median over platforms and sizes, including data parked in tmpfs (Linux) and compressed memory "
@@ -383,8 +383,8 @@ def render_section(
         "**Disk writes**: files the scanner writes itself (e.g. a disk cache) + what the cold scan writes for "
         "access-time updates ([on, as in daily use](#怎么算分--how-scoring-works)). The percentage is own / the "
         "platform's typical scanner and sets the rank (NTFS writes nearly 4x what ext4 does per item, so platforms "
-        "are compared within themselves); MB is measured per million items. macOS and ReFS barely write access times "
-        "when scanning and stay out.</sub>",
+        "are compared within themselves); MB is measured per million items. macOS stays out: its write counter "
+        "covers the whole machine.</sub>",
         "",
     ]
     lines += ["### 跨体量总榜 · Overall across sizes", ""] + cross_size_table(standard, present, "overall")

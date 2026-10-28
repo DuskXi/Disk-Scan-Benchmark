@@ -1022,8 +1022,8 @@ def probe_access_time_updates(
     """
     Whether this volume updates access times now (the daily-use setting the caller mounted it with, or the platform's
     default): a folder and a file inside the tree (removed again before any scan) get stale access times, the caches
-    are dropped, both are read, and their access times must have moved. Where the daily-use setting keeps no access
-    times (ReFS) the reset and flush before each scan are skipped.
+    are dropped, both are read, and their access times must have moved. Where the volume keeps no access times the
+    reset and flush before each scan are skipped.
     """
     # inside the tree: on Linux the tree is the volume's mount point, and its parent another volume
     probe = Path(scan_path).resolve() / "_atime_probe"

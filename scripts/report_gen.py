@@ -530,7 +530,7 @@ def main() -> int:
 
     # Timed with the daily-use access-time setting on (run_cli_scanners.py --reset-atime): the cold run started from
     # stale access times and was flushed before its write counter was read, so what the scanned disk wrote during it
-    # is the access-time updates the scan caused, over the whole tree. Where the volume keeps no access times (ReFS)
+    # is the access-time updates the scan caused, over the whole tree. Where the volume keeps no access times
     # that is about nothing, which is the daily-use answer there.
     tree_items = int(gt.get("total_files", 0)) + int(gt.get("total_dirs", 0))
     for entry in raw_results:
