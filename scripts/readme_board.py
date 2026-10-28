@@ -127,22 +127,26 @@ def cross_size(standard: Dict[str, Dict[str, Any]], key: str = "overall") -> Lis
 
 def cross_size_writes(standard: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    One row per scanner: MB written per scan per million items (its processes' own file writes plus the access-time
-    updates it caused; median over the platforms), averaged over the sizes >= low (small sizes only when it has
-    nothing else); fewest first.
+    One row per scanner, fewest writes first: its writes per scan relative to each platform's typical scanner
+    (leaderboard.write_ratios: inside the platform first, like the other columns), averaged over the platforms and then
+    over the sizes >= low (small sizes only when it has nothing else): "combined" (1 = as much as the typical
+    scanner). "mb" is what was measured, untouched: MB per million items, median over its platforms and those sizes.
     """
     rows: Dict[str, Dict[str, Any]] = {}
     for preset, rec in standard.items():
         for o in rec["payload"]["overall"]:
-            if o.get("write_mb") is None:
+            if o.get("write_ratio") is None:
                 continue
-            row = rows.setdefault(o["id"], {"id": o["id"], "name": o["scanner"], "presets": {}})
-            row["presets"][preset] = o["write_mb"]
+            row = rows.setdefault(o["id"], {"id": o["id"], "name": o["scanner"], "presets": {}, "mbs": {}})
+            row["presets"][preset] = o["write_ratio"]
+            if o.get("write_mb") is not None:
+                row["mbs"][preset] = float(o["write_mb"])
     for row in rows.values():
-        big = [v for p, v in row["presets"].items() if p not in SMALL]
-        small = [v for p, v in row["presets"].items() if p in SMALL]
-        vals = big or small
-        row["combined"] = sum(vals) / len(vals)
+        big = [p for p in row["presets"] if p not in SMALL]
+        used = big or [p for p in row["presets"] if p in SMALL]
+        row["combined"] = sum(row["presets"][p] for p in used) / len(used)
+        mbs = sorted(row["mbs"][p] for p in used if p in row["mbs"])
+        row["mb"] = (mbs[(len(mbs) - 1) // 2] + mbs[len(mbs) // 2]) / 2 if mbs else None
         row["combined_from_small_only"] = not big
     ordered = sorted(rows.values(), key=lambda r: (r["combined_from_small_only"], r["combined"]))
     for pos, row in enumerate(ordered, start=1):
@@ -150,13 +154,14 @@ def cross_size_writes(standard: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any
     return ordered
 
 
+# \* on a header: for reference, not part of the overall score (cold, warm and the balanced index make that)
 TOP_COLUMNS = [
     ("overall", "综合", "Overall"),
     ("cold", "冷扫", "Cold"),
     ("warm", "热扫", "Warm"),
-    ("mem", "内存峰值", "Peak RAM"),
-    ("io", "扫描效率", "I/O efficiency"),
-    ("write", "写盘量/百万项", "Writes per 1M items"),
+    ("mem", "内存峰值\\*", "Peak RAM\\*"),
+    ("io", "扫描效率\\*", "I/O efficiency\\*"),
+    ("write", "写盘量\\*", "Disk writes\\*"),
 ]
 
 
@@ -191,14 +196,18 @@ def top_table(standard: Dict[str, Dict[str, Any]], places: int = 4) -> List[str]
             if pos < len(ranked) and ranked[pos].get("combined") is not None:
                 r = ranked[pos]
                 if key == "write":
-                    value = f"{r['combined']:,.2f}{NB}MB"
+                    # ranked by the share of the platform's typical scanner, then the measured MB as they are
+                    pct = r["combined"] * 100
+                    pct_txt = f"{pct:.1f}%" if pct < 10 else f"{pct:.0f}%"
+                    mb_txt = "—" if r.get("mb") is None else f"{r['mb']:,.1f}{NB}MB"
+                    value = f"{pct_txt}{NB}·{NB}{mb_txt}"
                 elif key == "mem":
                     # the peak itself, not the relative score: a bare score here read as megabytes in reverse order
                     mb = median_peak_mb(standard, r["id"])
                     value = "—" if mb is None else f"{mb:,.1f}{NB}MB" if mb < 10 else f"{mb:,.0f}{NB}MB"
                 else:
                     value = fmt_score(r["combined"])
-                star = "\\*" if r["combined_from_small_only"] else ""
+                star = "†" if r["combined_from_small_only"] else ""  # \* marks the reference-only columns here
                 cells.append(f"**{nobreak(r['name'])}**<br><sub>{value}{star}</sub>")
             else:
                 cells.append("—")
@@ -358,39 +367,56 @@ def render_section(
     lines += ["### 各项前四名 · Top 4 of each category", ""] + top_table(standard)
     lines += [
         "",
-        "<sub>每列单独排名，都按 `low` 及以上各体量合并（\\* = 只有小体量成绩）；综合、冷扫、热扫同下方各榜。"
+        "<sub>**带 \\* 的三列（内存峰值、扫描效率、写盘量）只作参考，不计入综合分**：综合分只由冷扫、热扫和均衡指数"
+        "三项算出（见下方怎么算分）。每列单独排名，都按 `low` 及以上各体量合并（† = 只有小体量成绩）；"
+        "综合、冷扫、热扫同下方各榜。"
         "内存按相对分排名（该平台最低峰值内存 ÷ 自己 × 100），格子里是峰值内存本身（各平台、各体量的中位数）；"
         "峰值内存把挪出常驻内存的部分也算上："
         "Linux 上放进 tmpfs（`/dev/shm`、tmpfs 的 `/tmp`）的数据，macOS 上被压缩的内存（`phys_footprint`）。"
         "扫描效率 = 1 ÷ (扫描时 IOPS × 扫描时间)，IOPS 乘时间就是冷扫时盘上完成的读次数，所以它等于 1 ÷ 读次数："
         "扫同一棵树，读盘次数越少越高效，同样的时间里 IOPS 越低越好；按该平台最少读次数 ÷ 自己 × 100 计分。"
         "这两项和冷扫、热扫一样，先跨平台、再跨体量取几何平均。"
-        "写盘量 = 每次扫描写了多少数据（每百万项，各平台中位数，跨体量平均），越少越好，两部分相加："
+        "写盘量 = 每次扫描写了多少数据，越少越好，两部分相加："
         "① 扫描器进程自己写进文件的数据，用磁盘缓存压低内存（例如写到磁盘上的 `/tmp`）就会算在这里，"
         "测试要求的导出文件和输出到终端的内容不算（macOS 是逻辑写入量）；"
         "② 冷扫时因为更新文件和文件夹的访问时间而写进测试盘的数据：正式计时就用日常的访问时间设置"
         "（Linux `relatime`、Windows NTFS 开启、ReFS 和 macOS 用系统默认），每个扫描器冷扫前都把访问时间调回两天前，"
         "所以每个扫描器都从同样的状态开始，也都付同样的代价。开着访问时间测，是因为日常使用的系统就是这样设置的，"
-        "关掉它会把这份真实代价藏起来（见下方怎么算分）。从 2026-10-28 起才开始记录，之前的运行显示 —。"
+        "关掉它会把这份真实代价藏起来（见下方怎么算分）。"
+        "同样的访问时间更新，各文件系统写的量差得很远（每百万项 XFS 约 30 MB，ext4、ZFS 约 160 MB，NTFS 约 600 MB，"
+        "Btrfs 约 800 MB），只在 Windows 上跑的工具不该因为 NTFS 写得多而垫底，所以和其他几列一样先在平台内比："
+        "格子里的百分比 = 本扫描器写盘量 ÷ 同平台典型扫描器（中位数）的写盘量，跨平台、跨体量平均，排名按它；"
+        "后面的 MB 是实测值（每百万项，各平台、各体量的中位数），没有任何换算。"
+        "典型扫描器每百万项写不到 20 MB 的平台（macOS 扫描几乎不写访问时间、它的计数还包含整台机器的写入；"
+        "ReFS 默认不更新访问时间）没有可比的基准，不参与这一列。从 2026-10-28 起才开始记录，之前的运行显示 —。"
         "<br><br>"
-        "Each column is ranked on its own, combined over the sizes from `low` up (\\* = small sizes only); Overall, "
-        "Cold and Warm are the boards below. RAM is ranked by the platform's least peak RAM / own x 100, and each cell "
+        "**The three columns marked \\* (peak RAM, I/O efficiency, disk writes) are for reference and not part of the "
+        "overall score**, which comes from cold, warm and the balanced index alone (see How scoring works). Each "
+        "column is ranked on its own, combined over the sizes from `low` up († = small sizes only); Overall, Cold and "
+        "Warm are the boards below. RAM is ranked by the platform's least peak RAM / own x 100, and each cell "
         "shows the peak itself (median over platforms, then sizes); the peak includes "
         "memory moved out of the resident set: data parked in tmpfs on Linux (`/dev/shm`, a tmpfs `/tmp`), compressed "
         "memory on macOS (`phys_footprint`). I/O efficiency = "
         "1 / (IOPS during the scan x scan time); IOPS times time is the number of reads the disk completed in the cold "
         "scan, so this is 1 / reads: fewer disk reads for the same tree, or a lower IOPS in the same time, is more "
         "efficient; scored as the platform's fewest reads / own x 100. Both are averaged like Cold and Warm "
-        "(geometric mean across platforms, then across sizes). Disk writes = data written per scan (per million items, "
-        "median over platforms, mean over sizes), fewer is better, two parts added up: (1) what the scanner's processes "
+        "(geometric mean across platforms, then across sizes). Disk writes = data written per scan, fewer is better, "
+        "two parts added up: (1) what the scanner's processes "
         "wrote to files themselves, where a disk cache that keeps memory low (e.g. on a disk-backed `/tmp`) shows up, "
         "not counting the export the benchmark asks for or the output to the terminal (logical writes on macOS); "
         "(2) the data the cold scan wrote to the test disk for the access-time updates of files and folders: the timed "
         "scans run with the daily-use access-time setting (Linux `relatime`, Windows NTFS on, ReFS and macOS as "
         "shipped) and the access times are set two days back before every scanner's cold scan, so each one starts from "
         "the same state and pays the same way. Access times stay on because that is how everyday systems are set up, "
-        "and turning them off would hide this real cost (see How scoring works). Recorded from 2026-10-28 on, older "
-        "runs show —.</sub>",
+        "and turning them off would hide this real cost (see How scoring works). The filesystems write very "
+        "differently for the same updates (per million items about 30 MB on XFS, 160 on ext4 and ZFS, 600 on NTFS, "
+        "800 on Btrfs), and a Windows-only tool should not come last for NTFS writing more, so like the other columns "
+        "the scanners are compared inside each platform first: the percentage is the scanner's writes / the "
+        "platform's typical (median) scanner, averaged over platforms and sizes, and sets the rank; the MB after it is "
+        "what was measured (per million items, median over platforms and sizes), not converted. Platforms whose "
+        "typical scanner writes under 20 MB per million items (macOS, where a scan barely writes access times and the "
+        "counter includes the whole machine; ReFS, which keeps no access times) have no baseline to compare against "
+        "and stay out of this column. Recorded from 2026-10-28 on, older runs show —.</sub>",
         "",
     ]
     lines += ["### 跨体量总榜 · Overall across sizes", ""] + cross_size_table(standard, present, "overall")

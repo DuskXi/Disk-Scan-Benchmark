@@ -317,6 +317,47 @@ def merge_platforms(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, An
     return merged
 
 
+# A platform whose typical scanner writes less than this per million items keeps its access times (ReFS) or barely
+# writes them for a scan (macOS), and its write counter's noise (machine-wide on macOS) outweighs what is left: such a
+# platform has no typical scanner to compare against and stays out of the disk-write ranking.
+WRITE_FLOOR_MB = 20.0
+
+
+def write_total(e: Dict[str, Any]) -> Optional[float]:
+    """MB written per scan per million items (process writes + access-time updates), if the access-time part was
+    measured: a platform without it (a separate workflow such as WinBtrfs, a run before the measurement) is unknown,
+    not zero."""
+    atime = e.get("atime_mb_per_m")
+    return None if atime is None else (e.get("spill_mb_per_m") or 0.0) + float(atime)
+
+
+def write_ratios(
+    per_platform: Dict[str, Dict[str, Dict[str, Any]]], labels: List[str]
+) -> Tuple[Dict[str, Dict[str, float]], List[float]]:
+    """
+    (label -> scanner id -> writes / the platform's typical (median) writes, the typical writes of those platforms).
+    The filesystems write very differently for the same access-time updates (per million items about 30 MB on XFS,
+    160 on ext4 and ZFS, 600 on NTFS, 800 on Btrfs), so like the other columns the scanners are compared inside each
+    platform first; a ratio of 1 is as much as the typical scanner there.
+    """
+    ratios: Dict[str, Dict[str, float]] = {}
+    typical: List[float] = []
+    for lbl in labels:
+        vals = {
+            sid: w
+            for sid, e in per_platform[lbl].items()
+            if e.get("status") == "ok" and (w := write_total(e)) is not None
+        }
+        if not vals:
+            continue
+        med = statistics.median(vals.values())
+        if med < WRITE_FLOOR_MB:
+            continue
+        typical.append(med)
+        ratios[lbl] = {sid: w / med for sid, w in vals.items()}
+    return ratios, typical
+
+
 def side_scores(
     per_platform: Dict[str, Dict[str, Dict[str, Any]]], labels: List[str]
 ) -> Dict[str, Dict[str, Dict[str, Optional[float]]]]:
@@ -347,6 +388,9 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
     labels: List[str] = payload["platforms"]
     per_platform: Dict[str, Dict[str, Dict[str, Any]]] = payload["per_platform"]
     side = side_scores(per_platform, labels)
+    w_ratios, w_typical = write_ratios(per_platform, labels)
+    # the typical scanner's writes over the platforms that count: the ratio times this reads as MB on a typical one
+    payload["write_typical_mb"] = statistics.median(w_typical) if w_typical else None
     overall: List[Dict[str, Any]] = []
     unranked: List[str] = []
     for sid, meta in payload["scanners"].items():
@@ -359,12 +403,8 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
         warm = geomean([e["warm_rel"] for e in ok])
         index = geomean([e["index_rel"] for e in ok])
         ok_labels = [lbl for lbl in labels if per_platform[lbl].get(sid, {}).get("status") == "ok"]
-        # only platforms where the access-time part was measured: a platform without it (a separate workflow such as
-        # WinBtrfs, a run before the measurement) is not a zero, and counting it as one pulled the median of the
-        # Windows-only tools (NTFS 584 MB/M, ReFS and WinBtrfs unmeasured) down to 0
-        writes = [
-            (e.get("spill_mb_per_m") or 0.0) + e["atime_mb_per_m"] for e in ok if e.get("atime_mb_per_m") is not None
-        ]
+        writes = [w for e in ok if (w := write_total(e)) is not None]
+        w_rel = [w_ratios[lbl][sid] for lbl in ok_labels if sid in w_ratios.get(lbl, {})]
         accs = [abs(e["acc_pct"]) for e in ok if e.get("acc_pct") is not None]
         levels = [e.get("verification") for e in ok if e.get("verification")]
         overall.append(
@@ -379,7 +419,9 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
                 "rss_mb": _median([e.get("rss_mb") for e in ok]),
                 "mem": geomean([side[lbl][sid]["mem"] for lbl in ok_labels]),
                 "io": geomean([side[lbl][sid]["io"] for lbl in ok_labels]),
-                "write_mb": statistics.median(writes) if writes else None,  # per million items
+                "write_mb": statistics.median(writes) if writes else None,  # per million items, as measured
+                # mean over the platforms of writes / the platform's typical scanner (arithmetic: 0 is a fine value)
+                "write_ratio": statistics.fmean(w_rel) if w_rel else None,
                 "spill_mb": _median([e.get("spill_mb_per_m") for e in ok]),
                 "atime_mb": _median([e.get("atime_mb_per_m") for e in ok]),
                 "abs_acc_pct": statistics.median(accs) if accs else None,
