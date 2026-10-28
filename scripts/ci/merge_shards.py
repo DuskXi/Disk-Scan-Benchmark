@@ -4,7 +4,8 @@ Merge the shards of one platform (benchmark-sharded.yml) into one raw_results.js
 
 Every shard ran on its own runner, and runners of the same kind differ (the CI disks of two Windows runners were
 measured up to twice apart). So every shard also ran the anchor scanner, and each shard's times are scaled by
-anchor time in the reference shard / anchor time in this shard, cold and warm on their own. The reference shard is the
+anchor time in the reference shard / anchor time in this shard, cold and warm on their own (only when the anchor's scans
+take at least --min-anchor-s: on a small tree the timing noise outweighs the runners). The reference shard is the
 first one with a valid anchor result; its baseline and ground truth describe the merged platform. Memory, CPU time
 and device reads are not scaled: they do not depend on how fast the runner is.
 
@@ -50,6 +51,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--shards-dir", required=True, help="Folder holding one sub-folder per shard (with shard.json)")
     ap.add_argument("--anchor", default="dua")
+    ap.add_argument(
+        "--min-anchor-s",
+        type=float,
+        default=20.0,
+        help="Scale cold (warm) times only when the anchor's cold (warm) scans took this long: shorter ones are noise",
+    )
     ap.add_argument("--out-dir", required=True, help="Platform result folder: raw_results.json, baseline.json, ...")
     args = ap.parse_args()
 
@@ -76,8 +83,12 @@ def main() -> int:
     seen: Dict[str, int] = {}
     for n, sdir, rows in shards:
         a = anchors[n]
-        sc = ref_anchor[0] / a[0] if (ref_anchor and a) else 1.0
-        sw = ref_anchor[1] / a[1] if (ref_anchor and a) else 1.0
+        floor_ms = args.min_anchor_s * 1000
+        # a sub-second anchor (a small tree) varies more between runs than the runners do: such a scale is noise
+        can_c = bool(ref_anchor and a and min(ref_anchor[0], a[0]) >= floor_ms)
+        can_w = bool(ref_anchor and a and min(ref_anchor[1], a[1]) >= floor_ms)
+        sc = ref_anchor[0] / a[0] if (can_c and ref_anchor and a) else 1.0
+        sw = ref_anchor[1] / a[1] if (can_w and ref_anchor and a) else 1.0
         baseline = sdir / "baseline.json"
         iops = json.loads(baseline.read_text(encoding="utf-8")).get("b_rand_read_iops") if baseline.exists() else None
         summary.append(
@@ -90,7 +101,7 @@ def main() -> int:
                 "scale_warm": round(sw, 4),
                 "rand_read_iops": iops,
                 "scanners": [r.get("id") for r in rows],
-                "scaled": bool(ref_anchor and a),
+                "scaled": can_c or can_w,
             }
         )
         for r in rows:
