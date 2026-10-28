@@ -370,7 +370,8 @@ def render_section(
         "测试要求的导出文件和输出到终端的内容不算（macOS 是逻辑写入量）；"
         "② 冷扫时因为更新文件和文件夹的访问时间而写进测试盘的数据：正式计时就用日常的访问时间设置"
         "（Linux `relatime`、Windows NTFS 开启、ReFS 和 macOS 用系统默认），每个扫描器冷扫前都把访问时间调回两天前，"
-        "所以每个扫描器都从同样的状态开始，也都付同样的代价（见下方怎么算分）。从 2026-10-28 起才开始记录，之前的运行显示 —。"
+        "所以每个扫描器都从同样的状态开始，也都付同样的代价。开着访问时间测，是因为日常使用的系统就是这样设置的，"
+        "关掉它会把这份真实代价藏起来（见下方怎么算分）。从 2026-10-28 起才开始记录，之前的运行显示 —。"
         "<br><br>"
         "Each column is ranked on its own, combined over the sizes from `low` up (\\* = small sizes only); Overall, "
         "Cold and Warm are the boards below. RAM is ranked by the platform's least peak RAM / own x 100, and each cell "
@@ -387,8 +388,9 @@ def render_section(
         "(2) the data the cold scan wrote to the test disk for the access-time updates of files and folders: the timed "
         "scans run with the daily-use access-time setting (Linux `relatime`, Windows NTFS on, ReFS and macOS as "
         "shipped) and the access times are set two days back before every scanner's cold scan, so each one starts from "
-        "the same state and pays the same way (see How scoring works). Recorded from 2026-10-28 on, older runs show "
-        "—.</sub>",
+        "the same state and pays the same way. Access times stay on because that is how everyday systems are set up, "
+        "and turning them off would hide this real cost (see How scoring works). Recorded from 2026-10-28 on, older "
+        "runs show —.</sub>",
         "",
     ]
     lines += ["### 跨体量总榜 · Overall across sizes", ""] + cross_size_table(standard, present, "overall")
