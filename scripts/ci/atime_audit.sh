@@ -4,9 +4,10 @@
 #
 #   scripts/ci/atime_audit.sh <platform> <fs> <mount path> <results dir> [scanner ids]
 #
-# A fixed tree (the very-lite preset, 100k items) is generated next to the benchmark tree on the same volume, the
-# daily-use setting is turned on (Linux relatime, the default of every distribution; ZFS atime + relatime; Windows NTFS
-# last-access updates; ReFS and macOS keep what they ship with), and every scanner scans it once: run_cli_scanners.py
+# A fixed tree (the very-lite topology, 100k items, small and sparse) is generated next to the benchmark tree on the
+# same volume, the daily-use setting is turned on (Linux relatime, the default of every distribution; ZFS atime +
+# relatime; Windows NTFS last-access updates; ReFS and macOS keep what they ship with), and every scanner scans it
+# once: run_cli_scanners.py
 # --reset-atime sets all access times two days back before each scanner, so each one meets the same stale times, and
 # flushes the volume before reading its write counter. It also probes whether access times update at all here; where
 # they do not (ReFS, or a setting that would need a reboot) report_gen.py leaves the audit out.
@@ -26,8 +27,10 @@ case "$PLATFORM" in
 esac
 
 mkdir -p "$OUT"
-./target/release/fs-mirage --root "$AUDIT" --preset very-lite --seed 42 --max-physical-mb 100 \
-    --manifest-out "$OUT/atime_audit_gt.json" > /dev/null
+# the very-lite topology (100k items) at a 4 GiB size and without preallocation: the volume is sized for the
+# benchmark tree, and preallocating very-lite's 100 GB next to it ran out of space; only metadata matters here
+./target/release/fs-mirage --root "$AUDIT" --preset custom --files 100000 --logical-gb 4 --seed 42 \
+    --max-physical-mb 100 --no-prealloc --manifest-out "$OUT/atime_audit_gt.json" > /dev/null
 
 case "$PLATFORM" in
     linux)
