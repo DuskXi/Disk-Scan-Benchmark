@@ -4,8 +4,9 @@
 //! relatime: older than a day; Windows: more than an hour off) updates whatever the scan touches, and no scanner
 //! inherits fresh access times from the one before it. On Windows the CI sets them back once and then gives each
 //! scanner a fresh copy of that volume (scripts/disk-mgr/windows_vhd.ps1 freeze). On Linux and
-//! macOS this runs before every cold scan, so it only rewrites what moved: the scans there update the folders they
-//! list, while reading a file's metadata leaves its access time alone.
+//! macOS this runs before every cold scan. Either way it only rewrites what moved: files are created with old access
+//! times (materializer::set_old_atime), and the scans on Linux and macOS update the folders they list, while reading
+//! a file's metadata leaves its access time alone.
 
 use rayon::prelude::*;
 use std::fs;
@@ -19,9 +20,9 @@ pub struct Reset {
     pub unchanged: usize,
 }
 
-/// Sets the access time of every folder, and of every file whose access time moved since the last reset, under
-/// `root` (symlinks skipped, modification times kept) to `age` ago.
-pub fn reset_access_times(root: &Path, age: Duration) -> Reset {
+/// Sets the access time of every folder, and of every file whose access time moved since the last reset (`all`:
+/// of every file), under `root` (symlinks skipped, modification times kept) to `age` ago.
+pub fn reset_access_times(root: &Path, age: Duration, all: bool) -> Reset {
     let when = SystemTime::now() - age;
     // a file whose access time is older than this was not accessed since an earlier reset (or is old anyway)
     let stale = when + Duration::from_secs(3600);
@@ -35,7 +36,7 @@ pub fn reset_access_times(root: &Path, age: Duration) -> Reset {
             .last()
             .expect("at least the root level")
             .par_iter()
-            .map(|d| list(d, stale))
+            .map(|d| list(d, stale, all))
             .collect();
         let mut next = Vec::new();
         for l in listed {
@@ -69,7 +70,7 @@ struct Listing {
     unchanged: usize,
 }
 
-fn list(dir: &Path, stale: SystemTime) -> Listing {
+fn list(dir: &Path, stale: SystemTime, all: bool) -> Listing {
     let mut out = Listing {
         dirs: Vec::new(),
         files: Vec::new(),
@@ -83,7 +84,7 @@ fn list(dir: &Path, stale: SystemTime) -> Listing {
             }
             if ft.is_dir() {
                 out.dirs.push(e.path());
-            } else if still_stale(&e, stale) {
+            } else if !all && still_stale(&e, stale) {
                 out.unchanged += 1;
             } else {
                 out.files.push(e.path());
@@ -93,18 +94,13 @@ fn list(dir: &Path, stale: SystemTime) -> Listing {
     out
 }
 
-/// Unix: lstat, which leaves the access time alone. Windows: always rewritten, since what a folder listing reports
-/// there is the folder index's copy of the times, which NTFS may update later than the file's own.
-#[cfg(unix)]
+/// Unix: lstat, which leaves the access time alone. Windows: the folder index's copy of the times, which the
+/// listing returns; it follows times set explicitly at once, but may lag behind the updates scans make (hence
+/// --reset-atime-all there while the scans run on the same volume).
 fn still_stale(e: &fs::DirEntry, stale: SystemTime) -> bool {
     e.metadata()
         .and_then(|m| m.accessed())
         .is_ok_and(|t| t <= stale)
-}
-
-#[cfg(windows)]
-fn still_stale(_e: &fs::DirEntry, _stale: SystemTime) -> bool {
-    false
 }
 
 /// Only the access time changes; the modification time is left alone.

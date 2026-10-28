@@ -932,8 +932,8 @@ jobs:
             fs: ntfs
             fs_label: NTFS
             share: false  # its NTFS image (~70 GB at very-high) does not fit twice on the runner
-            gen: "16.4"
-            once: "26"  # Defender's real-time scanning stays on there (tamper protection)
+            gen: "20"  # 15-26 min per million items measured at mid (Defender on)
+            once: "4"  # the folders (files are created with old access times); Defender stays on there
             normalize: true
             python_arch: arm64
           - label: windows-x86_64-refs
@@ -942,7 +942,7 @@ jobs:
             fs_label: ReFS
             share: true
             gen: "0"
-            once: "5"
+            once: "1"
             normalize: false  # windows-summary writes it, after the NTFS vs ReFS audit
             python_arch: ""
     uses: ./.github/workflows/benchmark-sharded.yml

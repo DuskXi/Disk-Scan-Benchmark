@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -13,6 +13,21 @@ use std::time::Instant;
 mod unix;
 #[cfg(windows)]
 mod windows;
+
+/// Seconds since the Unix epoch every created file gets as its access time (0: left as created).
+static OLD_ATIME: AtomicI64 = AtomicI64::new(0);
+
+/// For the timed scans with access-time updates on (BENCH_ATIME=daily): every file is created with this access time,
+/// set on its still open handle (no extra open per file), so setting the tree's access times back before the scans
+/// only has to touch the folders (atime.rs skips files whose access time is old already).
+pub fn set_old_atime(unix_secs: i64) {
+    OLD_ATIME.store(unix_secs, Ordering::Relaxed);
+}
+
+fn old_atime() -> Option<i64> {
+    let s = OLD_ATIME.load(Ordering::Relaxed);
+    (s > 0).then_some(s)
+}
 
 /// Optional cumulative per-operation timing (set `FSM_PROFILE=1`); thread-time sums, not wall time.
 pub mod prof {

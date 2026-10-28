@@ -3,8 +3,36 @@ use anyhow::Result;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{FileExt, MetadataExt};
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::path::Path;
+
+/// The access time of an open file (super::set_old_atime), the modification time left alone.
+fn stamp_fd(fd: RawFd) {
+    if let Some(secs) = super::old_atime() {
+        let times = [
+            libc::timespec {
+                tv_sec: secs as libc::time_t,
+                tv_nsec: 0,
+            },
+            libc::timespec {
+                tv_sec: 0,
+                tv_nsec: libc::UTIME_OMIT as _,
+            },
+        ];
+        unsafe {
+            libc::futimens(fd, times.as_ptr());
+        }
+    }
+}
+
+/// Stamps the file when dropped, i.e. after everything was written to it and before it is closed.
+struct Stamp(RawFd);
+
+impl Drop for Stamp {
+    fn drop(&mut self) {
+        stamp_fd(self.0);
+    }
+}
 
 pub fn open_dir_fd(dir: &Path) -> Option<File> {
     File::open(dir).ok()
@@ -36,6 +64,7 @@ pub fn create_sparse_anchored_file(
                     )
                 };
                 if fd >= 0 {
+                    stamp_fd(fd);
                     unsafe {
                         libc::close(fd);
                     }
@@ -50,6 +79,7 @@ pub fn create_sparse_anchored_file(
         .create(true)
         .truncate(true)
         .open(path)?;
+    let _stamp = Stamp(file.as_raw_fd()); // dropped before `file`
 
     // Preallocated media: fallocate() reserves every block as an unwritten extent (st_blocks reports the full size)
     // without writing data. Other Unixes (macOS/APFS) cannot do this and fall through to the sparse path below.

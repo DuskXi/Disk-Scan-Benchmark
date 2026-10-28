@@ -997,20 +997,23 @@ def reset_access_times(root: str, os_key: str) -> int:
     return count
 
 
-def reset_access_times_fast(scan_path: str, os_key: str, repo_root: Path) -> None:
-    """Stale access times before a cold scan: fs-mirage --reset-atime (parallel), else reset_access_times."""
+def reset_access_times_fast(scan_path: str, os_key: str, repo_root: Path, every_file: bool = False) -> None:
+    """
+    Stale access times before a cold scan: fs-mirage --reset-atime (parallel; folders, and the files whose access time
+    moved, or every file with `every_file`), else reset_access_times. No time limit: on Windows ARM64 a whole mid
+    tree took over an hour, and the Python fallback after a limit took two to three more.
+    """
     exe = repo_root / "target" / "release" / ("fs-mirage.exe" if os_key == "windows" else "fs-mirage")
     t0 = time.perf_counter()
     if exe.exists():
+        cmd = [str(exe), "--root", scan_path, "--reset-atime"] + (["--reset-atime-all"] if every_file else [])
         try:
-            out = subprocess.run(
-                [str(exe), "--root", scan_path, "--reset-atime"], capture_output=True, text=True, timeout=3600
-            )
+            out = subprocess.run(cmd, capture_output=True, text=True)
             if out.returncode == 0:
                 print(f"  [atime] {out.stdout.strip()}")
                 return
             print(f"  [warn] fs-mirage --reset-atime failed ({out.returncode}): {out.stderr.strip()[:200]}")
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except OSError as exc:
             print(f"  [warn] fs-mirage --reset-atime failed: {exc}")
     n = reset_access_times(scan_path, os_key)
     print(f"  [atime] access times of {n:,} entries set two days back in {time.perf_counter() - t0:.1f} s (Python)")
@@ -1877,6 +1880,11 @@ def main() -> int:
     atime_active: Optional[bool] = None
     fresh_disks = False  # each purge mounts a fresh copy of a volume whose access times are old
     if args.reset_atime:
+        if os_key == "windows" and os.environ.get("GITHUB_ACTIONS") == "true":
+            # windows_vhd.ps1 keeps last-access updates off while the tree is generated and probed (its files are
+            # created with old access times, fs-mirage reads them back to skip them); on for the timed scans, from the
+            # next mount (the probe's purge) on. A system-wide setting: CI runners only.
+            subprocess.run(["fsutil", "behavior", "set", "disablelastaccess", "0"], capture_output=True)
         atime_active = probe_access_time_updates(scan_path, os_key, repo_root, args.skip_purge, args.purge_mode)
         if atime_active and os_key == "windows":
             reset_access_times_fast(scan_path, os_key, repo_root)
@@ -1960,7 +1968,7 @@ def main() -> int:
                 for tok in cmd_template
             ]
 
-        def execute_once() -> Tuple[float, float, int, int, Dict[str, Dict[str, Any]]]:
+        def execute_once(cold: bool = False) -> Tuple[float, float, int, int, Dict[str, Dict[str, Any]]]:
             if export_file.exists():
                 export_file.unlink()
             # device reads and bytes written during this run (outside the timed window): the balanced resource index,
@@ -1969,8 +1977,10 @@ def main() -> int:
             try:
                 return execute_scan()
             finally:
-                if atime_active:
-                    # access-time updates are written lazily: flush them into this run's window
+                if atime_active and cold:
+                    # access-time updates are written lazily: flush them into the cold run's window (the disk-write
+                    # column). Not after the warm runs, whose writes count nowhere: on NTFS a flush there made the next
+                    # warm scan nearly as slow as a cold one.
                     flush_volume(scan_path, os_key)
                 io1 = device_io_counters(scan_path, os_key)
                 if io0 is not None and io1 is not None:
@@ -2121,9 +2131,10 @@ def main() -> int:
 
         # 1. Cold Cache Run
         if atime_active and not fresh_disks:
-            reset_access_times_fast(scan_path, os_key, repo_root)
+            # on Windows the listing's copy of a file's times may lag behind the updates the last scan made
+            reset_access_times_fast(scan_path, os_key, repo_root, every_file=os_key == "windows")
         cold_purged = invoke_purge_cache(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
-        cold_ms, cold_rss, scanned_bytes, scanned_files, last_zones = execute_once()
+        cold_ms, cold_rss, scanned_bytes, scanned_files, last_zones = execute_once(cold=True)
         accumulated_zones = dict(last_zones)
         print(f"  [Cold Cache] {cold_ms:.2f} ms | Peak RSS: {cold_rss:.2f} MB | Scanned: {scanned_bytes} B")
 

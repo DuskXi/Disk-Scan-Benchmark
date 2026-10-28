@@ -346,6 +346,15 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
+      # A platform with some of its scanners missing would be ranked as if they had never run: like a failed platform
+      # job, a failed or timed-out shard leaves the platform without a result (and the preset unpublished)
+      - name: Every Shard Finished
+        if: ${{ needs.shard.result != 'success' }}
+        shell: bash
+        run: |
+          echo "::error::a shard of ${{ inputs.label }} did not finish (${{ needs.shard.result }}); no partial result for the platform"
+          exit 1
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 

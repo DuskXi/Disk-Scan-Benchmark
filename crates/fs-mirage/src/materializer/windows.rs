@@ -11,16 +11,40 @@ use std::ptr::{null, null_mut};
 use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use windows_sys::Wdk::Storage::FileSystem::NtCreateFile;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
+    CloseHandle, FILETIME, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, SetFileAttributesW, WriteFile,
-    CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY,
-    FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO,
-    OPEN_EXISTING, SYNCHRONIZE,
+    CreateFileW, FileStandardInfo, GetFileInformationByHandleEx, SetFileAttributesW, SetFileTime,
+    WriteFile, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, FILE_STANDARD_INFO, OPEN_EXISTING, SYNCHRONIZE,
 };
 use windows_sys::Win32::System::Ioctl::{FSCTL_SET_COMPRESSION, FSCTL_SET_SPARSE};
 use windows_sys::Win32::System::IO::{DeviceIoControl, IO_STATUS_BLOCK};
+
+/// The access time of an open file (super::set_old_atime), the other times left alone. Set explicitly on the
+/// handle, it also reaches the folder index's copy of the times when the handle closes.
+fn stamp_handle(h: HANDLE) {
+    if let Some(secs) = super::old_atime() {
+        let t = (secs as u64 + 11_644_473_600) * 10_000_000; // 100 ns ticks since 1601
+        let ft = FILETIME {
+            dwLowDateTime: t as u32,
+            dwHighDateTime: (t >> 32) as u32,
+        };
+        unsafe {
+            SetFileTime(h, null(), &ft, null());
+        }
+    }
+}
+
+/// Stamps the file when dropped, i.e. after everything was written to it and before it is closed.
+struct Stamp(HANDLE);
+
+impl Drop for Stamp {
+    fn drop(&mut self) {
+        stamp_handle(self.0);
+    }
+}
 
 /// Directory handle used as the RootDirectory of relative NtCreateFile opens, the Windows counterpart of the
 /// `openat(dir_fd, name)` fast path on Unix: it skips re-resolving (and re-ACL-checking) 8..25 path components
@@ -286,6 +310,7 @@ fn create_inner(
     // Ultra-fast path for 0-byte clean files: a single create + close.
     if dirty_blocks == 0 && logical_size == 0 {
         if let Some(h) = rel_handle {
+            stamp_handle(h);
             unsafe {
                 CloseHandle(h);
             }
@@ -307,6 +332,7 @@ fn create_inner(
             )
         };
         if h != INVALID_HANDLE_VALUE {
+            stamp_handle(h);
             unsafe {
                 CloseHandle(h);
             }
@@ -322,6 +348,7 @@ fn create_inner(
             .truncate(true)
             .open(path)?,
     };
+    let _stamp = Stamp(file.as_raw_handle() as HANDLE); // dropped before `file`
 
     // Preallocated media: a plain (non-sparse) SetEndOfFile makes NTFS allocate every cluster immediately while the
     // valid data length stays 0, so a multi-hundred-GiB file costs a few metadata writes instead of real I/O.

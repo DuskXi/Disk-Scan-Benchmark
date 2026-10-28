@@ -133,6 +133,11 @@ struct Args {
     /// For the timed scans, which run with access-time updates on.
     #[arg(long)]
     reset_atime: bool,
+
+    /// With --reset-atime: set every file back too, not only those whose access time moved. For volumes where the
+    /// listing's copy of a file's times may lag behind the file's own (Windows, while scans update access times).
+    #[arg(long)]
+    reset_atime_all: bool,
 }
 
 /// Ballast plan: the same generator as the benchmark tree (other seed), optionally with every file emptied.
@@ -207,7 +212,11 @@ fn main() -> Result<()> {
     let t0 = Instant::now();
 
     if args.reset_atime {
-        let r = atime::reset_access_times(&args.root, std::time::Duration::from_secs(2 * 86_400));
+        let r = atime::reset_access_times(
+            &args.root,
+            std::time::Duration::from_secs(2 * 86_400),
+            args.reset_atime_all,
+        );
         println!(
             "[fs-mirage] access times of {} entries under {} set two days back in {:.2?} ({} failed, {} files untouched since the last reset)",
             r.set,
@@ -294,6 +303,16 @@ fn main() -> Result<()> {
 
     if args.recount_alloc {
         return recount(&args, &plan);
+    }
+
+    // Timed scans with access-time updates on (the CI sets BENCH_ATIME=daily): files are created with access times two
+    // days back, so the reset before the scans only has to set the folders back
+    if std::env::var("BENCH_ATIME").is_ok_and(|v| v == "daily") {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        materializer::set_old_atime(now - 2 * 86_400);
     }
 
     if args.ballast_files > 0 {

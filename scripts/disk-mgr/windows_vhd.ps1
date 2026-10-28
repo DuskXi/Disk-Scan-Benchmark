@@ -281,14 +281,14 @@ assign letter=$DriveLetter
         }
         New-Item -ItemType Directory -Path "${DriveLetter}:\bench" -Force | Out-Null
 
-        # last-access updates off for clean timings, or on (the daily-use setting) with BENCH_ATIME=daily; NTFS reads
-        # it when a volume is mounted, so every remount of purge-cache applies it
-        $LastAccessOff = if ($env:BENCH_ATIME -eq "daily") { 0 } else { 1 }
+        # last-access updates off while the tree is generated and probed (with BENCH_ATIME=daily its files are created
+        # with old access times, which must stay); run_cli_scanners.py --reset-atime turns them on for the timed scans.
+        # NTFS and ReFS read the setting when a volume is mounted, so the next remount (purge-cache) applies it.
         try {
             & fsutil 8dot3name set "${DriveLetter}:" 1 | Out-Null
-            & fsutil behavior set disablelastaccess $LastAccessOff | Out-Null
+            & fsutil behavior set disablelastaccess 1 | Out-Null
         } catch {}
-        Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (8.3 names off, last-access updates $(if ($LastAccessOff) { 'off' } else { 'on' }))"
+        Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (8.3 names off, last-access updates off)"
     }
 
     "attach" {
@@ -316,8 +316,8 @@ assign letter=$DriveLetter
         }
         $FsName = if ($FsType -eq "btrfs") { "Btrfs" } else { $FsType.ToUpper() }
         Wait-BenchVolume $DriveLetter $FsName
-        $LastAccessOff = if ($env:BENCH_ATIME -eq "daily") { 0 } else { 1 }
-        try { & fsutil behavior set disablelastaccess $LastAccessOff | Out-Null } catch {}
+        # off until the timed scans (see create)
+        try { & fsutil behavior set disablelastaccess 1 | Out-Null } catch {}
         Write-Host "[windows_vhd] $FsName volume from $VhdPath mounted at ${DriveLetter}:\"
     }
 
