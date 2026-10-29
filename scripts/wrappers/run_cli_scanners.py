@@ -997,16 +997,16 @@ def reset_access_times(root: str, os_key: str) -> int:
     return count
 
 
-def reset_access_times_fast(scan_path: str, os_key: str, repo_root: Path, every_file: bool = False) -> None:
+def reset_access_times_fast(scan_path: str, os_key: str, repo_root: Path, modes: Optional[List[str]] = None) -> None:
     """
-    Stale access times before a cold scan: fs-mirage --reset-atime (parallel; folders, and the files whose access time
-    moved, or every file with `every_file`), else reset_access_times. No time limit: on Windows ARM64 a whole mid
-    tree took over an hour, and the Python fallback after a limit took two to three more.
+    Stale access times before a cold scan: fs-mirage --reset-atime (parallel; `modes` are its --atime-* options, by
+    default every folder and the files whose access time moved), else reset_access_times. No time limit: on Windows
+    ARM64 a whole mid tree took over an hour, and the Python fallback after a limit took two to three more.
     """
     exe = repo_root / "target" / "release" / ("fs-mirage.exe" if os_key == "windows" else "fs-mirage")
     t0 = time.perf_counter()
     if exe.exists():
-        cmd = [str(exe), "--root", scan_path, "--reset-atime"] + (["--reset-atime-all"] if every_file else [])
+        cmd = [str(exe), "--root", scan_path, "--reset-atime"] + (modes or [])
         try:
             out = subprocess.run(cmd, capture_output=True, text=True)
             if out.returncode == 0:
@@ -1879,15 +1879,28 @@ def main() -> int:
 
     atime_active: Optional[bool] = None
     fresh_disks = False  # each purge mounts a fresh copy of a volume whose access times are old
+    # the tree's folders, listed by the first reset and read back by the next ones (macOS)
+    atime_dir_list = Path(tempfile.gettempdir()) / f"bench_atime_dirs_{os.getpid()}.txt"
     if args.reset_atime:
-        if os_key == "windows" and os.environ.get("GITHUB_ACTIONS") == "true":
-            # windows_vhd.ps1 keeps last-access updates off while the tree is generated and probed (its files are
-            # created with old access times, fs-mirage reads them back to skip them); on for the timed scans, from the
-            # next mount (the probe's purge) on. A system-wide setting: CI runners only.
+        windows_ci = os_key == "windows" and os.environ.get("GITHUB_ACTIONS") == "true"
+        if windows_ci:
+            # windows_vhd.ps1 keeps last-access updates off while the tree is generated and probed: its files and
+            # folders are created with old access times, and with updates off a listing changes none, so only what
+            # moved is set back (setting every folder took over two hours on a high ReFS tree). Then on for the timed
+            # scans, from the next mount (the probe's purge) on. A system-wide setting: CI runners only.
+            reset_access_times_fast(scan_path, os_key, repo_root, ["--atime-dirs", "moved"])
             subprocess.run(["fsutil", "behavior", "set", "disablelastaccess", "0"], capture_output=True)
         atime_active = probe_access_time_updates(scan_path, os_key, repo_root, args.skip_purge, args.purge_mode)
         if atime_active and os_key == "windows":
-            reset_access_times_fast(scan_path, os_key, repo_root)
+            if windows_ci:
+                # the probe created and removed a folder in the tree's top folder
+                old_ns = time.time_ns() - 2 * 86400 * 10**9
+                try:
+                    os.utime(scan_path, ns=(old_ns, os.stat(scan_path).st_mtime_ns))
+                except OSError:
+                    pass
+            else:
+                reset_access_times_fast(scan_path, os_key, repo_root)
             fresh_disks = freeze_volume(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
         print(
             f"[runner] Access times: this volume {'updates' if atime_active else 'does not update'} them"
@@ -2131,8 +2144,14 @@ def main() -> int:
 
         # 1. Cold Cache Run
         if atime_active and not fresh_disks:
-            # on Windows the listing's copy of a file's times may lag behind the updates the last scan made
-            reset_access_times_fast(scan_path, os_key, repo_root, every_file=os_key == "windows")
+            # Windows: the listing's copy of a file's times may lag behind the updates the last scan made, so every
+            # file. macOS: the scans leave files' access times alone, and reading every file's metadata took 40-60
+            # minutes per scanner on a high tree, so the folders only, from a list made once
+            reset_modes = {
+                "windows": ["--atime-files", "all"],
+                "macos": ["--atime-files", "none", "--atime-dir-list", str(atime_dir_list)],
+            }.get(os_key, [])
+            reset_access_times_fast(scan_path, os_key, repo_root, reset_modes)
         cold_purged = invoke_purge_cache(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
         cold_ms, cold_rss, scanned_bytes, scanned_files, last_zones = execute_once(cold=True)
         accumulated_zones = dict(last_zones)

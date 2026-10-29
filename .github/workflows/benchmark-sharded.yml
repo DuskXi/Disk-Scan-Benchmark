@@ -7,11 +7,12 @@ name: Benchmark Shards (reusable)
 #          scanners are packed into as few shards as fit (scripts/ci/plan_shards.py), and the anchor scanner (dua)
 #          runs in every shard
 #   build  share = true only: builds the disk once and hands it to the shards as a VHDX (ReFS: its image is small,
-#          and generating on ReFS alone takes hours)
+#          and generating on ReFS alone takes hours; Windows ARM64 at mid and high: generating takes over two hours
+#          there with Defender on)
 #   shard  one job per shard: the disk (downloaded, or generated here with the same seed when share = false),
 #          hw-probe, then only this shard's scanners. macOS cannot share: disk images there go through the
 #          user-space diskimagesiod at ~87 files/s, so each shard builds the tree on the native APFS volume again.
-#          Windows ARM64 cannot either: its NTFS image reaches ~70 GB at very-high, more than the runner holds twice
+#          Windows ARM64 cannot from very-high: its NTFS image reaches ~70 GB, more than the runner holds twice
 #   merge  joins the shards into the platform's raw_results.json; runners of the same kind differ (up to 2x on the CI
 #          disks), so each shard's times are scaled by how fast the anchor ran there (scripts/ci/merge_shards.py),
 #          then the usual report and the usual benchmark-results-<label>-<preset> artifact
@@ -152,10 +153,11 @@ jobs:
       - name: Install Rust Toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ inputs.python_arch == 'arm64' && '3.12' || '3.11' }}
+          architecture: ${{ inputs.python_arch }}
 
       - name: Cache Cargo Registry & Build Artifacts
         uses: Swatinem/rust-cache@v2
@@ -191,6 +193,13 @@ jobs:
             --seed "${{ inputs.seed }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
             --manifest-out "handoff/ground_truth.json"
+
+      # Timed scans with access-time updates on: what generation left with fresh access times is set back here once
+      # (last-access updates stay off on this volume until the scans), so no shard has to: setting the folders of a
+      # high ReFS tree took over two hours in every shard
+      - name: Set Access Times Back Once
+        shell: bash
+        run: ./target/release/fs-mirage --root "X:/bench" --reset-atime --atime-dirs moved
 
       - name: Detach The Volume For The Shards
         shell: pwsh

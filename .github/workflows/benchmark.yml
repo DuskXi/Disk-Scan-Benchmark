@@ -911,7 +911,8 @@ jobs:
       fs_label: APFS
       share: false  # disk images on the macOS runners crawl (see benchmark-sharded.yml): every shard generates
       gen_min_per_million: ${{ matrix.gen }}
-      reset_min_per_million: "2"
+      # the folders only, from a list made once: 1.5-4 min per million items at mid with every file checked
+      reset_min_per_million: "3"
       # one warm scan on macOS x64 from high up, as in the benchmark job
       warm_runs: ${{ (matrix.label == 'macos-x86_64' && inputs.preset != 'mid') && '1' || '3' }}
       preset: ${{ inputs.preset }}
@@ -931,9 +932,11 @@ jobs:
             runner: windows-11-arm
             fs: ntfs
             fs_label: NTFS
-            share: false  # its NTFS image (~70 GB at very-high) does not fit twice on the runner
-            gen: "20"  # 15-26 min per million items measured at mid (Defender on)
-            once: "4"  # the folders (files are created with old access times); Defender stays on there
+            # built once and shared at mid and high (generating took 2.4 h per shard at high, Defender stays on
+            # there); from very-high its NTFS image (~70 GB) does not fit twice on the runner, so every shard builds
+            share: false
+            gen: "26"  # 15-26 min per million items measured at mid and high (Defender on)
+            once: "1"  # checking what moved; files and folders are created with old access times
             normalize: true
             python_arch: arm64
           - label: windows-x86_64-refs
@@ -952,7 +955,8 @@ jobs:
       platform: windows
       fs: ${{ matrix.fs }}
       fs_label: ${{ matrix.fs_label }}
-      share: ${{ matrix.share }}
+      share: ${{ matrix.share || (matrix.label == 'windows-arm64' && contains(fromJSON('["mid","high"]'), inputs.preset)) }}
+      build_runner: ${{ matrix.runner }}
       gen_min_per_million: ${{ matrix.gen }}
       reset_min_per_million: "1"  # copying the frozen volume before each scanner (~9 GB per million items)
       reset_once_min_per_million: ${{ matrix.once }}

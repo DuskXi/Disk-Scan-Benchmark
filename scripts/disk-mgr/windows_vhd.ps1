@@ -241,6 +241,10 @@ switch ($Action) {
         $FsName = $FsType.ToUpper()
         Write-Host "[windows_vhd] Creating ${SizeGb}GB Dynamic $FsName VHDX at $VhdPath (Drive ${DriveLetter}:)..."
         Disable-DefenderForBench $DriveLetter $VhdPath
+        # last-access updates off while the tree is generated and probed (with BENCH_ATIME=daily its files and folders
+        # are created with old access times, which must stay); run_cli_scanners.py --reset-atime turns them on for the
+        # timed scans. NTFS and ReFS read the setting when a volume is mounted: set before this one is.
+        try { & fsutil behavior set disablelastaccess 1 | Out-Null } catch {}
 
         if (Test-Path $VhdPath) {
             try {
@@ -281,13 +285,7 @@ assign letter=$DriveLetter
         }
         New-Item -ItemType Directory -Path "${DriveLetter}:\bench" -Force | Out-Null
 
-        # last-access updates off while the tree is generated and probed (with BENCH_ATIME=daily its files are created
-        # with old access times, which must stay); run_cli_scanners.py --reset-atime turns them on for the timed scans.
-        # NTFS and ReFS read the setting when a volume is mounted, so the next remount (purge-cache) applies it.
-        try {
-            & fsutil 8dot3name set "${DriveLetter}:" 1 | Out-Null
-            & fsutil behavior set disablelastaccess 1 | Out-Null
-        } catch {}
+        try { & fsutil 8dot3name set "${DriveLetter}:" 1 | Out-Null } catch {}
         Write-Host "[windows_vhd] Mounted $FsName volume at ${DriveLetter}:\bench (8.3 names off, last-access updates off)"
     }
 
@@ -300,6 +298,8 @@ assign letter=$DriveLetter
         Set-Content -Path (Join-Path $env:TEMP "disk_scanner_bench_${DriveLetter}.fs") -Value $FsType -Encoding ASCII
         Write-Host "[windows_vhd] Attaching $VhdPath ($([math]::Round((Get-Item $VhdPath).Length / 1MB)) MB on disk) at ${DriveLetter}:..."
         Disable-DefenderForBench $DriveLetter $VhdPath
+        # off until the timed scans (see create), before the volume is mounted
+        try { & fsutil behavior set disablelastaccess 1 | Out-Null } catch {}
         if ($HasHyperVCmdlets) {
             Mount-VHD -Path $VhdPath | Out-Null
         } else {
@@ -316,8 +316,6 @@ assign letter=$DriveLetter
         }
         $FsName = if ($FsType -eq "btrfs") { "Btrfs" } else { $FsType.ToUpper() }
         Wait-BenchVolume $DriveLetter $FsName
-        # off until the timed scans (see create)
-        try { & fsutil behavior set disablelastaccess 1 | Out-Null } catch {}
         Write-Host "[windows_vhd] $FsName volume from $VhdPath mounted at ${DriveLetter}:\"
     }
 

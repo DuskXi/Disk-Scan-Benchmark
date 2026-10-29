@@ -129,15 +129,23 @@ struct Args {
     ballast_empty: bool,
 
     /// Set access times under --root two days back (modification times kept) and exit, without generating anything:
-    /// every folder, and every file whose access time moved since the last reset (Linux, macOS; Windows: every file).
-    /// For the timed scans, which run with access-time updates on.
+    /// the folders and files --atime-dirs and --atime-files select. For the timed scans, which run with access-time
+    /// updates on.
     #[arg(long)]
     reset_atime: bool,
 
-    /// With --reset-atime: set every file back too, not only those whose access time moved. For volumes where the
-    /// listing's copy of a file's times may lag behind the file's own (Windows, while scans update access times).
+    /// With --reset-atime: which files to set back (moved: those whose access time moved since the last reset)
+    #[arg(long, value_enum, default_value = "moved")]
+    atime_files: atime::Files,
+
+    /// With --reset-atime: which folders to set back (moved: only right while last-access updates are off)
+    #[arg(long, value_enum, default_value = "all")]
+    atime_dirs: atime::Dirs,
+
+    /// With --reset-atime --atime-files none: the folders are read from this file when it exists, instead of walking
+    /// the tree, and saved there when it does not (the tree does not change between the scans)
     #[arg(long)]
-    reset_atime_all: bool,
+    atime_dir_list: Option<PathBuf>,
 }
 
 /// Ballast plan: the same generator as the benchmark tree (other seed), optionally with every file emptied.
@@ -215,10 +223,12 @@ fn main() -> Result<()> {
         let r = atime::reset_access_times(
             &args.root,
             std::time::Duration::from_secs(2 * 86_400),
-            args.reset_atime_all,
+            args.atime_files,
+            args.atime_dirs,
+            args.atime_dir_list.as_deref(),
         );
         println!(
-            "[fs-mirage] access times of {} entries under {} set two days back in {:.2?} ({} failed, {} files untouched since the last reset)",
+            "[fs-mirage] access times of {} entries under {} set two days back in {:.2?} ({} failed, {} entries untouched since the last reset)",
             r.set,
             args.root.display(),
             t0.elapsed(),

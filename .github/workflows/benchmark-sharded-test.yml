@@ -66,8 +66,8 @@ jobs:
             runner: windows-11-arm
             fs: ntfs
             fs_label: NTFS
-            share: false
-            gen: "16.4"
+            share: true  # as at mid and high: built once on an ARM64 runner, handed to the shards
+            gen: "26"
             python_arch: arm64
           - label: windows-x86_64-refs
             runner: windows-latest
@@ -84,6 +84,7 @@ jobs:
       fs: ${{ matrix.fs }}
       fs_label: ${{ matrix.fs_label }}
       share: ${{ matrix.share }}
+      build_runner: ${{ matrix.runner }}
       gen_min_per_million: ${{ matrix.gen }}
       min_shards: ${{ inputs.min_shards }}
       normalize: true  # no NTFS+ReFS audit job here
