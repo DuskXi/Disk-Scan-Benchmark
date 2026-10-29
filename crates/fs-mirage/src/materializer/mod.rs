@@ -18,8 +18,9 @@ mod windows;
 static OLD_ATIME: AtomicI64 = AtomicI64::new(0);
 
 /// For the timed scans with access-time updates on (BENCH_ATIME=daily): every file is created with this access time,
-/// set on its still open handle (no extra open per file), and every folder right after it is created, so setting the
-/// tree's access times back before the scans has little or nothing left to do (atime.rs skips what is old already).
+/// set on its still open handle (no extra open per file), so setting the tree's access times back before the scans only
+/// has the folders left to do (atime.rs skips what is old already). Not the folders: creating their contents moves
+/// their access times again, even with last-access updates off (measured on NTFS and ReFS).
 pub fn set_old_atime(unix_secs: i64) {
     OLD_ATIME.store(unix_secs, Ordering::Relaxed);
 }
@@ -141,20 +142,12 @@ fn add_zone_alloc(zone_alloc: &Mutex<HashMap<String, u64>>, rel_path: &str, byte
 
 fn create_dir_one(root: &Path, rel_dir: &str) -> Result<()> {
     let full_dir = to_os_path(root, rel_dir);
-    let r = match fs::create_dir(&full_dir) {
+    match fs::create_dir(&full_dir) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(()),
         Err(_) => fs::create_dir_all(&full_dir)
             .with_context(|| format!("Failed to create directory: {}", full_dir.display())),
-    };
-    if let (Ok(()), Some(secs)) = (&r, old_atime()) {
-        // like the files (set_old_atime): with last-access updates off, creating its contents leaves it alone
-        crate::atime::set_accessed(
-            &full_dir,
-            std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64),
-        );
     }
-    r
 }
 
 /// Pins the file entries' lifetime of the batch closure to the plan (they end up in the hard-link map).

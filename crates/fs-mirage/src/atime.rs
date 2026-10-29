@@ -2,8 +2,8 @@
 //!
 //! Every cold scan must meet access times two days old on every file and folder, so every daily-use policy (Linux
 //! relatime: older than a day; Windows: more than an hour off) updates whatever the scan touches, and no scanner
-//! inherits fresh access times from the one before it. Files and folders are created with old access times
-//! (materializer::set_old_atime). On Windows the CI checks them once while last-access updates are still off (a
+//! inherits fresh access times from the one before it. Files are created with old access times
+//! (materializer::set_old_atime). On Windows the CI sets the rest back once while last-access updates are still off (a
 //! listing then changes nothing, so only what moved is set) and gives each scanner a fresh copy of that volume
 //! (scripts/disk-mgr/windows_vhd.ps1 freeze). On Linux and macOS this runs before every cold scan: the scans there
 //! update the folders they list, while reading a file's metadata leaves its access time alone.
