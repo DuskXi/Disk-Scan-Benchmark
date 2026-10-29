@@ -149,7 +149,8 @@ function Wait-BenchVolume([string]$Letter, [string]$FileSystem) {
         if (Test-Path "${Letter}:\") {
             if (-not $FileSystem -or ((fsutil fsinfo volumeinfo "${Letter}:" | Out-String) -match $FileSystem)) { return }
         }
-        if (($i -eq 10 -or $i -eq 30) -and $FileSystem) {
+        # (not for NTFS: the runner's own volumes are NTFS too)
+        if (($i -eq 10 -or $i -eq 30) -and $FileSystem -and $FileSystem -ne "NTFS") {
             # The letter can stay on the partition's old (raw) volume while the filesystem driver mounts its own volume
             # device: take the letter off the old one and give it to the volume that has the filesystem
             $vol = Get-CimInstance Win32_Volume -Filter "FileSystem='$FileSystem'" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -192,6 +193,20 @@ function Purge-HostCache([string]$Path) {
     } catch {}
 }
 
+function Set-BenchLetter($Disk, [string]$Letter, [string]$What) {
+    # The mount manager gives a volume its letter back on the runner that made it; a disk image attached on another
+    # runner can come up without one. Its own partition gets the letter then (never "the first NTFS volume": the
+    # runner has several, its recovery partition among them)
+    for ($i = 0; $i -lt 10 -and -not (Test-Path "${Letter}:\"); $i++) { Start-Sleep -Seconds 1 }
+    if (-not (Test-Path "${Letter}:\")) {
+        $part = Get-Partition -DiskNumber $Disk.Number | Where-Object { $_.Type -eq "Basic" } | Sort-Object Size -Descending | Select-Object -First 1
+        if ($part) {
+            $part | Set-Partition -NewDriveLetter $Letter
+            Write-Host "[windows_vhd] gave ${Letter}: to the volume of $What"
+        }
+    }
+}
+
 function Mount-FreshCopy([string]$Letter, [string]$Master) {
     # A new byte-for-byte copy of the frozen volume (unbuffered, robocopy /J), so a scan reads and writes the same
     # blocks as on the volume itself, and the next purge-cache throws the copy away. (A differencing disk is quicker to
@@ -218,16 +233,8 @@ function Mount-FreshCopy([string]$Letter, [string]$Master) {
     if (-not $disk) { throw "no disk found for $Work after mounting it" }
     if ($disk.IsOffline) { Set-Disk -Number $disk.Number -IsOffline $false }
     if ($disk.IsReadOnly) { Set-Disk -Number $disk.Number -IsReadOnly $false }
-    # the mount manager gives the letter back to the same partition (the copy has the volume's partition GUID); if it
-    # does not, the volume gets it here
-    for ($i = 0; $i -lt 10 -and -not (Test-Path "${Letter}:\"); $i++) { Start-Sleep -Seconds 1 }
-    if (-not (Test-Path "${Letter}:\")) {
-        $part = Get-Partition -DiskNumber $disk.Number | Where-Object { $_.Type -eq "Basic" } | Select-Object -First 1
-        if ($part) {
-            $part | Set-Partition -NewDriveLetter $Letter
-            Write-Host "[windows_vhd] gave ${Letter}: to the volume of the copy"
-        }
-    }
+    # the copy has the volume's partition GUID, so the mount manager normally gives the letter back
+    Set-BenchLetter $disk $Letter "the copy"
     $FsState = Join-Path $env:TEMP "disk_scanner_bench_${Letter}.fs"
     $Fs = if (Test-Path $FsState) { (Get-Content $FsState -Raw).Trim() } else { "" }
     Wait-BenchVolume $Letter $(if ($Fs -eq "btrfs") { "Btrfs" } else { "" })
@@ -311,6 +318,8 @@ assign letter=$DriveLetter
             if ($disk.IsReadOnly) { Set-Disk -Number $disk.Number -IsReadOnly $false }
             Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue |
                 Format-Table DiskNumber, PartitionNumber, DriveLetter, Size, Type, GptType -AutoSize | Out-String | Write-Host
+            # WinBtrfs mounts its own volume device: Wait-BenchVolume finds that one
+            if ($FsType -ne "btrfs") { Set-BenchLetter $disk $DriveLetter $VhdPath }
         } else {
             Write-Warning "[windows_vhd] no disk found for $VhdPath after attaching"
         }
