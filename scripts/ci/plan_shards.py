@@ -100,12 +100,18 @@ def plan(
     room = max(budget_s - anchor_s, budget_s * 0.25)
     n = max(1, min(max_shards, math.ceil(total / room)))
     n = min(max(n, min_shards), max(1, len(rest)))  # at least min_shards (testing), never an empty shard
-    shards: List[List[str]] = [[] for _ in range(n)]
-    load = [0.0] * n
-    for sid in rest:
-        i = load.index(min(load))
-        shards[i].append(sid)
-        load[i] += est[sid]
+    while True:
+        shards: List[List[str]] = [[] for _ in range(n)]
+        load = [0.0] * n
+        for sid in rest:
+            i = load.index(min(load))
+            shards[i].append(sid)
+            load[i] += est[sid]
+        # the count above is what the total needs; packed, one shard can still come out over the budget (Windows ARM64
+        # high: 166 min against 156), so split once more while it helps
+        if max(load) <= room or n >= min(max_shards, len(rest)):
+            break
+        n += 1
     if anchor in scanners:
         for sh in shards:
             sh.insert(0, anchor)
