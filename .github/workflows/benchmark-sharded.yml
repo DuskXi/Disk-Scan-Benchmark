@@ -67,6 +67,16 @@ on:
         required: false
         default: "3"
         type: string
+      safety:
+        description: "Factor on the time estimates of the plan"
+        required: false
+        default: "1.5"
+        type: string
+      max_shards:
+        description: "Split into at most this many shards"
+        required: false
+        default: "8"
+        type: string
       min_shards:
         description: "Split into at least this many shards (to test the sharded path on a small preset)"
         required: false
@@ -135,7 +145,7 @@ jobs:
             --preset "${{ inputs.preset }}" \
             --warm-runs "${{ inputs.warm_runs }}" \
             --gen-min-per-million "${{ inputs.share && '0' || inputs.gen_min_per_million }}" \
-            --max-shards 8 \
+            --max-shards "${{ inputs.max_shards }}"             --safety "${{ inputs.safety }}" \
             --reset-min-per-million "${{ inputs.reset_min_per_million }}" \
             --reset-once-min-per-million "${{ inputs.reset_once_min_per_million }}" \
             --min-shards "${{ inputs.min_shards }}" \

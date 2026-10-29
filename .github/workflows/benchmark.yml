@@ -289,6 +289,13 @@ jobs:
           if [ "${{ matrix.target_label == 'macos-x86_64' && contains(fromJSON('["high","very-high","before-death"]'), inputs.preset) }}" = "true" ]; then
             WARM_RUNS=1
           fi
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            # Out of memory, the kernel may pick the runner's own processes: the job then ends as "lost communication"
+            # with no log (Linux x86_64 ZFS at high, twice). Keep them out of its reach and offer the scanners first:
+            # a scanner that runs out of memory fails on its own, the job and its log stay
+            for p in $(pgrep -f 'Runner\.(Listener|Worker)'); do echo -1000 | sudo tee "/proc/$p/oom_score_adj" >/dev/null; done
+            echo 500 > "/proc/$$/oom_score_adj" || true
+          fi
           python ./scripts/wrappers/run_cli_scanners.py \
             --path "${{ matrix.mount_path }}" \
             --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
@@ -936,7 +943,9 @@ jobs:
             # there); from very-high its NTFS image (~70 GB) does not fit twice on the runner, so every shard builds
             share: false
             gen: "26"  # 15-26 min per million items measured at mid and high (Defender on)
-            once: "1"  # checking what moved; files and folders are created with old access times
+            once: "1"  # checking what moved; files are created with old access times
+            max_shards: "8"
+            safety: "1.5"
             normalize: true
             python_arch: arm64
           - label: windows-x86_64-refs
@@ -946,6 +955,11 @@ jobs:
             share: true
             gen: "0"
             once: "1"
+            # one scanner per shard if need be: at high the anchor alone took 35-130 min there (runners differ 2.5x
+            # on ReFS), and a shard of three scanners ran past the job limit. Scaled up from mid, the estimates came
+            # out 1.7-2.8x too low there (warm scans of a high ReFS tree are partly cold)
+            max_shards: "12"
+            safety: "2.5"
             normalize: false  # windows-summary writes it, after the NTFS vs ReFS audit
             python_arch: ""
     uses: ./.github/workflows/benchmark-sharded.yml
@@ -960,6 +974,8 @@ jobs:
       gen_min_per_million: ${{ matrix.gen }}
       reset_min_per_million: "1"  # copying the frozen volume before each scanner (~9 GB per million items)
       reset_once_min_per_million: ${{ matrix.once }}
+      max_shards: ${{ matrix.max_shards }}
+      safety: ${{ matrix.safety }}
       normalize: ${{ matrix.normalize }}
       python_arch: ${{ matrix.python_arch }}
       preset: ${{ inputs.preset }}
