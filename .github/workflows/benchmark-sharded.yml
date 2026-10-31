@@ -67,6 +67,11 @@ on:
         required: false
         default: "3"
         type: string
+      freeze_compress:
+        description: "Windows: keep the frozen volume NTFS-compressed even when a copy fits beside it (to test that path)"
+        required: false
+        default: false
+        type: boolean
       safety:
         description: "Factor on the time estimates of the plan"
         required: false
@@ -234,6 +239,7 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       OUT: shard-out/${{ inputs.label }}-shard-${{ matrix.shard }}
+      BENCH_FREEZE_COMPRESS: ${{ inputs.freeze_compress && '1' || '' }}
       MOUNT: ${{ inputs.platform == 'macos' && '/tmp/BenchVol' || 'X:/bench' }}
     steps:
       - name: Checkout Repository

@@ -220,7 +220,9 @@ function Mount-FreshCopy([string]$Letter, [string]$Master) {
     }
     New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    & robocopy (Split-Path -Parent $Master) $WorkDir (Split-Path -Leaf $Master) /J /R:1 /W:1 /NJH /NJS /NP /NFL /NDL | Out-Null
+    # a compressed master (freeze) cannot be read unbuffered: buffered then (the copy's pages leave the cache below)
+    $Unbuffered = if ((Get-Item $Master).Attributes -band [System.IO.FileAttributes]::Compressed) { @() } else { @("/J") }
+    & robocopy (Split-Path -Parent $Master) $WorkDir (Split-Path -Leaf $Master) @Unbuffered /R:1 /W:1 /NJH /NJS /NP /NFL /NDL | Out-Null
     $rc = $LASTEXITCODE
     $global:LASTEXITCODE = 0
     if ($rc -ge 8 -or -not (Test-Path $Work)) { throw "copying $Master failed (robocopy exit $rc)" }
@@ -358,15 +360,30 @@ assign letter=$DriveLetter
         if (-not $HasHyperVCmdlets) { throw "freeze needs the Hyper-V cmdlets (Mount-VHD)" }
         if (Test-Path (Get-MasterState $DriveLetter)) { throw "${DriveLetter}: is frozen already" }
         $Size = (Get-Item $Base).Length
-        $Free = (Get-PSDrive -Name (Split-Path -Qualifier $Base).TrimEnd(":")).Free
-        if ($Free -lt $Size + 10GB) {
-            Write-Warning ("[windows_vhd] not freezing ${DriveLetter}: a copy of the {0:N1} GB volume needs more than the {1:N1} GB free" -f ($Size / 1GB), ($Free / 1GB))
-            exit 1
-        }
+        $Drive = (Split-Path -Qualifier $Base).TrimEnd(":")
+        $Free = (Get-PSDrive -Name $Drive).Free
         if (Get-Command Write-VolumeCache -ErrorAction SilentlyContinue) {
             Write-VolumeCache -DriveLetter $DriveLetter -ErrorAction SilentlyContinue
         }
         Dismount-VHD -Path $Base
+        if ($Free -lt $Size + 10GB -or $env:BENCH_FREEZE_COMPRESS -eq "1") {
+            # No room for a copy beside the volume (Windows ARM64 from very-high: ~70 GB on a runner with ~117 GB
+            # free): the kept volume is NTFS-compressed. Most of it is 1 MB image blocks holding a few KB each, so it
+            # shrinks to a fraction; every copy is written out uncompressed, the scans see a plain image as before.
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            & compact.exe /c /q /i "$Base" | Out-Null
+            $global:LASTEXITCODE = 0
+            $Free = (Get-PSDrive -Name $Drive).Free
+            Write-Host ("[windows_vhd] compressed the kept volume in {0:N0} s: {1:N1} GB free now beside it" -f $sw.Elapsed.TotalSeconds, ($Free / 1GB))
+        }
+        if ($Free -lt $Size + 10GB) {
+            Write-Warning ("[windows_vhd] not freezing ${DriveLetter}: a copy of the {0:N1} GB volume needs more than the {1:N1} GB free" -f ($Size / 1GB), ($Free / 1GB))
+            & compact.exe /u /q /i "$Base" | Out-Null
+            $global:LASTEXITCODE = 0
+            Mount-VHD -Path $Base | Out-Null
+            Wait-BenchVolume $DriveLetter ""
+            exit 1
+        }
         try {
             Mount-FreshCopy $DriveLetter $Base
         } catch {

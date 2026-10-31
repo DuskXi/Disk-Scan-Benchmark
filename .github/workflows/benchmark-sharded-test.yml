@@ -66,7 +66,8 @@ jobs:
             runner: windows-11-arm
             fs: ntfs
             fs_label: NTFS
-            share: true  # as at mid and high: built once on an ARM64 runner, handed to the shards
+            share: true  # built once on an ARM64 runner, handed to the shards
+            compress: true  # as from very-high: the kept volume NTFS-compressed (no room for a copy beside it there)
             gen: "26"
             python_arch: arm64
           - label: windows-x86_64-refs
@@ -74,6 +75,7 @@ jobs:
             fs: refs
             fs_label: ReFS
             share: true
+            compress: false
             gen: "0"
             python_arch: ""
     uses: ./.github/workflows/benchmark-sharded.yml
@@ -84,6 +86,7 @@ jobs:
       fs: ${{ matrix.fs }}
       fs_label: ${{ matrix.fs_label }}
       share: ${{ matrix.share }}
+      freeze_compress: ${{ matrix.compress }}
       build_runner: ${{ matrix.runner }}
       gen_min_per_million: ${{ matrix.gen }}
       min_shards: ${{ inputs.min_shards }}

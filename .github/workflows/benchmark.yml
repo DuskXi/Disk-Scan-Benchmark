@@ -412,6 +412,8 @@ jobs:
 
   benchmark-ntfs:
     name: "Bench (windows-x86_64 | ${{ inputs.preset }})"
+    # very-high and up: sharded-windows (172 min in one job at high)
+    if: ${{ !contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
     runs-on: windows-latest
     env:
       LABEL: windows-x86_64
@@ -905,10 +907,10 @@ jobs:
         include:
           - label: macos-x86_64
             runner: macos-15-intel
-            gen: "11.6"
+            gen: "13"  # 10-13 min per million items measured at high
           - label: macos-arm64
             runner: macos-15
-            gen: "5.7"
+            gen: "12"
     uses: ./.github/workflows/benchmark-sharded.yml
     with:
       label: ${{ matrix.label }}
@@ -918,50 +920,44 @@ jobs:
       fs_label: APFS
       share: false  # disk images on the macOS runners crawl (see benchmark-sharded.yml): every shard generates
       gen_min_per_million: ${{ matrix.gen }}
-      # the folders only, from a list made once: 1.5-4 min per million items at mid with every file checked
+      # the folders only, from a list made once; the first reset of a shard lists the tree
       reset_min_per_million: "3"
-      # one warm scan on macOS x64 from high up, as in the benchmark job
-      warm_runs: ${{ (matrix.label == 'macos-x86_64' && inputs.preset != 'mid') && '1' || '3' }}
+      reset_once_min_per_million: "3"
+      # one scanner per shard at very-high: generating the tree takes ~2 h in every shard there (disk images on the
+      # macOS runners crawl, nothing can be handed over), so a shard holds the anchor and one scanner at most
+      max_shards: "10"
+      # one warm scan on macOS x64 from high up (as in the benchmark job) and on macOS ARM64 from very-high up: their
+      # warm scans of a big tree are nearly as slow as cold ones (ncdu on ARM64 at high: 42 min cold, 25-29 min warm)
+      warm_runs: ${{ ((matrix.label == 'macos-x86_64' && inputs.preset != 'mid') || contains(fromJSON('["very-high","before-death"]'), inputs.preset)) && '1' || '3' }}
       preset: ${{ inputs.preset }}
       disk_size_gb: ${{ inputs.disk_size_gb }}
       max_physical_mb: ${{ inputs.max_physical_mb }}
       seed: ${{ inputs.seed }}
       aging: ${{ inputs.aging }}
 
+  # The Windows platforms run in shards for this preset, and how (scripts/ci/windows_shards.py says which and why)
+  windows-shards:
+    name: "Windows Shards (${{ inputs.preset }})"
+    if: ${{ contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
+    runs-on: ubuntu-24.04
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Pick The Platforms
+        id: pick
+        shell: bash
+        run: python3 ./scripts/ci/windows_shards.py "${{ inputs.preset }}" | tee -a "$GITHUB_OUTPUT"
+
   sharded-windows:
     name: "Sharded ${{ matrix.label }}"
-    if: ${{ contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
+    needs: windows-shards
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: windows-arm64
-            runner: windows-11-arm
-            fs: ntfs
-            fs_label: NTFS
-            # built once and shared at mid and high (generating took 2.4 h per shard at high, Defender stays on
-            # there); from very-high its NTFS image (~70 GB) does not fit twice on the runner, so every shard builds
-            share: false
-            gen: "26"  # 15-26 min per million items measured at mid and high (Defender on)
-            once: "1"  # checking what moved; files are created with old access times
-            max_shards: "8"
-            safety: "1.5"
-            normalize: true
-            python_arch: arm64
-          - label: windows-x86_64-refs
-            runner: windows-latest
-            fs: refs
-            fs_label: ReFS
-            share: true
-            gen: "0"
-            once: "1"
-            # one scanner per shard if need be: at high the anchor alone took 35-130 min there (runners differ 2.5x
-            # on ReFS), and a shard of three scanners ran past the job limit. Scaled up from mid, the estimates came
-            # out 1.7-2.8x too low there (warm scans of a high ReFS tree are partly cold)
-            max_shards: "12"
-            safety: "2.5"
-            normalize: false  # windows-summary writes it, after the NTFS vs ReFS audit
-            python_arch: ""
+        include: ${{ fromJSON(needs.windows-shards.outputs.include) }}
     uses: ./.github/workflows/benchmark-sharded.yml
     with:
       label: ${{ matrix.label }}
@@ -969,7 +965,7 @@ jobs:
       platform: windows
       fs: ${{ matrix.fs }}
       fs_label: ${{ matrix.fs_label }}
-      share: ${{ matrix.share || (matrix.label == 'windows-arm64' && contains(fromJSON('["mid","high"]'), inputs.preset)) }}
+      share: ${{ matrix.share }}
       build_runner: ${{ matrix.runner }}
       gen_min_per_million: ${{ matrix.gen }}
       reset_min_per_million: "1"  # copying the frozen volume before each scanner (~9 GB per million items)
@@ -1020,6 +1016,9 @@ jobs:
               --ntfs-results "$N/raw_results.json" \
               --refs-results "$R/raw_results.json" \
               --md-out "$N/refs_audit.md"
+          elif [ "${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}" = "true" ]; then
+            echo "> [!NOTE]
+          > ReFS is not run from very-high up (its tree and its scans outgrow 6-hour jobs there): no NTFS vs ReFS cross-check." > "$N/refs_audit.md"
           else
             echo "> [!WARNING]
           > ReFS run produced no results; NTFS vs ReFS cross-check skipped." > "$N/refs_audit.md"

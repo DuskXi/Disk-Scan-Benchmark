@@ -49,6 +49,16 @@ CORE_PLATFORMS = [
     "windows-x86_64-refs",
     "windows-arm64",
 ]
+# ReFS is not run from very-high up (scripts/ci/windows_shards.py): generating its tree and one shard of its scans each
+# outgrow a 6-hour job there
+NO_REFS_PRESETS = ("very-high", "before-death")
+
+
+def core_platforms(preset: str) -> List[str]:
+    base = preset.split(" ")[0]  # "high · Defender on" -> "high"
+    return [lbl for lbl in CORE_PLATFORMS if not (lbl == "windows-x86_64-refs" and base in NO_REFS_PRESETS)]
+
+
 OS_NAMES = {"linux": "Linux", "macos": "macOS", "windows": "Win"}
 OS_ORDER = {"linux": 0, "macos": 1, "windows": 2}
 DEFAULT_FS = {"linux": "ext4", "macos": "apfs", "windows": "ntfs"}
@@ -253,7 +263,7 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
     # The RAM-disk pass is not a real disk and stays out of the ranking
     labels = sorted((lbl for lbl in dirs if not lbl.endswith("-ramdisk")), key=platform_sort_key)
     only_mft = bool(labels) and all(parse_label(lbl)[2] == "mft" for lbl in labels)
-    missing = [] if only_mft else [lbl for lbl in CORE_PLATFORMS if lbl not in dirs]
+    missing = [] if only_mft else [lbl for lbl in core_platforms(preset) if lbl not in dirs]
 
     per_platform: Dict[str, Dict[str, Dict[str, Any]]] = {}
     platform_info: Dict[str, Dict[str, Any]] = {}
@@ -743,6 +753,12 @@ def render_run_summary(p: Dict[str, Any], title_preset: str) -> str:
             )
         warning.append("> 缺少核心平台的运行只出现在这份运行总结里，不会发布到 README 榜单。")
         lines += ["\n".join(warning), ""]
+    if "windows-x86_64-refs" not in core_platforms(p.get("preset") or "") and "windows-x86_64" in p["platforms"]:
+        lines += [
+            "> [!NOTE]\n> 从 `very-high` 起不测 ReFS（生成测试树和扫描都超出 6 小时的作业时限），"
+            "Win x64 NTFS 的成绩没有 NTFS/ReFS 交叉核查。",
+            "",
+        ]
     lines += render_overall_table(p) + [""] + render_kings(p)
     lines += ["", "### 各平台名次（冷扫 / 热扫 秒）", ""] + render_matrix(p)
     lines += ["", "### 平台概况", ""] + render_platforms(p)
