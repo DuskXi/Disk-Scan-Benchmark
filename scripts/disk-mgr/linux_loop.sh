@@ -133,6 +133,14 @@ case "$CMD" in
         MOUNT_PATH="${STATE_MOUNT:-$MOUNT_PATH}"
         echo "[linux_loop] Purging caches of the ${FS} volume at ${MOUNT_PATH}..."
         sync
+        # Copy-on-write filesystems write every change (access-time updates too) to new blocks; without a trim the
+        # freed ones stay allocated in the sparse image, which grew until the runner's disk was full (ZFS at high:
+        # the scan hung, the runner lost its log). Trimmed here, between the timed runs: the image keeps holes
+        case "$FS" in
+            zfs) sudo zpool trim -w "$POOL" 2>/dev/null || true ;;
+            btrfs) sudo fstrim "$MOUNT_PATH" 2>/dev/null || true ;;
+        esac
+        echo "[linux_loop] image ${IMG_PATH}: $(du -BG "$IMG_PATH" 2>/dev/null | cut -f1) allocated, $(df -BG --output=avail "$(dirname "$IMG_PATH")" 2>/dev/null | tail -1 | tr -d ' ') free beside it"
         unmount_fs "$FS" "$MOUNT_PATH"
         echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
         if [[ -n "$LOOP_DEV" && -b "$LOOP_DEV" ]]; then
