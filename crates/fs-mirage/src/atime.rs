@@ -42,10 +42,32 @@ pub struct Reset {
     pub unchanged: usize,
 }
 
+/// Threads for a reset (FSM_RESET_THREADS overrides): the listing and every set wait on the disk for metadata, not on
+/// the CPU. With one thread per core (3 on the macOS runners) a high tree took 28-60 min per reset there.
+const RESET_THREADS: usize = 64;
+
 /// Sets access times under `root` (symlinks skipped, modification times kept) to `age` ago: the folders and files
 /// `dirs` and `files` select. With `dir_list` (only with `Files::None` and `Dirs::All`) the folders are read from that
 /// file when it exists instead of walking the tree, and saved there when it does not.
 pub fn reset_access_times(
+    root: &Path,
+    age: Duration,
+    files: Files,
+    dirs: Dirs,
+    dir_list: Option<&Path>,
+) -> Reset {
+    let threads = std::env::var("FSM_RESET_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n: &usize| n > 0)
+        .unwrap_or(RESET_THREADS);
+    match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
+        Ok(pool) => pool.install(|| reset_inner(root, age, files, dirs, dir_list)),
+        Err(_) => reset_inner(root, age, files, dirs, dir_list),
+    }
+}
+
+fn reset_inner(
     root: &Path,
     age: Duration,
     files: Files,
