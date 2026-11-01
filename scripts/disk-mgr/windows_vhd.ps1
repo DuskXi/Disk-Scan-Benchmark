@@ -227,8 +227,10 @@ function Mount-FreshCopy([string]$Letter, [string]$Master) {
     if ($Packed) { $Leaf = $Leaf.Substring(0, $Leaf.Length - 4) }
     $Work = Join-Path $WorkDir $Leaf
     if (Test-Path $Work) {
+        $Removal = [System.Diagnostics.Stopwatch]::StartNew()
         Dismount-VHD -Path $Work -ErrorAction SilentlyContinue
         Remove-Item -Path $Work -Force
+        Write-Host ("[windows_vhd] removed the scanned copy in {0:N0} s" -f $Removal.Elapsed.TotalSeconds)
     }
     New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -479,6 +481,7 @@ assign letter=$DriveLetter
             Write-VolumeCache -DriveLetter $DriveLetter -ErrorAction SilentlyContinue
         }
 
+        $Dismount = [System.Diagnostics.Stopwatch]::StartNew()
         if ($HasHyperVCmdlets) {
             Dismount-VHD -Path $VhdPath
         } else {
@@ -490,6 +493,9 @@ detach vdisk
         }
 
         if ($Master) {
+            # (Windows ARM64 at very-high: 10-23 min passed between dismounting a scanned copy and unpacking the next,
+            # against under a minute on x64 and before the first scanner; timed apart to tell which step takes it)
+            Write-Host ("[windows_vhd] dismounted the scanned copy in {0:N0} s" -f $Dismount.Elapsed.TotalSeconds)
             Mount-FreshCopy $DriveLetter $Master  # (its pages leave the host's RAM there)
             Write-Host "[windows_vhd] Cold cache state restored for ${DriveLetter}:\ (fresh copy)"
             exit 0
