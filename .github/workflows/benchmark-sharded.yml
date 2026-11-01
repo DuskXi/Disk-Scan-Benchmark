@@ -1,18 +1,20 @@
 name: Benchmark Shards (reusable)
 
 # One platform's scanners split over several jobs, for the presets whose scans do not fit in one 6-hour job
-# (called from benchmark.yml from mid up for macOS, Windows ARM64 and ReFS).
+# (called from benchmark.yml from mid up for macOS and Windows ARM64, ReFS at mid and high, Windows x64 NTFS from
+# very-high up).
 #
 #   plan   picks the shards: every scanner's time is estimated from the published results of this platform, the
 #          scanners are packed into as few shards as fit (scripts/ci/plan_shards.py), and the anchor scanner (dua)
 #          runs in every shard
-#   build  share = true only: builds the disk once and hands it to the shards as a VHDX (ReFS: its image is small,
-#          and generating on ReFS alone takes hours; Windows ARM64 at mid and high: generating takes over two hours
-#          there with Defender on)
+#   build  share = true only (Windows): builds the disk once on build_runner and hands it to the shards as a VHDX,
+#          so every shard scans the same image (ReFS: generating on ReFS alone takes hours; Windows ARM64: built on x64,
+#          generating there with Defender on took 5 h at very-high)
 #   shard  one job per shard: the disk (downloaded, or generated here with the same seed when share = false),
 #          hw-probe, then only this shard's scanners. macOS cannot share: disk images there go through the
 #          user-space diskimagesiod at ~87 files/s, so each shard builds the tree on the native APFS volume again.
-#          Windows ARM64 cannot from very-high: its NTFS image reaches ~70 GB, more than the runner holds twice
+#          A very-high NTFS image (~70 GB) does not fit twice on a runner: the shard keeps it zstd-packed and unpacks
+#          a fresh copy before each scanner (scripts/disk-mgr/windows_vhd.ps1 freeze)
 #   merge  joins the shards into the platform's raw_results.json; runners of the same kind differ (up to 2x on the CI
 #          disks), so each shard's times are scaled by how fast the anchor ran there (scripts/ci/merge_shards.py),
 #          then the usual report and the usual benchmark-results-<label>-<preset> artifact

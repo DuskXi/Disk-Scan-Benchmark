@@ -972,6 +972,7 @@ jobs:
       reset_once_min_per_million: ${{ matrix.once }}
       max_shards: ${{ matrix.max_shards }}
       safety: ${{ matrix.safety }}
+      warm_runs: ${{ matrix.warm }}
       normalize: ${{ matrix.normalize }}
       python_arch: ${{ matrix.python_arch }}
       preset: ${{ inputs.preset }}

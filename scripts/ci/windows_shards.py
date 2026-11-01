@@ -11,9 +11,10 @@ Print the Windows platforms run in shards (benchmark-sharded.yml) for a preset, 
                      and one shard of dua and one scanner took 4-5 h, so neither fits in a 6-hour job at very-high.
                      NTFS x64 took 172 min in one job at high, too close to the limit at very-high.
 
-Every value is a benchmark-sharded.yml input; "share" builds the volume once (on build_runner) and hands it to the
-shards. NTFS images are built on Windows x64 for both architectures: on the ARM64 runners Defender's real-time scanning
-stays on (tamper protection), and generating a very-high tree there took 5 h, against 31-47 min on x64.
+Every value is a benchmark-sharded.yml input ("warm" is warm_runs); "share" builds the volume once (on build_runner)
+and hands it to the shards. NTFS images are built on Windows x64 for both architectures: on the ARM64 runners
+Defender's real-time scanning stays on (tamper protection), and generating a very-high tree there took 5 h, against
+31-47 min on x64.
 """
 
 import json
@@ -33,6 +34,7 @@ ARM64: Dict[str, Any] = {
     "once": "1",  # checking what moved; files are created with old access times
     "max_shards": "8",
     "safety": "1.5",
+    "warm": "3",
     "normalize": True,
     "python_arch": "arm64",
 }
@@ -51,6 +53,7 @@ REFS: Dict[str, Any] = {
     # there (warm scans of a high ReFS tree are partly cold)
     "max_shards": "12",
     "safety": "2.5",
+    "warm": "3",
     "normalize": False,  # windows-summary writes it, after the NTFS vs ReFS audit
     "python_arch": "",
 }
@@ -69,6 +72,7 @@ NTFS_X64: Dict[str, Any] = {
     # runners differ: the anchor's cold scan took 243 s on one very-high shard and 423 s on the other, whose scans ran
     # 1.6-1.8x over their estimates (warm scans of a very-high tree are nearly as slow as cold ones there)
     "safety": "2.5",
+    "warm": "3",
     "normalize": False,  # windows-summary writes it, with the ReFS cross-check where there is one
     "python_arch": "",
 }
@@ -78,7 +82,11 @@ def targets(preset: str) -> List[Dict[str, Any]]:
     if preset in ("mid", "high"):
         return [ARM64, REFS]
     if preset in ("very-high", "before-death"):
-        return [ARM64, NTFS_X64]
+        # one warm scan on ARM64 there (as on macOS ARM64): at high dust's warm scans already took 520-706 s against
+        # 2076 s cold, and on a very-high tree they come close to the cold one, which put its shard at ~320 min. The
+        # estimates scale the quicker warm scans of high, hence safety 2: still one scanner per shard (8), the
+        # largest estimated at ~215 min (~150 min expected, ~220 on a slow runner) where 1.5 packed them into 5
+        return [{**ARM64, "warm": "1", "safety": "2"}, NTFS_X64]
     return []
 
 
