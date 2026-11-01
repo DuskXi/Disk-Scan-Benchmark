@@ -160,7 +160,7 @@ fn recount(args: &Args, plan: &TopologyPlan) -> Result<()> {
     let mut manifest: GroundTruthManifest =
         serde_json::from_str(&text).context("parsing the existing manifest")?;
     let before = manifest.allocated_size_bytes;
-    let counts = materializer::recount_allocation(&args.root, plan);
+    let counts = atime::on_io_threads(|| materializer::recount_allocation(&args.root, plan));
     manifest.allocated_size_bytes = counts.total;
     manifest.allocated_files_only_bytes = counts.files_only;
     manifest.allocated_size_with_hardlinks_bytes = counts.total + counts.hardlink_extra;

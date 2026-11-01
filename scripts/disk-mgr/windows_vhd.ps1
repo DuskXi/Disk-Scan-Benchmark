@@ -6,7 +6,7 @@
       .\windows_vhd.ps1 create <size_gb> <mount_path> [ntfs|refs|btrfs]
       .\windows_vhd.ps1 attach <vhdx_path> <mount_path> btrfs|refs   (an image built elsewhere, e.g. btrfs_image.sh)
       .\windows_vhd.ps1 detach <mount_path> <dest_path>   (flush, dismount and move the VHDX to dest_path, kept)
-      .\windows_vhd.ps1 freeze <mount_path>   (the volume is kept as it is and a copy of it mounted instead)
+      .\windows_vhd.ps1 freeze <mount_path>   (the volume is kept as it is, packed, and a copy of it mounted instead)
       .\windows_vhd.ps1 purge-cache <mount_path>   (after freeze: a fresh copy each time)
       .\windows_vhd.ps1 teardown <mount_path>
       .\windows_vhd.ps1 defender-on <mount_path>
@@ -207,25 +207,49 @@ function Set-BenchLetter($Disk, [string]$Letter, [string]$What) {
     }
 }
 
+function Expand-Packed([string]$Packed, [string]$Dest) {
+    # A plain image again (not sparse, like a robocopy copy), written through the cache: its pages are dropped after
+    & zstd -d -q -f --no-sparse -o "$Dest" "$Packed"
+    $rc = $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    if ($rc -ne 0 -or -not (Test-Path $Dest)) { throw "unpacking $Packed failed (zstd exit $rc)" }
+}
+
 function Mount-FreshCopy([string]$Letter, [string]$Master) {
-    # A new byte-for-byte copy of the frozen volume (unbuffered, robocopy /J), so a scan reads and writes the same
-    # blocks as on the volume itself, and the next purge-cache throws the copy away. (A differencing disk is quicker to
-    # make, but every write then allocates blocks in the child: on NTFS the cold scans that update access times took
-    # 1.3x as long on Windows x64 and 1.7x on ARM64, and WinDirStat's 2.3x on ReFS.)
+    # A new byte-for-byte copy of the frozen volume, so a scan reads and writes the same blocks as on the volume itself,
+    # and the next purge-cache throws the copy away: unpacked from the packed volume (freeze), or copied unbuffered
+    # (robocopy /J) without zstd. (A differencing disk is quicker to make, but every write then allocates blocks in the
+    # child: on NTFS the cold scans that update access times took 1.3x as long on Windows x64 and 1.7x on ARM64, and
+    # WinDirStat's 2.3x on ReFS.)
+    $Packed = $Master.EndsWith(".zst")
     $WorkDir = Join-Path (Split-Path -Parent $Master) "bench_copy"
-    $Work = Join-Path $WorkDir (Split-Path -Leaf $Master)
+    $Leaf = Split-Path -Leaf $Master
+    if ($Packed) { $Leaf = $Leaf.Substring(0, $Leaf.Length - 4) }
+    $Work = Join-Path $WorkDir $Leaf
     if (Test-Path $Work) {
         Dismount-VHD -Path $Work -ErrorAction SilentlyContinue
         Remove-Item -Path $Work -Force
     }
     New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    # a compressed master (freeze) cannot be read unbuffered: buffered then (the copy's pages leave the cache below)
-    $Unbuffered = if ((Get-Item $Master).Attributes -band [System.IO.FileAttributes]::Compressed) { @() } else { @("/J") }
-    & robocopy (Split-Path -Parent $Master) $WorkDir (Split-Path -Leaf $Master) @Unbuffered /R:1 /W:1 /NJH /NJS /NP /NFL /NDL | Out-Null
-    $rc = $LASTEXITCODE
-    $global:LASTEXITCODE = 0
-    if ($rc -ge 8 -or -not (Test-Path $Work)) { throw "copying $Master failed (robocopy exit $rc)" }
+    if ($Packed) {
+        Expand-Packed $Master $Work
+    } else {
+        # a compressed master (freeze) cannot be read unbuffered: buffered then (the copy's pages leave the cache below).
+        # (Assigned, not returned from an if: PowerShell unrolls a one-item array to a string there, and splatting the
+        # string "/J" passed "/" and "J": robocopy exit 16, Windows x64 at very-high)
+        $Unbuffered = @()
+        if (-not ((Get-Item $Master).Attributes -band [System.IO.FileAttributes]::Compressed)) { $Unbuffered = @("/J") }
+        $Log = Join-Path $env:TEMP "disk_scanner_bench_${Letter}_robocopy.log"
+        & robocopy (Split-Path -Parent $Master) $WorkDir (Split-Path -Leaf $Master) @Unbuffered /R:1 /W:1 /NJH /NJS /NP /NFL /NDL "/LOG:$Log" | Out-Null
+        $rc = $LASTEXITCODE
+        $global:LASTEXITCODE = 0
+        if ($rc -ge 8 -or -not (Test-Path $Work)) {
+            # (Windows x64 at very-high: exit 16 within seconds, with ~80 GB free for a 70 GB copy)
+            $why = if (Test-Path $Log) { ((Get-Content $Log -Tail 6) | Where-Object { $_.Trim() }) -join " / " } else { "" }
+            throw "copying $Master failed (robocopy exit $rc): $why"
+        }
+    }
     Purge-HostCache $Work
     Write-Host ("[windows_vhd] fresh copy of the frozen volume ({0:N1} GB) in {1:N0} s" -f ((Get-Item $Work).Length / 1GB), $sw.Elapsed.TotalSeconds)
     Set-Content -Path (Get-MasterState $Letter) -Value $Master -Encoding ASCII
@@ -366,6 +390,40 @@ assign letter=$DriveLetter
             Write-VolumeCache -DriveLetter $DriveLetter -ErrorAction SilentlyContinue
         }
         Dismount-VHD -Path $Base
+        if ((Get-Command zstd -ErrorAction SilentlyContinue) -and $env:BENCH_FREEZE_PACK -ne "0") {
+            # The volume is kept packed (zstd) instead, and each copy unpacked from it: most of the image is 1 MB blocks
+            # holding a few KB each, so it packs to ~1% (a very-high NTFS image of 70 GB to under 1 GB), and only one
+            # copy needs room beside it (the ARM64 runners have ~117 GB free). NTFS-compressing the volume instead took
+            # 23 MB/s on ARM64, and robocopy failed once beside a 70 GB image on x64.
+            $Packed = "$Base.zst"
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            & zstd -q -1 -T0 -f -o "$Packed" "$Base"
+            $rc = $LASTEXITCODE
+            $global:LASTEXITCODE = 0
+            if ($rc -eq 0 -and (Test-Path $Packed)) {
+                Write-Host ("[windows_vhd] packed the kept volume ({0:N1} GB) into {1:N2} GB in {2:N0} s" -f ($Size / 1GB), ((Get-Item $Packed).Length / 1GB), $sw.Elapsed.TotalSeconds)
+                Remove-Item -Path $Base -Force
+                try {
+                    Mount-FreshCopy $DriveLetter $Packed
+                } catch {
+                    Write-Warning "[windows_vhd] freeze failed ($($_.Exception.Message)); unpacking $Base again as it was"
+                    $Copy = Join-Path (Join-Path (Split-Path -Parent $Base) "bench_copy") (Split-Path -Leaf $Base)
+                    Dismount-VHD -Path $Copy -ErrorAction SilentlyContinue
+                    Remove-Item -Path $Copy -Force -ErrorAction SilentlyContinue
+                    Remove-Item -Path (Get-MasterState $DriveLetter) -Force -ErrorAction SilentlyContinue
+                    Expand-Packed $Packed $Base
+                    Remove-Item -Path $Packed -Force -ErrorAction SilentlyContinue
+                    Set-Content -Path (Join-Path $env:TEMP "disk_scanner_bench_${DriveLetter}.vhdpath") -Value $Base -Encoding ASCII
+                    Mount-VHD -Path $Base | Out-Null
+                    Wait-BenchVolume $DriveLetter ""
+                    exit 1
+                }
+                Write-Host "[windows_vhd] ${DriveLetter}: frozen: kept packed in $Packed, each purge-cache unpacks a fresh copy of it"
+                exit 0
+            }
+            Write-Warning "[windows_vhd] packing the kept volume failed (zstd exit $rc); copying it as it is instead"
+            Remove-Item -Path $Packed -Force -ErrorAction SilentlyContinue
+        }
         if ($Free -lt $Size + 10GB -or $env:BENCH_FREEZE_COMPRESS -eq "1") {
             # No room for a copy beside the volume (Windows ARM64 from very-high: ~70 GB on a runner with ~117 GB
             # free): the kept volume is NTFS-compressed. Most of it is 1 MB image blocks holding a few KB each, so it
@@ -407,7 +465,7 @@ assign letter=$DriveLetter
         $MasterState = Get-MasterState $DriveLetter
         $Master = if (Test-Path $MasterState) { (Get-Content $MasterState -Raw).Trim() } else { "" }
         if ($Master) {
-            Write-Host "[windows_vhd] Evicting the cache via Dismount-VHD + a fresh, unbuffered copy of the frozen volume on ${DriveLetter}:..."
+            Write-Host "[windows_vhd] Evicting the cache via Dismount-VHD + a fresh copy of the frozen volume on ${DriveLetter}:..."
         } else {
             Write-Host "[windows_vhd] Evicting Windows NTFS cache via Dismount-VHD + Host VHDX Unbuffered Cache Purge + Mount-VHD on ${DriveLetter}:..."
         }

@@ -42,9 +42,23 @@ pub struct Reset {
     pub unchanged: usize,
 }
 
-/// Threads for a reset (FSM_RESET_THREADS overrides): the listing and every set wait on the disk for metadata, not on
-/// the CPU. With one thread per core (3 on the macOS runners) a high tree took 28-60 min per reset there.
+/// Threads for a reset or a recount (FSM_RESET_THREADS overrides): the listing and every set or stat wait on the disk
+/// for metadata, not on the CPU. With one thread per core (3 on the macOS runners) a high tree took 28-60 min per reset
+/// there, and recounting a very-high ZFS tree 36-45 min on the 4-core Linux runners.
 const RESET_THREADS: usize = 64;
+
+/// Runs `job` on RESET_THREADS threads (on the global pool if that one cannot be built).
+pub fn on_io_threads<T: Send>(job: impl FnOnce() -> T + Send) -> T {
+    let threads = std::env::var("FSM_RESET_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n: &usize| n > 0)
+        .unwrap_or(RESET_THREADS);
+    match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
+        Ok(pool) => pool.install(job),
+        Err(_) => job(),
+    }
+}
 
 /// Sets access times under `root` (symlinks skipped, modification times kept) to `age` ago: the folders and files
 /// `dirs` and `files` select. With `dir_list` (only with `Files::None` and `Dirs::All`) the folders are read from that
@@ -56,15 +70,7 @@ pub fn reset_access_times(
     dirs: Dirs,
     dir_list: Option<&Path>,
 ) -> Reset {
-    let threads = std::env::var("FSM_RESET_THREADS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .filter(|&n: &usize| n > 0)
-        .unwrap_or(RESET_THREADS);
-    match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
-        Ok(pool) => pool.install(|| reset_inner(root, age, files, dirs, dir_list)),
-        Err(_) => reset_inner(root, age, files, dirs, dir_list),
-    }
+    on_io_threads(|| reset_inner(root, age, files, dirs, dir_list))
 }
 
 fn reset_inner(

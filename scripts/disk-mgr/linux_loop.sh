@@ -4,6 +4,7 @@ set -euo pipefail
 # Linux loop-device volumes (ext4, btrfs, xfs, zfs) and the optional /dev/shm RAMDisk for disk-scanner-bench
 # Usage:
 #   ./linux_loop.sh create <size_gb> <mount_path> [--fs ext4|btrfs|xfs|zfs] [--ramdisk] [--inodes <count>]
+#   ./linux_loop.sh freeze <mount_path>   (ZFS only: a snapshot, rolled back by every purge-cache from now on)
 #   ./linux_loop.sh purge-cache <mount_path>
 #   ./linux_loop.sh teardown <mount_path>
 #
@@ -12,13 +13,15 @@ set -euo pipefail
 
 CMD="${1:-}"
 if [[ -z "$CMD" ]]; then
-    echo "Usage: $0 {create|purge-cache|teardown} ..." >&2
+    echo "Usage: $0 {create|freeze|purge-cache|teardown} ..." >&2
     exit 1
 fi
 shift
 
 STATE_FILE="/tmp/disk_scanner_bench_linux.state"
+FROZEN_FILE="${STATE_FILE}.frozen"
 POOL="benchpool"
+SNAPSHOT="${POOL}@frozen"
 
 # Access times: BENCH_ATIME=daily (the benchmark workflows) mounts with relatime, the daily-use default of every
 # distribution, and creates the ZFS pool with atime + relatime; unset keeps them off (noatime)
@@ -90,7 +93,7 @@ case "$CMD" in
         if mountpoint -q "$MOUNT_PATH" 2>/dev/null; then
             sudo umount -l "$MOUNT_PATH" || true
         fi
-        rm -f "$IMG_PATH"
+        rm -f "$IMG_PATH" "$FROZEN_FILE"
         truncate -s "${SIZE_GB}G" "$IMG_PATH"
         if [[ "$FS" == "ext4" ]]; then
             mkfs.ext4 -F -N "$INODES" -b 4096 -E lazy_itable_init=0,lazy_journal_init=0 "$IMG_PATH" >/dev/null
@@ -126,12 +129,36 @@ case "$CMD" in
         echo "[linux_loop] ${FS} on ${LOOP_DEV} (direct I/O: $(cat /sys/block/${LOOP_DEV#/dev/}/loop/dio 2>/dev/null || echo ?)) mounted at ${MOUNT_PATH}"
         ;;
 
+    freeze)
+        # Daily-use access times on ZFS without setting them back before every scan (its 1.1M folders took 10-12
+        # minutes per scanner at very-high, ~2 h a job): the tree, its access times just set back, is kept in a
+        # snapshot, and every purge-cache from now on rolls the pool back to it, so each cold scan meets the same old
+        # access times on the same blocks. The other filesystems set theirs back in a minute or two (exit 1)
+        read_state
+        if [[ "$FS" != "zfs" ]]; then
+            exit 1
+        fi
+        sync
+        sudo zfs snapshot "$SNAPSHOT"
+        touch "$FROZEN_FILE"
+        echo "[linux_loop] ${POOL} frozen: every purge-cache rolls it back to ${SNAPSHOT}"
+        ;;
+
     purge-cache)
         MOUNT_PATH="${1:-/mnt/bench}"
         read_state
         # a folder inside the volume (the access-time audit tree) remounts the volume itself
         MOUNT_PATH="${STATE_MOUNT:-$MOUNT_PATH}"
         echo "[linux_loop] Purging caches of the ${FS} volume at ${MOUNT_PATH}..."
+        if [[ "$FS" == "zfs" && -f "$FROZEN_FILE" ]]; then
+            # what the last scan changed (access times) is dropped: unmounts and mounts the dataset again (forced
+            # if something still holds it; the export and import below mount it in any case)
+            if ! sudo zfs rollback -r "$SNAPSHOT"; then
+                echo "[linux_loop] ${POOL} busy: unmounting it before the rollback"
+                sudo zfs unmount -f "$POOL" || true
+                sudo zfs rollback -r "$SNAPSHOT"
+            fi
+        fi
         sync
         # Copy-on-write filesystems write every change (access-time updates too) to new blocks; without a trim the
         # freed ones stay allocated in the sparse image, which grew until the runner's disk was full (ZFS at high:
@@ -163,11 +190,11 @@ case "$CMD" in
         if [[ -n "$LOOP_DEV" ]]; then
             sudo losetup -d "$LOOP_DEV" 2>/dev/null || true
         fi
-        rm -f "$IMG_PATH" "$STATE_FILE"
+        rm -f "$IMG_PATH" "$STATE_FILE" "$FROZEN_FILE"
         ;;
 
     *)
-        echo "Unknown command: $CMD. Expected create, purge-cache, or teardown." >&2
+        echo "Unknown command: $CMD. Expected create, freeze, purge-cache, or teardown." >&2
         exit 1
         ;;
 esac

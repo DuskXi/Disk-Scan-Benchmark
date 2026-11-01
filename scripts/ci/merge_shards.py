@@ -119,9 +119,13 @@ def main() -> int:
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "raw_results.json").write_text(json.dumps(merged, indent=2), encoding="utf-8")
-    for name in ("baseline.json", "ground_truth.json", "layout.json"):
+    for name in ("baseline.json", "ground_truth.json"):
         if (ref_dir / name).exists():
             shutil.copyfile(ref_dir / name, out / name)
+    # the layout probe runs in one shard only (the last, the least loaded one)
+    layout = next((d / "layout.json" for _, d, _ in shards if (d / "layout.json").exists()), None)
+    if layout:
+        shutil.copyfile(layout, out / "layout.json")
     (out / "shards.json").write_text(
         json.dumps({"anchor": args.anchor, "reference": ref, "shards": summary}, indent=2), encoding="utf-8"
     )

@@ -11,7 +11,9 @@ Print the Windows platforms run in shards (benchmark-sharded.yml) for a preset, 
                      and one shard of dua and one scanner took 4-5 h, so neither fits in a 6-hour job at very-high.
                      NTFS x64 took 172 min in one job at high, too close to the limit at very-high.
 
-Every value is a benchmark-sharded.yml input; "share" builds the volume once and hands it to the shards.
+Every value is a benchmark-sharded.yml input; "share" builds the volume once (on build_runner) and hands it to the
+shards. NTFS images are built on Windows x64 for both architectures: on the ARM64 runners Defender's real-time scanning
+stays on (tamper protection), and generating a very-high tree there took 5 h, against 31-47 min on x64.
 """
 
 import json
@@ -21,12 +23,13 @@ from typing import Any, Dict, List
 ARM64: Dict[str, Any] = {
     "label": "windows-arm64",
     "runner": "windows-11-arm",
+    "build_runner": "windows-latest",
     "fs": "ntfs",
     "fs_label": "NTFS",
-    # built once and shared: generating took 2.4 h per shard at high (Defender stays on there, tamper protection). From
-    # very-high its image (~70 GB) does not fit twice on the runner: the shards keep it NTFS-compressed (freeze)
+    # built once and shared: generating took 2.4 h per shard at high (Defender on). Its very-high image (~70 GB) does not
+    # fit twice on the runner: each shard keeps it packed (zstd, windows_vhd.ps1 freeze) beside the copy it scans
     "share": True,
-    "gen": "26",  # 15-26 min per million items measured at mid and high
+    "gen": "26",  # (share: not used) 15-26 min per million items measured at mid and high on ARM64
     "once": "1",  # checking what moved; files are created with old access times
     "max_shards": "8",
     "safety": "1.5",
@@ -37,6 +40,7 @@ ARM64: Dict[str, Any] = {
 REFS: Dict[str, Any] = {
     "label": "windows-x86_64-refs",
     "runner": "windows-latest",
+    "build_runner": "windows-latest",
     "fs": "refs",
     "fs_label": "ReFS",
     "share": True,
@@ -54,13 +58,17 @@ REFS: Dict[str, Any] = {
 NTFS_X64: Dict[str, Any] = {
     "label": "windows-x86_64",
     "runner": "windows-latest",
+    "build_runner": "windows-latest",
     "fs": "ntfs",
     "fs_label": "NTFS",
-    "share": False,  # every shard generates: 17 min at high (no Defender there)
+    # built once: every shard then scans the same image (generating took 31-47 min per shard at very-high)
+    "share": True,
     "gen": "4",
     "once": "1",
     "max_shards": "8",
-    "safety": "1.5",
+    # runners differ: the anchor's cold scan took 243 s on one very-high shard and 423 s on the other, whose scans ran
+    # 1.6-1.8x over their estimates (warm scans of a very-high tree are nearly as slow as cold ones there)
+    "safety": "2.5",
     "normalize": False,  # windows-summary writes it, with the ReFS cross-check where there is one
     "python_arch": "",
 }

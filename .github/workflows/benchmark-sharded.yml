@@ -67,11 +67,6 @@ on:
         required: false
         default: "3"
         type: string
-      freeze_compress:
-        description: "Windows: keep the frozen volume NTFS-compressed even when a copy fits beside it (to test that path)"
-        required: false
-        default: false
-        type: boolean
       safety:
         description: "Factor on the time estimates of the plan"
         required: false
@@ -132,6 +127,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      shards: ${{ steps.plan.outputs.shards }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -168,11 +164,12 @@ jobs:
       - name: Install Rust Toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
 
+      # the build runner's own architecture (Windows ARM64 images are built on x64)
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ inputs.python_arch == 'arm64' && '3.12' || '3.11' }}
-          architecture: ${{ inputs.python_arch }}
+          python-version: ${{ contains(inputs.build_runner, '-arm') && '3.12' || '3.11' }}
+          architecture: ${{ contains(inputs.build_runner, '-arm') && 'arm64' || '' }}
 
       - name: Cache Cargo Registry & Build Artifacts
         uses: Swatinem/rust-cache@v2
@@ -239,7 +236,6 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       OUT: shard-out/${{ inputs.label }}-shard-${{ matrix.shard }}
-      BENCH_FREEZE_COMPRESS: ${{ inputs.freeze_compress && '1' || '' }}
       MOUNT: ${{ inputs.platform == 'macos' && '/tmp/BenchVol' || 'X:/bench' }}
     steps:
       - name: Checkout Repository
@@ -311,9 +307,10 @@ jobs:
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
             --manifest-out "$OUT/ground_truth.json"
 
-      # the slow macOS walks skip it at these sizes, as in benchmark.yml; Windows probes once, in the first shard
+      # the slow macOS walks skip it at these sizes, as in benchmark.yml; Windows probes once, in the last shard (the
+      # least loaded one: the packing fills the first shards with the longest scanners)
       - name: Probe On-Disk Layout (how aged the tree looks; aggregates only)
-        if: ${{ inputs.platform == 'windows' && matrix.shard == 1 }}
+        if: ${{ inputs.platform == 'windows' && matrix.shard == fromJSON(needs.plan.outputs.shards) }}
         shell: bash
         timeout-minutes: 10
         continue-on-error: true

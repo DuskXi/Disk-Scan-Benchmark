@@ -1330,18 +1330,33 @@ def invoke_purge_cache(os_key: str, mount_path: str, repo_root: Path, skip_purge
 
 def freeze_volume(os_key: str, mount_path: str, repo_root: Path, skip_purge: bool, mode: str = "vdisk") -> bool:
     """
-    Windows CI: the benchmark volume (its access times just set back) is kept as it is, and every purge-cache from now
-    on mounts a fresh copy of it (windows_vhd.ps1 freeze). Each cold scan then meets the same old access times without
+    The benchmark volume (its access times just set back) is kept as it is, and every purge-cache from now on brings
+    that state back: on Windows CI a fresh copy of it is mounted (windows_vhd.ps1 freeze), on Linux ZFS the pool is
+    rolled back to a snapshot (linux_loop.sh freeze). Each cold scan then meets the same old access times without
     setting them back first, which took minutes per scanner there. Returns whether the volume is frozen; if not (no
-    room for a copy), it is mounted as before.
+    room for a copy, another Linux filesystem), it stays mounted as before.
     """
-    if os_key != "windows" or skip_purge or mode != "vdisk":
+    if skip_purge or mode != "vdisk":
         return False
-    script = repo_root / "scripts" / "disk-mgr" / "windows_vhd.ps1"
-    out = subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "freeze", mount_path]
-    )
-    return out.returncode == 0
+    disk_mgr_dir = repo_root / "scripts" / "disk-mgr"
+    if os_key == "windows":
+        cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(disk_mgr_dir / "windows_vhd.ps1")]
+    elif os_key == "linux":
+        cmd = ["bash", str(disk_mgr_dir / "linux_loop.sh")]
+    else:
+        return False
+    return subprocess.run(cmd + ["freeze", mount_path]).returncode == 0
+
+
+def linux_bench_fs(scan_path: str) -> Optional[str]:
+    """Filesystem of the linux_loop.sh volume holding scan_path (image|mount path|ramdisk|loop device|fs), if any."""
+    try:
+        state = Path("/tmp/disk_scanner_bench_linux.state").read_text().strip().split("|")
+        if len(state) >= 5 and Path(scan_path).resolve().is_relative_to(Path(state[1]).resolve()):
+            return state[4]
+    except OSError:
+        pass
+    return None
 
 
 def extract_zip_keep_modes(archive: Path, dest: Path) -> None:
@@ -1878,7 +1893,7 @@ def main() -> int:
     gui_monitor_ps1 = repo_root / "scripts" / "wrappers" / "win_gui_monitor.ps1"
 
     atime_active: Optional[bool] = None
-    fresh_disks = False  # each purge mounts a fresh copy of a volume whose access times are old
+    fresh_disks = False  # each purge brings back the volume with old access times (a fresh copy, a ZFS rollback)
     # the tree's folders, listed by the first reset and read back by the next ones (macOS)
     atime_dir_list = Path(tempfile.gettempdir()) / f"bench_atime_dirs_{os.getpid()}.txt"
     if args.reset_atime:
@@ -1902,10 +1917,16 @@ def main() -> int:
             else:
                 reset_access_times_fast(scan_path, os_key, repo_root)
             fresh_disks = freeze_volume(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
+        elif atime_active and os_key == "linux" and linux_bench_fs(scan_path) == "zfs":
+            # setting the access times of a very-high ZFS tree back took 10-12 minutes per scanner: once, then a
+            # snapshot rolled back before each cold scan (the other filesystems take a minute or two, every scan)
+            reset_access_times_fast(scan_path, os_key, repo_root)
+            fresh_disks = freeze_volume(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
+        how = "a fresh copy of the volume" if os_key == "windows" else "the snapshot rolled back"
         print(
             f"[runner] Access times: this volume {'updates' if atime_active else 'does not update'} them"
             + ("; each cold scan starts from access times two days old" if atime_active else "")
-            + (" (set back once, then a fresh copy of the volume per scanner)" if fresh_disks else "")
+            + (f" (set back once, then {how} per scanner)" if fresh_disks else "")
         )
 
     for scanner in registry_data.get("scanners", []):

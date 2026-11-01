@@ -966,7 +966,7 @@ jobs:
       fs: ${{ matrix.fs }}
       fs_label: ${{ matrix.fs_label }}
       share: ${{ matrix.share }}
-      build_runner: ${{ matrix.runner }}
+      build_runner: ${{ matrix.build_runner }}
       gen_min_per_million: ${{ matrix.gen }}
       reset_min_per_million: "1"  # copying the frozen volume before each scanner (~9 GB per million items)
       reset_once_min_per_million: ${{ matrix.once }}

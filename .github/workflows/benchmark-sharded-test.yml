@@ -1,6 +1,6 @@
 name: Benchmark Shards Test
 
-run-name: "Shards test ${{ inputs.preset }} | at least ${{ inputs.min_shards }} shards"
+run-name: "Shards test ${{ inputs.preset }} | at least ${{ inputs.min_shards }} shards | ${{ inputs.platforms }}"
 
 # Runs the sharded path of benchmark.yml (benchmark-sharded.yml: plan, build, shards, merge) on a small preset, split
 # into at least min_shards shards, so a change to it can be checked without a very-high run. Nothing is published:
@@ -23,6 +23,15 @@ on:
         required: true
         default: "2"
         type: string
+      platforms:
+        description: "Which sharded platforms (macOS runners are few: 5 jobs at a time across all runs)"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
 
 permissions:
   contents: read
@@ -30,6 +39,7 @@ permissions:
 jobs:
   sharded-macos:
     name: "Sharded ${{ matrix.label }}"
+    if: ${{ inputs.platforms != 'windows' }}
     strategy:
       fail-fast: false
       matrix:
@@ -58,24 +68,29 @@ jobs:
 
   sharded-windows:
     name: "Sharded ${{ matrix.label }}"
+    if: ${{ inputs.platforms != 'macos' }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          # as in benchmark.yml (scripts/ci/windows_shards.py): every image built once on Windows x64 and handed to
+          # the shards, which keep it packed (zstd) and scan a fresh copy of it per scanner
           - label: windows-arm64
             runner: windows-11-arm
             fs: ntfs
             fs_label: NTFS
-            share: true  # built once on an ARM64 runner, handed to the shards
-            compress: true  # as from very-high: the kept volume NTFS-compressed (no room for a copy beside it there)
             gen: "26"
             python_arch: arm64
+          - label: windows-x86_64
+            runner: windows-latest
+            fs: ntfs
+            fs_label: NTFS
+            gen: "4"
+            python_arch: ""
           - label: windows-x86_64-refs
             runner: windows-latest
             fs: refs
             fs_label: ReFS
-            share: true
-            compress: false
             gen: "0"
             python_arch: ""
     uses: ./.github/workflows/benchmark-sharded.yml
@@ -85,9 +100,8 @@ jobs:
       platform: windows
       fs: ${{ matrix.fs }}
       fs_label: ${{ matrix.fs_label }}
-      share: ${{ matrix.share }}
-      freeze_compress: ${{ matrix.compress }}
-      build_runner: ${{ matrix.runner }}
+      share: true
+      build_runner: windows-latest
       gen_min_per_million: ${{ matrix.gen }}
       min_shards: ${{ inputs.min_shards }}
       normalize: true  # no NTFS+ReFS audit job here
