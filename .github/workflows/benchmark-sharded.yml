@@ -148,7 +148,8 @@ jobs:
             --preset "${{ inputs.preset }}" \
             --warm-runs "${{ inputs.warm_runs }}" \
             --gen-min-per-million "${{ inputs.share && '0' || inputs.gen_min_per_million }}" \
-            --max-shards "${{ inputs.max_shards }}"             --safety "${{ inputs.safety }}" \
+            --max-shards "${{ inputs.max_shards }}" \
+            --safety "${{ inputs.safety }}" \
             --reset-min-per-million "${{ inputs.reset_min_per_million }}" \
             --reset-once-min-per-million "${{ inputs.reset_once_min_per_million }}" \
             --min-shards "${{ inputs.min_shards }}" \
