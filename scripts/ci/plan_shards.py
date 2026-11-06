@@ -42,6 +42,12 @@ def scanners_for(label: str, registry: Path) -> List[str]:
     ]
 
 
+def verified(registry: Path) -> Set[str]:
+    """Scanners whose timed command prints nothing to check: an untimed scan with an export follows (ncdu)."""
+    data = json.loads(registry.read_text(encoding="utf-8"))
+    return {s["id"] for s in data["scanners"] if s.get("verify_command_template")}
+
+
 def history(label: str, data_dir: Path, preset: str) -> Tuple[Dict[str, Tuple[float, float]], Set[str]]:
     """
     (scanner id -> (cold, warm) seconds per million items from the largest stored preset up to `preset` with a valid
@@ -80,12 +86,16 @@ def plan(
     safety: float,
     min_shards: int = 1,
     reset_s: float = 0.0,
+    verify: Optional[Set[str]] = None,
 ) -> Tuple[List[List[str]], Dict[str, float]]:
     est: Dict[str, float] = {}
     for sid in scanners:
         if sid in per_million:
             cold, warm = per_million[sid]
-            est[sid] = (cold + warm_runs * warm) * items_m * safety
+            # the verification scan counts as one more warm one (ncdu at very-high on macOS ARM64: 33 min warm, the
+            # verification still running 24 min later when the job ran out of time)
+            runs = warm_runs + (1 if verify and sid in verify else 0)
+            est[sid] = (cold + runs * warm) * items_m * safety
     known = list(est.values())
     # ran here before without a valid result (it may run until it fails): assume one of the slow ones; never seen on
     # this platform although the registry lists it (no native build: the runner skips it): a minute
@@ -182,6 +192,7 @@ def main() -> int:
         args.safety,
         args.min_shards,
         args.reset_min_per_million * items_m * 60,
+        verified(Path(args.registry)),
     )
     print(
         f"[plan] {args.label} | {args.preset} ({files:,} files) | {len(scanners)} scanners -> {len(shards)} shard(s)"
