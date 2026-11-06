@@ -21,7 +21,9 @@ from typing import Any, Dict, List, Optional, Tuple
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
 
+from disclosure import notice  # noqa: E402
 from submission_schema import validate  # noqa: E402
 
 SUBMISSIONS = REPO / "community" / "submissions"
@@ -135,6 +137,7 @@ def render_board(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> List[str]
         ]
         return lines
     n_vols = sum(len(s["volumes"]) for _, s in subs)
+    lines += notice(REGISTRY)  # this benchmark's author also writes some of the scanners it ranks
     lines += [
         f"来自 {len(subs)} 份提交、{n_vols} 块真实硬盘。每块盘内先算相对分（该盘最快 ÷ 自己 × 100），再在所有盘上取几何平均；"
         "没能清缓存的盘只计热扫；<mark>**高亮**</mark> 为该列最高分。提交方法见 [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md)，"

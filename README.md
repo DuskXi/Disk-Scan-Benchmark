@@ -2,17 +2,41 @@
 
 **跨平台硬盘空间扫描工具基准测试 · Cross-platform benchmark for disk-space scanners**
 
-[🏆 排行榜 Leaderboard](#-排行榜--leaderboard) · [📐 方法说明 Methodology](docs/METHODOLOGY.md) · [🧪 本地套件 Local suite](docs/LOCAL_SUITE.md) · [➕ 新增扫描器 Add a scanner](#新增扫描器--adding-a-scanner)
+> [!IMPORTANT]
+> 本基准的作者也是参赛工具 SpaceKnife 的作者，SpaceKnife 排名靠前作者直接受益，见[利益声明](#利益声明--conflict-of-interest)。<br>
+> This benchmark's author also wrote SpaceKnife, one of the scanners it ranks, and benefits when it ranks well: see [Conflict of interest](#利益声明--conflict-of-interest).
+
+[🏆 排行榜 Leaderboard](#-排行榜--leaderboard) · [⚖️ 利益声明 Conflict of interest](#利益声明--conflict-of-interest) · [📐 方法说明 Methodology](docs/METHODOLOGY.md) · [🧪 本地套件 Local suite](docs/LOCAL_SUITE.md) · [➕ 新增扫描器 Add a scanner](#新增扫描器--adding-a-scanner)
 
 在 GitHub Actions 的免费 Runner 上（Linux、macOS、Windows，x86_64 与 ARM64，多种文件系统），用确定性生成的合成文件树（最多 900 万个文件，逻辑上几 TB、物理上只占几 GB）给主流磁盘空间扫描工具做冷扫和热扫计时，核对每个工具自己报告的结果是否完整，再按平台归一化，排出跨平台、跨体量的总榜。合成数据会模拟用了多年的磁盘布局；生成算法只按"像不像真实的盘"取舍，不看任何扫描器的表现。
 
 On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, several filesystems), mainstream disk-space scanners are timed on cold and warm scans of a deterministic synthetic tree (up to 9 million files, terabytes in logical size but only a few GB on disk). Each scanner's own output is checked for completeness, scores are normalized within each platform, and the results form one board across platforms and sizes. The test data imitates a drive that has been in use for years; generator choices are judged only by how closely they match real drives, never by how any scanner performs.
+
+## 利益声明 · Conflict of interest
+
+本基准的作者 [DuskXi](https://github.com/DuskXi) 也是参赛工具 [SpaceKnife](https://github.com/DuskXi/SpaceKnife) 的作者；榜上的 SpaceKnife (Rust) 是同一项目的 Rust 重写版（构建取自 [Ry3nZhao/SpaceKnife](https://github.com/Ry3nZhao/SpaceKnife) 的 `dev-rust` 分支）。测试数据、计时方法和评分规则都出自这位参赛者之手，SpaceKnife 排得越靠前，作者越直接受益。这一点不回避，也请不要只凭这份榜单下结论。下面这些都可以自己核对：
+
+- **同一套流程**：所有扫描器由同一个脚本（[`run_cli_scanners.py`](scripts/wrappers/run_cli_scanners.py)）在同一棵树上计时（分片的平台按同一个锚点扫描器换算），冷扫前同样清缓存、同样调回访问时间，结果过同样的完整性检查。计分只用从进程外测的墙钟时间；SpaceKnife 自己报的扫描用时只列在单次运行的报告里，不计分。它的 MFT 扫描一旦退回普通遍历，成绩直接作废。
+- **参数公开**：每个扫描器的版本和命令行都锁在 [`scanners_registry.json`](scripts/wrappers/scanners_registry.json) 里。SpaceKnife 的两个版本用的是项目自己 CI 构建的程序（运行编号见注册表），不是第三方发行版。
+- **数据公开**：每次发布都链接到对应的 Actions 运行，发布的数据存在 [`leaderboard/data/`](leaderboard/data/)，方法见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)。也可以用[本地套件](docs/LOCAL_SUITE.md)在自己的盘上跑同样版本的扫描器，成绩可以提交到下面的社区榜单。
+- **欢迎挑错**：如果你觉得哪个工具的参数、口径或测试数据对它不公平，或者偏向 SpaceKnife，欢迎开 issue 或 PR。
+
+This benchmark's author, [DuskXi](https://github.com/DuskXi), also wrote [SpaceKnife](https://github.com/DuskXi/SpaceKnife), one of the scanners it ranks; SpaceKnife (Rust) on the boards is the same project's Rust rewrite (built from the `dev-rust` branch of [Ry3nZhao/SpaceKnife](https://github.com/Ry3nZhao/SpaceKnife)). The test data, the timing method and the scoring rules all come from someone with a stake in the result, and the author benefits directly when SpaceKnife ranks well. That is stated here rather than left out; please do not judge from these boards alone. What you can check yourself:
+
+- **One process for all**: every scanner is timed by the same script ([`run_cli_scanners.py`](scripts/wrappers/run_cli_scanners.py)) on the same tree (platforms run in shards are scaled by the same anchor scanner), with the same cache drop and access-time reset before its cold scan, and its result goes through the same completeness checks. Scores use only the wall-clock time measured from outside the process; the scan time SpaceKnife reports about itself is listed in the per-run reports and never scored. A SpaceKnife MFT scan that falls back to a directory walk is marked invalid.
+- **Open settings**: every scanner's version and command line are pinned in [`scanners_registry.json`](scripts/wrappers/scanners_registry.json). Both SpaceKnife builds come from the project's own CI runs (run numbers in the registry), not from a third-party distribution.
+- **Open data**: every publish links to its Actions run, the published data is kept in [`leaderboard/data/`](leaderboard/data/) and the method is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md). The [local suite](docs/LOCAL_SUITE.md) runs the same scanner versions on your own drives, and its results can go to the community board below.
+- **Challenges welcome**: if a tool's options, size accounting or the test data look unfair to it, or tilted towards SpaceKnife, please open an issue or a pull request.
 
 <!-- LEADERBOARD:START -->
 
 ## 🏆 排行榜 · Leaderboard
 
 ![updated](https://img.shields.io/badge/updated-2026--11--06-4c8eda) ![presets](https://img.shields.io/badge/presets-5%2F7-dbab09) ![scanners](https://img.shields.io/badge/scanners-16-6f42c1) ![platforms](https://img.shields.io/badge/platforms-14-0969da) ![MFT presets](https://img.shields.io/badge/MFT%20presets-7-8250df)
+
+> ⚖️ **利益声明**：SpaceKnife 和 SpaceKnife (Rust) 属于本基准作者的项目，作者从它们的排名中直接受益，详见[利益声明](#利益声明--conflict-of-interest)。
+>
+> ⚖️ **Conflict of interest**: SpaceKnife and SpaceKnife (Rust) belong to a project of this benchmark's author, who benefits directly from how they rank; see [Conflict of interest](#利益声明--conflict-of-interest).
 
 > 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。`very-lite` / `lite` 体量过小，计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。评分方法与数据生成原理见 [docs/METHODOLOGY.md](docs/METHODOLOGY.md)。
 >
@@ -643,8 +667,8 @@ Generated from [`scanners_registry.json`](scripts/wrappers/scanners_registry.jso
 | **WizTree** | <code>4.33</code> | Windows | `x86_64` | apparent | 命令行 CLI；参加 MFT 专栏 · in the MFT column |
 | **SpaceSniffer** | <code>2.2.0.27</code> | Windows | `x86_64` | apparent | 图形界面 GUI |
 | **WinDirStat** | <code>2.9.3</code> | Windows | `x86_64`<br>`aarch64` | apparent | 命令行 CLI；参加 MFT 专栏 · in the MFT column |
-| **SpaceKnife** | <code>0.3.4</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI；参加 MFT 专栏 · in the MFT column |
-| **SpaceKnife&nbsp;(Rust)** | <code>0.4.0</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI；参加 MFT 专栏 · in the MFT column<br>SpaceKnife 的 Rust 重写版（dev-rust 分支），与原版并行测试；命令行和输出与原版相同<br>The Rust rewrite of SpaceKnife (dev-rust branch), run alongside the original; same command line and output |
+| **SpaceKnife** | <code>0.3.4</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI；参加 MFT 专栏 · in the MFT column<br>⚖️ 本基准作者的项目，见[利益声明](#利益声明--conflict-of-interest)<br>⚖️ A project of this benchmark's author, see [Conflict of interest](#利益声明--conflict-of-interest) |
+| **SpaceKnife&nbsp;(Rust)** | <code>0.4.0</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI；参加 MFT 专栏 · in the MFT column<br>SpaceKnife 的 Rust 重写版（dev-rust 分支），与原版并行测试；命令行和输出与原版相同<br>The Rust rewrite of SpaceKnife (dev-rust branch), run alongside the original; same command line and output<br>⚖️ 本基准作者的项目，见[利益声明](#利益声明--conflict-of-interest)<br>⚖️ A project of this benchmark's author, see [Conflict of interest](#利益声明--conflict-of-interest) |
 | **SquirrelDisk** | <code>2.6.1</code> | Linux<br>macOS<br>Windows | `x86_64`<br>`aarch64` | allocated | 命令行 CLI |
 | **GNU&nbsp;du** | <code>coreutils</code><br><code>9.4</code> | Linux | `x86_64`<br>`aarch64` | allocated | 命令行 CLI<br>系统基线：单线程，硬链接只算一次，计入目录块<br>System baseline: single-threaded, hard links counted once, directory blocks included |
 | **BSD&nbsp;du** | <code>macOS</code><br><code>system</code><br><code>/usr/bin/du</code> | macOS | `x86_64`<br>`aarch64` | allocated | 命令行 CLI<br>系统基线：单线程，硬链接只算一次，精度为 KiB<br>System baseline: single-threaded, hard links counted once, KiB granularity |

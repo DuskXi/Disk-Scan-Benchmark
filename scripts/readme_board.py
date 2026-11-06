@@ -22,6 +22,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from disclosure import notice, table_note
 from leaderboard import (
     MEDALS,
     NB,
@@ -346,8 +347,8 @@ def render_section(
         ("MFT presets", str(len(mft)), "8250df"),
     ]
     lines.append(" ".join(f"![{lbl}]({static_badge(lbl, msg, col)})" for lbl, msg, col in header))
+    lines += [""] + notice()  # this benchmark's author also writes some of the scanners it ranks
     lines += [
-        "",
         "> 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。`very-lite` / `lite` 体量过小，"
         "计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。评分方法与数据生成原理见 "
         "[docs/METHODOLOGY.md](docs/METHODOLOGY.md)。",
@@ -553,6 +554,8 @@ def render_scanners(registry: Path) -> List[str]:
         if s.get("mft"):
             mode += "；参加 MFT 专栏 · in the MFT column"
         notes = [n for n in (s.get("notes", ""), s.get("notes_en", "")) if n]
+        if s.get("author_project"):
+            notes.append(table_note())
         cell = "<br>".join([mode] + notes)
         name = nobreak(s.get("display_name", s["name"]))
         version = str(s["version"]).split(" (")[0]  # long build notes stay in the registry
