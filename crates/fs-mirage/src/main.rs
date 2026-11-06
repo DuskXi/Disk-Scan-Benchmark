@@ -6,7 +6,8 @@ mod topology;
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 #[cfg(unix)]
 use topology::GroundTruthManifest;
@@ -143,9 +144,32 @@ struct Args {
     atime_dirs: atime::Dirs,
 
     /// With --reset-atime --atime-files none: the folders are read from this file when it exists, instead of walking
-    /// the tree, and saved there when it does not (the tree does not change between the scans)
+    /// the tree, and saved there when it does not (the tree does not change between the scans). When generating: the
+    /// new tree's folders are written there, so the first reset needs no walk either.
     #[arg(long)]
     atime_dir_list: Option<PathBuf>,
+}
+
+/// Writes the folders of the planned tree under `root` (root first, parents before children) where
+/// `atime::reset_access_times` reads them back. Walking a very-high tree for them took 30-60 min per macOS shard.
+fn write_dir_list(list: &Path, root: &Path, dirs: &[String]) -> Result<()> {
+    fs::create_dir_all(root)?;
+    // the form a walk from the resolved root saves (the runner resets /private/tmp/BenchVol, not /tmp/BenchVol); Windows
+    // keeps the root as given: resolved it is a \\?\ path, which takes no forward slashes
+    let root = if cfg!(unix) {
+        fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf())
+    } else {
+        root.to_path_buf()
+    };
+    let file = fs::File::create(list)
+        .with_context(|| format!("creating the folder list {}", list.display()))?;
+    let mut out = std::io::BufWriter::new(file);
+    writeln!(out, "{}", root.display())?;
+    for d in dirs.iter().filter(|d| !d.is_empty()) {
+        writeln!(out, "{}", root.join(d).display())?;
+    }
+    out.flush()?;
+    Ok(())
 }
 
 /// Ballast plan: the same generator as the benchmark tree (other seed), optionally with every file emptied.
@@ -350,6 +374,14 @@ fn main() -> Result<()> {
             bfiles,
             bdirs,
             ballast_root.display()
+        );
+    }
+
+    if let Some(list) = &args.atime_dir_list {
+        write_dir_list(list, &args.root, &plan.directories)?;
+        println!(
+            "[fs-mirage] Folder list for the access-time resets saved to {}",
+            list.display()
         );
     }
 

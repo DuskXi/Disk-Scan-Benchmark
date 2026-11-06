@@ -1845,6 +1845,12 @@ def main() -> int:
         "each run before its write counter is read, so the cold scan's writes are its access-time updates",
     )
     parser.add_argument(
+        "--atime-dir-list",
+        default=None,
+        help="macOS with --reset-atime: the tree's folders, as fs-mirage --atime-dir-list wrote them when it generated "
+        "the tree (default: the first reset walks the tree and saves them in a temporary file)",
+    )
+    parser.add_argument(
         "--mft-mode",
         action="store_true",
         help="Windows/NTFS only: run just the scanners that support raw $MFT scanning, scanning the volume root",
@@ -1894,8 +1900,13 @@ def main() -> int:
 
     atime_active: Optional[bool] = None
     fresh_disks = False  # each purge brings back the volume with old access times (a fresh copy, a ZFS rollback)
-    # the tree's folders, listed by the first reset and read back by the next ones (macOS)
-    atime_dir_list = Path(tempfile.gettempdir()) / f"bench_atime_dirs_{os.getpid()}.txt"
+    # the tree's folders (macOS): listed when the tree was generated, or else by the first reset, and read back by the
+    # resets (walking a very-high tree for them took 30-60 min there)
+    atime_dir_list = (
+        Path(args.atime_dir_list)
+        if args.atime_dir_list
+        else Path(tempfile.gettempdir()) / f"bench_atime_dirs_{os.getpid()}.txt"
+    )
     if args.reset_atime:
         windows_ci = os_key == "windows" and os.environ.get("GITHUB_ACTIONS") == "true"
         if windows_ci:

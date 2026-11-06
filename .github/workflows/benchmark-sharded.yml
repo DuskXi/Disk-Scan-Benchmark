@@ -297,9 +297,12 @@ jobs:
           FSM_AGING: ${{ inputs.aging && '1' || '0' }}
         run: |
           VDISK_GB=$(python ./scripts/disk-mgr/vdisk_capacity.py --preset "${{ inputs.preset }}" --min-gb "${{ inputs.disk_size_gb }}")
+          DIR_LIST=()
           if [ "${{ inputs.platform }}" = "macos" ]; then
             chmod +x scripts/disk-mgr/*.sh
             ./scripts/disk-mgr/macos_dmg.sh create "$VDISK_GB" "$MOUNT"
+            # the folders, listed from the plan: the access-time reset before the first cold scan then needs no walk
+            DIR_LIST=(--atime-dir-list "$RUNNER_TEMP/bench_dirs.txt")
           else
             powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/disk-mgr/windows_vhd.ps1 create "$VDISK_GB" "$MOUNT" "${{ inputs.fs }}"
           fi
@@ -308,7 +311,8 @@ jobs:
             --preset "${{ inputs.preset }}" \
             --seed "${{ inputs.seed }}" \
             --max-physical-mb "${{ inputs.max_physical_mb }}" \
-            --manifest-out "$OUT/ground_truth.json"
+            --manifest-out "$OUT/ground_truth.json" \
+            "${DIR_LIST[@]}"
 
       # the slow macOS walks skip it at these sizes, as in benchmark.yml; Windows probes once, in the last shard (the
       # least loaded one: the packing fills the first shards with the longest scanners)
@@ -340,6 +344,8 @@ jobs:
         shell: bash
         run: |
           echo '{"shard": ${{ matrix.shard }}, "scanners": "${{ matrix.scanners }}"}' > "$OUT/shard.json"
+          DIR_LIST=()
+          if [ "${{ inputs.platform }}" = "macos" ]; then DIR_LIST=(--atime-dir-list "$RUNNER_TEMP/bench_dirs.txt"); fi
           python ./scripts/wrappers/run_cli_scanners.py \
             --path "$MOUNT" \
             --ground-truth "$OUT/ground_truth.json" \
@@ -347,7 +353,8 @@ jobs:
             --bin-dir "./bin" \
             --scanners "${{ matrix.scanners }}" \
             --warm-runs "${{ inputs.warm_runs }}" \
-            --reset-atime
+            --reset-atime \
+            "${DIR_LIST[@]}"
 
       # before the teardown, so a job that runs out of time later still keeps its results
       - name: Upload Shard Results

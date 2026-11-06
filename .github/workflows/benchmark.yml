@@ -243,7 +243,10 @@ jobs:
             --manifest-out "results/${{ matrix.target_label }}/ground_truth.json"
             "${EXTRA_ARGS[@]}"
           )
-          ./target/release/fs-mirage "${GEN_ARGS[@]}"
+          # macOS: the folders, listed from the plan, so the first access-time reset needs no walk of the tree
+          DIR_LIST=()
+          if [ "${{ matrix.platform }}" = "macos" ]; then DIR_LIST=(--atime-dir-list "$RUNNER_TEMP/bench_dirs.txt"); fi
+          ./target/release/fs-mirage "${GEN_ARGS[@]}" "${DIR_LIST[@]}"
           # Btrfs, XFS and ZFS settle block counts only after the data is flushed: recount after a remount
           if [ "${{ matrix.platform }}" = "linux" ] && [ "${{ matrix.fs }}" != "ext4" ]; then
             ./scripts/disk-mgr/linux_loop.sh purge-cache "${{ matrix.mount_path }}"
@@ -296,13 +299,16 @@ jobs:
             for p in $(pgrep -f 'Runner\.(Listener|Worker)'); do echo -1000 | sudo tee "/proc/$p/oom_score_adj" >/dev/null; done
             echo 500 > "/proc/$$/oom_score_adj" || true
           fi
+          DIR_LIST=()
+          if [ "$RUNNER_OS" = "macOS" ]; then DIR_LIST=(--atime-dir-list "$RUNNER_TEMP/bench_dirs.txt"); fi
           python ./scripts/wrappers/run_cli_scanners.py \
             --path "${{ matrix.mount_path }}" \
             --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
             --out "results/${{ matrix.target_label }}/raw_results.json" \
             --bin-dir "./bin" \
             --warm-runs "$WARM_RUNS" \
-            --reset-atime
+            --reset-atime \
+            "${DIR_LIST[@]}"
 
       - name: Generate Normalized Report
         shell: bash
@@ -907,10 +913,10 @@ jobs:
         include:
           - label: macos-x86_64
             runner: macos-15-intel
-            gen: "13"  # 10-13 min per million items measured at high
+            gen: "16"  # min per million items: 10-13 measured at high, 13-19.5 at very-high
           - label: macos-arm64
             runner: macos-15
-            gen: "12"
+            gen: "13"  # 11.5-14.5 at very-high
     uses: ./.github/workflows/benchmark-sharded.yml
     with:
       label: ${{ matrix.label }}
@@ -920,9 +926,10 @@ jobs:
       fs_label: APFS
       share: false  # disk images on the macOS runners crawl (see benchmark-sharded.yml): every shard generates
       gen_min_per_million: ${{ matrix.gen }}
-      # the folders only, from a list made once; the first reset of a shard lists the tree
+      # the folders only (27-36 min per reset at very-high), from the list fs-mirage writes when it generates the tree:
+      # the first reset no longer lists the tree (that took 60-96 min there)
       reset_min_per_million: "3"
-      reset_once_min_per_million: "3"
+      reset_once_min_per_million: "0"
       # one scanner per shard at very-high: generating the tree takes ~2 h in every shard there (disk images on the
       # macOS runners crawl, nothing can be handed over), so a shard holds the anchor and one scanner at most
       max_shards: "10"
