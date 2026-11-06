@@ -2,9 +2,10 @@
 """
 Conflict-of-interest notice: this benchmark's author also writes one of the scanners it ranks (SpaceKnife).
 
-The scanners concerned carry "author_project": true in scanners_registry.json. README.md explains the conflict under
-"利益声明 · Conflict of interest" (a hand-written section above the generated ones); every generated README section that
-ranks scanners opens with notice(), and the scanner table marks them with table_note().
+The scanners concerned carry "author_project": true in scanners_registry.json. README.md says so in a short note under
+the title and explains it under "利益声明 · Conflict of interest" (hand-written, below the boards so the scores stay at
+the top); every generated README section that ranks scanners opens with notice(), and the scanner table marks them with
+table_note().
 """
 
 import json
@@ -25,7 +26,8 @@ def author_projects(registry: Path = REGISTRY) -> List[str]:
 
 
 def notice(registry: Path = REGISTRY) -> List[str]:
-    """Quoted Chinese and English lines for the top of a ranking (nothing when no scanner is marked)."""
+    """A quoted Chinese and English line for the top of a ranking (nothing when no scanner is marked); one paragraph,
+    so it takes little room above the scores."""
     names = author_projects(registry)
     if not names:
         return []
@@ -34,8 +36,7 @@ def notice(registry: Path = REGISTRY) -> List[str]:
     many = len(names) > 1
     return [
         f"> ⚖️ **利益声明**：{zh} 属于本基准作者的项目，作者从{'它们' if many else '它'}的排名中直接受益，"
-        f"详见[利益声明]({ANCHOR})。",
-        ">",
+        f"详见[利益声明]({ANCHOR})。<br>",
         f"> ⚖️ **Conflict of interest**: {en} {'belong' if many else 'belongs'} to a project of this benchmark's author, "
         f"who benefits directly from how {'they rank' if many else 'it ranks'}; see [Conflict of interest]({ANCHOR}).",
         "",
