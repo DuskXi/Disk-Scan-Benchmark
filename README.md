@@ -14,8 +14,8 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 <!-- COMMUNITY-ENTRY:START -->
 
-> 🖥️ **真实盘成绩 · Real drives**：除了 CI 上的合成数据，这里还有在真实硬盘上跑出的成绩，已收录 1 份提交、2 块盘。目前收录的这份成绩来自本基准作者自己的电脑：2 块 ReFS 数据盘（已使用约 3–4 年），都是日常在用的盘。[看榜单](#real-drives) · [每块盘的全部数据](community/README.md) · [提交你的成绩](docs/LOCAL_SUITE.md)<br>
-> Besides the synthetic CI data: results on real drives, 1 submissions on 2 drives so far. The only submission so far comes from this benchmark's author's own machine: 2 ReFS data drives in use for about 3–4 years, all of them in daily use. [Board](#real-drives) · [every drive in full](community/README.md) · [submit yours](docs/LOCAL_SUITE.md)
+> 🖥️ **真实盘成绩 · Real drives**：除了 CI 上的合成数据，这里还有在真实硬盘上跑出的成绩，已收录 2 份提交、3 块盘。目前收录的成绩全部来自本基准作者自己的电脑：1 块 NTFS 系统盘（已使用约 1 年）、2 块 ReFS 数据盘（已使用约 3–4 年），都是日常在用的盘。[看榜单](#real-drives) · [每块盘的全部数据](community/README.md) · [提交你的成绩](docs/LOCAL_SUITE.md)<br>
+> Besides the synthetic CI data: results on real drives, 2 submissions on 3 drives so far. Both submissions so far come from this benchmark's author's own machine: 1 NTFS system drive in use for about 1 year, 2 ReFS data drives in use for about 3–4 years, all of them in daily use. [Board](#real-drives) · [every drive in full](community/README.md) · [submit yours](docs/LOCAL_SUITE.md)
 
 <!-- COMMUNITY-ENTRY:END -->
 
@@ -643,25 +643,25 @@ One size only: use `<scanner>-<size>.json` (e.g. `gdu-low.json`). For the MFT co
 > ⚖️ **利益声明**：SpaceKnife 和 SpaceKnife (Rust) 属于本基准作者的项目，作者从它们的排名中直接受益，详见[利益声明](#利益声明--conflict-of-interest)。<br>
 > ⚖️ **Conflict of interest**: SpaceKnife and SpaceKnife (Rust) belong to a project of this benchmark's author, who benefits directly from how they rank; see [Conflict of interest](#利益声明--conflict-of-interest).
 
-> ⚖️ 目前收录的这份成绩来自本基准作者自己的电脑：2 块 ReFS 数据盘（已使用约 3–4 年），都是日常在用的盘。<br>
-> ⚖️ The only submission so far comes from this benchmark's author's own machine: 2 ReFS data drives in use for about 3–4 years, all of them in daily use.
+> ⚖️ 目前收录的成绩全部来自本基准作者自己的电脑：1 块 NTFS 系统盘（已使用约 1 年）、2 块 ReFS 数据盘（已使用约 3–4 年），都是日常在用的盘。<br>
+> ⚖️ Both submissions so far come from this benchmark's author's own machine: 1 NTFS system drive in use for about 1 year, 2 ReFS data drives in use for about 3–4 years, all of them in daily use.
 
-来自 1 份提交、2 块真实硬盘。每块盘内先算相对分，再在所有盘上取几何平均；<mark>**高亮**</mark> 为该列最高分。**每份提交、每块盘的全部数据**见 [community/README.md](community/README.md)，提交方法见 [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md)。
+来自 2 份提交、3 块真实硬盘。每块盘内先算相对分，再在所有盘上取几何平均；<mark>**高亮**</mark> 为该列最高分。**每份提交、每块盘的全部数据**见 [community/README.md](community/README.md)，提交方法见 [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md)。
 
-From 1 submissions on 2 real drives. Each drive is scored on its own, then the scores are averaged geometrically over all drives; <mark>**highlighted**</mark> = best in its column. **Every submission and every drive in full**: [community/README.md](community/README.md); how to submit: [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md).
+From 2 submissions on 3 real drives. Each drive is scored on its own, then the scores are averaged geometrically over all drives; <mark>**highlighted**</mark> = best in its column. **Every submission and every drive in full**: [community/README.md](community/README.md); how to submit: [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md).
 
 | 名次<br>Rank | 扫描器<br>Scanner | 综合分<br>Score | 冷扫分<br>Cold | 热扫分<br>Warm | 均衡分<br>Balanced | 盘数<br>Drives |
 | :---: | :--- | ---: | ---: | ---: | ---: | ---: |
-| 🥇 | **SpaceKnife** | <mark>**90.9**</mark> | 86.0 | <mark>**93.2**</mark> | 93.7 | 2 |
-| 🥈 | **dua-cli** | 83.9 | <mark>**99.7**</mark> | 60.1 | <mark>**98.7**</mark> | 2 |
-| 🥉 | **gdu** | 70.6 | 98.8 | 39.3 | 90.4 | 2 |
-| 4 | **SquirrelDisk** | 45.0 | 27.0 | 55.6 | 60.8 | 2 |
-| 5 | **WizTree** | 25.7 | 21.5 | 15.8 | 49.9 | 2 |
-| 6 | **WinDirStat** | 13.7 | 10.1 | 7.4 | 34.3 | 2 |
-| 7 | **pdu** | 7.8 | 9.2 | 2.7 | 19.4 | 2 |
-| 8 | **dust** | 7.6 | 9.6 | 2.4 | 19.6 | 2 |
-| 9 | **diskus** | 6.7 | 7.7 | 2.3 | 17.5 | 2 |
-| 10 | **erdtree** | 3.3 | 3.8 | 0.9 | 11.5 | 2 |
+| 🥇 | **SpaceKnife** | <mark>**87.4**</mark> | 90.4 | <mark>**85.1**</mark> | <mark>**86.6**</mark> | 3 |
+| 🥈 | **dua-cli** | 80.8 | <mark>**92.0**</mark> | 69.6 | 82.4 | 3 |
+| 🥉 | **gdu** | 57.8 | 59.0 | 53.7 | 60.9 | 3 |
+| 4 | **SquirrelDisk** | 49.6 | 35.8 | 55.3 | 61.8 | 3 |
+| 5 | **WizTree** | 34.1 | 27.6 | 22.9 | 62.9 | 3 |
+| 6 | **WinDirStat** | 15.5 | 11.5 | 10.4 | 31.4 | 3 |
+| 7 | **dust** | 6.9 | 8.7 | 2.9 | 13.0 | 3 |
+| 8 | **pdu** | 6.5 | 7.5 | 2.8 | 12.9 | 3 |
+| 9 | **diskus** | 5.8 | 6.6 | 2.7 | 11.2 | 3 |
+| 10 | **erdtree** | 3.2 | 3.6 | 1.2 | 7.4 | 3 |
 
 <sub>分数在每块盘内计算：冷扫分、热扫分 = 这块盘上最快的用时 ÷ 自己的用时 × 100；均衡分同时看冷扫的墙钟时间和占用的 CPU、读盘资源（与 CI 榜单的均衡指数同一公式，只用冷扫这一次），= 这块盘上最好的均衡时间 ÷ 自己的 × 100；综合分 = 三者的几何平均。多块盘时每项先在各盘之间取几何平均，再算综合分；不同盘的原始用时从不直接比较。没能清缓存的盘只算热扫分。<br><br>Scores are computed per drive: cold and warm = the drive's fastest time / own x 100; balanced weighs the cold scan's wall time with the CPU and disk reads it used (the CI boards' balanced index, from the cold scan only) = the drive's best balanced time / own x 100; score = geometric mean of the three. Over several drives each part is first averaged geometrically across them, then combined; raw times are never compared across drives. Drives whose cache could not be purged count for the warm score only.</sub>
 

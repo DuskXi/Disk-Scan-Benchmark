@@ -1,0 +1,194 @@
+{
+ "schema": "dsb-local-2",
+ "suite": "3a0708e",
+ "date": "2026-10-27",
+ "machine": {
+  "os": "windows",
+  "os_version": "Windows 11 26H2 (build 26300.9711)",
+  "arch": "x86_64",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "physical_cores": 24,
+  "logical_cores": 32,
+  "ram_gb": 64
+ },
+ "by_author": true,
+ "volumes": [
+  {
+   "system_drive": true,
+   "in_use_years": 1,
+   "fs": "ntfs",
+   "kind": "nvme_ssd",
+   "media": "ssd",
+   "bus": "nvme",
+   "link": "PCIe 4.0 x4",
+   "disk_model": "ZHITAI TiPro9000 4TB",
+   "rand_read_iops": 479609,
+   "size_gb": 4100.0,
+   "used_gb": 3040.0,
+   "items_k": 8050,
+   "cold_purged": true,
+   "results": [
+    {
+     "scanner": "gdu",
+     "version": "5.38.0",
+     "cold_ms": 112654.1,
+     "warm_ms": 18788.1,
+     "warm_runs_ms": [
+      18693.7,
+      18622.3,
+      19048.4
+     ],
+     "peak_rss_mb": 82.8,
+     "cpu_s": 401.89,
+     "reads": 1857687,
+     "size_gb": 3093.2,
+     "files_k": 0.0
+    },
+    {
+     "scanner": "dua",
+     "version": "2.46.0",
+     "cold_ms": 30288.2,
+     "warm_ms": 20174.0,
+     "warm_runs_ms": [
+      24198.2,
+      17976.9,
+      18347.0
+     ],
+     "peak_rss_mb": 324.7,
+     "cpu_s": 355.0,
+     "reads": 1482772,
+     "size_gb": 3012.7,
+     "files_k": 0.0
+    },
+    {
+     "scanner": "dust",
+     "version": "1.2.6",
+     "cold_ms": 326065.0,
+     "warm_ms": 435938.8,
+     "warm_runs_ms": [
+      388590.5,
+      431732.2,
+      487493.7
+     ],
+     "peak_rss_mb": 3071.7,
+     "cpu_s": 4036.7,
+     "reads": 2864885,
+     "size_gb": 3188.6,
+     "files_k": 0.0
+    },
+    {
+     "scanner": "wiztree",
+     "version": "4.33",
+     "cold_ms": 52644.8,
+     "warm_ms": 38628.6,
+     "warm_runs_ms": [
+      39465.8,
+      38039.5,
+      38380.5
+     ],
+     "peak_rss_mb": 4324.0,
+     "cpu_s": 58.48,
+     "reads": 408467,
+     "size_gb": 3178.1,
+     "files_k": 7950.5
+    },
+    {
+     "scanner": "windirstat",
+     "version": "2.9.3",
+     "cold_ms": 157756.5,
+     "warm_ms": 93169.7,
+     "warm_runs_ms": [
+      112939.1,
+      116349.6,
+      50220.5
+     ],
+     "peak_rss_mb": 2057.5,
+     "cpu_s": 333.62,
+     "reads": 1272865,
+     "size_gb": 3169.5,
+     "files_k": 8050.5
+    },
+    {
+     "scanner": "spaceknife",
+     "version": "0.3.4 (release run 40255561003, d50a09b)",
+     "cold_ms": 23762.4,
+     "warm_ms": 26418.8,
+     "warm_runs_ms": [
+      23754.5,
+      27030.6,
+      28471.2
+     ],
+     "peak_rss_mb": 1291.0,
+     "cpu_s": 275.97,
+     "reads": 1067847,
+     "size_gb": 3188.6,
+     "files_k": 8053.1
+    },
+    {
+     "scanner": "squirreldisk",
+     "version": "2.6.1",
+     "cold_ms": 37805.6,
+     "warm_ms": 34423.7,
+     "warm_runs_ms": [
+      40231.3,
+      42797.7,
+      20242.1
+     ],
+     "peak_rss_mb": 201.5,
+     "cpu_s": 192.34,
+     "reads": 1512428,
+     "size_gb": 3150.8,
+     "files_k": 8053.1
+    },
+    {
+     "scanner": "pdu",
+     "version": "0.24.0",
+     "cold_ms": 479472.3,
+     "warm_ms": 604445.5,
+     "warm_runs_ms": [
+      607771.5,
+      553325.3,
+      652239.8
+     ],
+     "peak_rss_mb": 27.2,
+     "cpu_s": 2770.08,
+     "reads": 2888142,
+     "size_gb": 3175.3,
+     "files_k": 0.0
+    },
+    {
+     "scanner": "diskus",
+     "version": "0.9.0",
+     "cold_ms": 494546.6,
+     "warm_ms": 507888.0,
+     "warm_runs_ms": [
+      549879.3,
+      530019.2,
+      443765.6
+     ],
+     "peak_rss_mb": 163.2,
+     "cpu_s": 4171.98,
+     "reads": 2812783,
+     "size_gb": 3173.6,
+     "files_k": 0.0
+    },
+    {
+     "scanner": "erdtree",
+     "version": "3.1.2",
+     "cold_ms": 696005.1,
+     "warm_ms": 731024.0,
+     "warm_runs_ms": [
+      655700.6,
+      786201.7,
+      751169.7
+     ],
+     "peak_rss_mb": 9955.2,
+     "cpu_s": 6854.06,
+     "reads": 3232407,
+     "size_gb": 3546.4,
+     "files_k": 8040.6
+    }
+   ]
+  }
+ ]
+}
