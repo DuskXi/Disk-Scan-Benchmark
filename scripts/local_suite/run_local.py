@@ -16,16 +16,18 @@ confirmation. See docs/LOCAL_SUITE.md.
 import argparse
 import ctypes
 import datetime as dt
+import getpass
 import json
 import os
 import re
 import shutil
+import socket
 import statistics
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
@@ -34,6 +36,7 @@ sys.path.insert(0, str(HERE))
 
 from hwinfo import clean_text, disk_info, os_detail, physical_cores  # noqa: E402
 from run_cli_scanners import detect_os_arch  # noqa: E402
+from scoring import SCORING_NOTE, drive_line, drive_table, ranking, ranking_table  # noqa: E402
 from submission_schema import FS_VALUES, SCHEMA, validate  # noqa: E402
 
 RUNNER = REPO / "scripts" / "wrappers" / "run_cli_scanners.py"
@@ -239,19 +242,7 @@ def to_results(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return results
 
 
-KIND_LABEL = {
-    "nvme_ssd": "NVMe SSD",
-    "sata_ssd": "SATA SSD",
-    "sata_hdd": "SATA HDD",
-    "sas_ssd": "SAS SSD",
-    "sas_hdd": "SAS HDD",
-    "usb_ssd": "USB SSD",
-    "usb_hdd": "USB HDD",
-    "virtual": "虚拟盘",
-}
-
-
-def render_preview(sub: Dict[str, Any], warnings: List[str]) -> str:
+def render_preview(sub: Dict[str, Any], warnings: List[str], names: Dict[str, str]) -> str:
     m = sub["machine"]
     cores = f"{m.get('physical_cores') or '?'} 核 / {m['logical_cores']} 线程"
     lines = [
@@ -260,25 +251,49 @@ def render_preview(sub: Dict[str, Any], warnings: List[str]) -> str:
         f"系统：{m['os_version']}（{m['arch']}）· 套件版本 `{sub['suite']}` · {sub['date']}",
         "",
     ]
-    for i, v in enumerate(sub["volumes"], start=1):
-        cold_note = "" if v["cold_purged"] else "（未能清缓存：冷扫实为热扫）"
-        iops = f"{v['rand_read_iops']:,} IOPS" if v.get("rand_read_iops") else "IOPS 未测"
-        lines += [
-            f"**盘 {i}**：{v['fs']} · {KIND_LABEL.get(v['kind'], v['kind'])} · {v['link']} · {v['disk_model']} · "
-            f"{iops} · {v['used_gb']}/{v['size_gb']} GB · 约 {v['items_k']}k 项{cold_note}",
-            "",
-            "| 扫描器 | 冷扫 (s) | 热扫 (s) | 峰值内存 (MB) | 报告大小 (GB) |",
-            "| :--- | ---: | ---: | ---: | ---: |",
-        ]
-        for r in sorted(v["results"], key=lambda r: r["cold_ms"]):
-            lines.append(
-                f"| {r['scanner']} | {r['cold_ms'] / 1000:.2f} | {r['warm_ms'] / 1000:.2f} | {r['peak_rss_mb']:.0f} "
-                f"| {r['size_gb']} |"
-            )
-        lines.append("")
+    drives = [(v, int(m["logical_cores"])) for v in sub["volumes"]]
+    if len(drives) > 1:
+        lines += [f"**{len(drives)} 块盘综合**", ""] + ranking_table(ranking(drives), names) + [""]
+    for i, (v, n) in enumerate(drives, start=1):
+        lines += [drive_line(i, v), ""] + drive_table(v, n, names) + [""]
+    lines += [f"<sub>{SCORING_NOTE}</sub>", ""]
     if warnings:
         lines += ["> [!WARNING]"] + [f"> {w}" for w in warnings] + [""]
     return "\n".join(lines)
+
+
+def strings(obj: Any) -> Iterator[str]:
+    """Every key and text value in the submission."""
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield str(k)
+            yield from strings(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from strings(v)
+
+
+# a drive letter, a UNC share, a home folder or a mount point
+PATH_LIKE = re.compile(r"[A-Za-z]:[\\/]|\\\\|/home/|/Users/|/mnt/|/media/|/Volumes/|~[\\/]")
+
+
+def privacy_leaks(sub: Dict[str, Any], targets: List[str]) -> List[str]:
+    """
+    A last check before anything is written or sent: no text in the submission may hold this machine's user or host
+    name, a scanned folder's name, or anything that looks like a path. The schema already allows no such field and no
+    separators in hardware names; this catches what a future field or an odd vendor string could slip in.
+    """
+    words = {getpass.getuser(), socket.gethostname(), Path.home().name}
+    words |= {Path(t).name for t in targets} | {Path(t).resolve().name for t in targets}
+    found_words = {w.lower() for w in words if w and len(w) >= 3}
+    found = []
+    for text in strings(sub):
+        hits = sorted(w for w in found_words if w in text.lower())
+        if hits or PATH_LIKE.search(text):
+            found.append(f"{text!r} 含有 {'、'.join(hits) if hits else '像路径的文字'}")
+    return found
 
 
 def submit(sub: Dict[str, Any], preview: str, repo: str, out_dir: Path) -> None:
@@ -385,8 +400,13 @@ def main() -> int:
         "volumes": volumes,
     }
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    leaks = privacy_leaks(sub, args.target)
+    if leaks:
+        print("\n这份数据里有可能泄露个人信息的文字，已停止，没有写入或提交任何内容：\n  " + "\n  ".join(leaks))
+        return 1
     errors, warnings = validate(sub, {s["id"] for s in registry["scanners"]})
-    preview = render_preview(sub, warnings)
+    names = {s["id"]: s.get("display_name", s["name"]) for s in registry["scanners"]}
+    preview = render_preview(sub, warnings, names)
     (out_dir / "submission.json").write_text(json.dumps(sub, ensure_ascii=False, indent=1), encoding="utf-8")
     (out_dir / "submission.md").write_text(preview, encoding="utf-8")
     print("\n" + preview)

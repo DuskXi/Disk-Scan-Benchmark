@@ -12,7 +12,6 @@ The issue body is only ever parsed as JSON here; nothing from it reaches a shell
 
 import argparse
 import json
-import math
 import re
 import sys
 from pathlib import Path
@@ -24,6 +23,15 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 
 from disclosure import notice  # noqa: E402
+from scoring import (  # noqa: E402
+    KIND_LABEL,
+    SCORING_NOTE,
+    SCORING_NOTE_EN,
+    drive_line,
+    drive_table,
+    ranking,
+    ranking_table,
+)
 from submission_schema import validate  # noqa: E402
 
 SUBMISSIONS = REPO / "community" / "submissions"
@@ -31,7 +39,6 @@ REGISTRY = REPO / "scripts" / "wrappers" / "scanners_registry.json"
 README = REPO / "README.md"
 COMMUNITY_README = REPO / "community" / "README.md"
 START, END = "<!-- COMMUNITY:START -->", "<!-- COMMUNITY:END -->"
-MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 
 def scanner_names() -> Dict[str, str]:
@@ -77,12 +84,7 @@ def load_event(path: str) -> Dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-# --- community board ---
-
-
-def geomean(values: List[float]) -> Optional[float]:
-    vals = [v for v in values if v and v > 0]
-    return math.exp(sum(math.log(v) for v in vals) / len(vals)) if vals else None
+# --- community board (README) and the full page (community/README.md) ---
 
 
 def load_submissions() -> List[Tuple[str, Dict[str, Any]]]:
@@ -91,40 +93,23 @@ def load_submissions() -> List[Tuple[str, Dict[str, Any]]]:
     return [(p.stem, json.loads(p.read_text(encoding="utf-8"))) for p in sorted(SUBMISSIONS.glob("*.json"))]
 
 
+def all_drives(subs: List[Tuple[str, Dict[str, Any]]]) -> List[Tuple[Dict[str, Any], int]]:
+    """Every submitted drive with the logical core count of its machine (the balanced score needs it)."""
+    return [(v, int(sub["machine"]["logical_cores"])) for _, sub in subs for v in sub["volumes"]]
+
+
 def board(subs: List[Tuple[str, Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    """Per scanner: geometric mean over all submitted volumes of its score relative to the volume's best."""
-    per: Dict[str, Dict[str, List[float]]] = {}
-    for _, sub in subs:
-        for vol in sub["volumes"]:
-            res = vol["results"]
-            best_warm = min(r["warm_ms"] for r in res)
-            best_cold = min(r["cold_ms"] for r in res) if vol["cold_purged"] else None
-            for r in res:
-                entry = per.setdefault(r["scanner"], {"cold": [], "warm": [], "vols": []})
-                entry["warm"].append(best_warm / r["warm_ms"] * 100)
-                if best_cold:
-                    entry["cold"].append(best_cold / r["cold_ms"] * 100)
-                entry["vols"].append(1)
-    rows: List[Dict[str, Any]] = []
-    for sid, e in per.items():
-        cold, warm = geomean(e["cold"]), geomean(e["warm"])
-        rows.append(
-            {
-                "id": sid,
-                "cold": cold,
-                "warm": warm,
-                "score": geomean([v for v in (cold, warm) if v]),
-                "volumes": len(e["vols"]),
-            }
-        )
-    rows.sort(key=lambda r: -float(r["score"] or 0))
-    for i, r in enumerate(rows, start=1):
-        r["rank"] = i
-    return rows
+    """Per scanner: each score averaged geometrically over the drives it ran on, then combined (scoring.py)."""
+    return ranking(all_drives(subs))
+
+
+def submission_link(stem: str, repo: str) -> str:
+    issue = stem.replace("issue-", "")
+    return f"[#{issue}](https://github.com/{repo}/issues/{issue})" if stem.startswith("issue-") else stem
 
 
 def render_board(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> List[str]:
-    names = scanner_names()
+    """The README's entry: the overall ranking of all real drives, with the full data one link away."""
     lines = [START, "", "## 🖥️ 社区真实盘成绩 · Community results on real drives", ""]
     if not subs:
         lines += [
@@ -139,72 +124,80 @@ def render_board(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> List[str]
     n_vols = sum(len(s["volumes"]) for _, s in subs)
     lines += notice(REGISTRY)  # this benchmark's author also writes some of the scanners it ranks
     lines += [
-        f"来自 {len(subs)} 份提交、{n_vols} 块真实硬盘。每块盘内先算相对分（该盘最快 ÷ 自己 × 100），再在所有盘上取几何平均；"
-        "没能清缓存的盘只计热扫；<mark>**高亮**</mark> 为该列最高分。提交方法见 [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md)，"
-        "每块盘的明细见 [community/README.md](community/README.md)。",
+        f"来自 {len(subs)} 份提交、{n_vols} 块真实硬盘。每块盘内先算相对分，再在所有盘上取几何平均；"
+        "<mark>**高亮**</mark> 为该列最高分。**每份提交、每块盘的全部数据**见 "
+        "[community/README.md](community/README.md)，提交方法见 [docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md)。",
         "",
-        f"From {len(subs)} submissions on {n_vols} real drives. Each drive is scored relative to its own fastest scanner "
-        "(fastest / own x 100), then averaged geometrically over all drives; drives whose cache could not be purged count "
-        "for warm scans only; <mark>**highlighted**</mark> = best in its column. How to submit: "
-        "[docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md); per-drive details: "
-        "[community/README.md](community/README.md).",
+        f"From {len(subs)} submissions on {n_vols} real drives. Each drive is scored on its own, then the scores are "
+        "averaged geometrically over all drives; <mark>**highlighted**</mark> = best in its column. **Every submission "
+        "and every drive in full**: [community/README.md](community/README.md); how to submit: "
+        "[docs/LOCAL_SUITE.md](docs/LOCAL_SUITE.md).",
         "",
-        "| 名次<br>Rank | 扫描器<br>Scanner | **综合分**<br>**Score** | 冷扫<br>Cold | 热扫<br>Warm | 测过的盘<br>Drives |",
-        "| :---: | :--- | ---: | ---: | ---: | ---: |",
     ]
-    rows = board(subs)
-
-    def fmt(v: Optional[float]) -> str:
-        return "-" if v is None else f"{v:.1f}"
-
-    # the best value of each score column in bold (ties as shown all count)
-    best = {
-        k: max((fmt(r[k]) for r in rows if r[k] is not None), key=float, default="") for k in ("score", "cold", "warm")
-    }
-
-    def cell(r: Dict[str, Any], key: str) -> str:
-        text = fmt(r[key])
-        return f"<mark>**{text}**</mark>" if r[key] is not None and text == best[key] else text
-
-    for r in rows:
-        lines.append(
-            f"| {MEDALS.get(r['rank'], str(r['rank']))} | **{names.get(r['id'], r['id'])}** | {cell(r, 'score')} "
-            f"| {cell(r, 'cold')} | {cell(r, 'warm')} | {r['volumes']} |"
-        )
-    lines += ["", END]
+    lines += ranking_table(board(subs), scanner_names(), bi=True)
+    lines += ["", f"<sub>{SCORING_NOTE}<br><br>{SCORING_NOTE_EN}</sub>", "", END]
     return lines
 
 
 def render_details(subs: List[Tuple[str, Dict[str, Any]]], repo: str) -> str:
+    """Every accepted submission, newest first, each drive with every scanner's scores and measured numbers."""
     names = scanner_names()
-    lines = ["# 社区真实盘成绩明细", "", "由 `scripts/local_suite/community.py render` 生成，请勿手改。", ""]
+    lines = [
+        "# 社区真实盘成绩 · Community results on real drives",
+        "",
+        "由 `scripts/local_suite/community.py render` 生成，请勿手改。[返回 README](../README.md) · "
+        "[怎样提交](../docs/LOCAL_SUITE.md)",
+        "",
+        "大家用[本地基准套件](../docs/LOCAL_SUITE.md)在自己的硬盘上跑出的成绩，经维护者核对后收录在这里。"
+        "提交里只有数字、扫描器版本、系统版本、CPU 和硬盘型号、文件系统与盘的类型，没有路径、文件夹名、文件名、盘符、卷标、"
+        "计算机名或用户名：套件只复制白名单里的字段并在提交前自查，收录前工作流再按同一份白名单校验。",
+        "",
+        "Results from the [local suite](../docs/LOCAL_SUITE.md) on contributors' own drives, accepted after a "
+        "maintainer's check. A submission holds numbers, versions, the OS version, CPU and drive models, filesystem and "
+        "drive type, and nothing else: no paths, folder or file names, drive letters, volume labels, computer or user "
+        "names.",
+        "",
+    ]
+    if not subs:
+        return "\n".join(lines + ["_还没有社区提交 · No submissions yet._", ""]) + "\n"
+    lines += notice(REGISTRY, "../README.md")
+    drives = all_drives(subs)
+    lines += [f"## 综合排名 · Overall（{len(subs)} 份提交、{len(drives)} 块盘）", ""]
+    lines += ranking_table(board(subs), names) + ["", f"<sub>{SCORING_NOTE}<br><br>{SCORING_NOTE_EN}</sub>", ""]
+
+    # one row per drive, linking to its submission below
+    lines += [
+        "## 所有盘 · All drives",
+        "",
+        "| 提交 | CPU | 文件系统 | 类型 | 型号 | 随机读 IOPS | 项数 | 本盘第一 |",
+        "| :--- | :--- | :--- | :--- | :--- | ---: | ---: | :--- |",
+    ]
+    for stem, sub in reversed(subs):
+        for i, v in enumerate(sub["volumes"], start=1):
+            top = ranking([(v, int(sub["machine"]["logical_cores"]))])[0]
+            iops = f"{v['rand_read_iops']:,}" if v.get("rand_read_iops") else "-"
+            lines.append(
+                f"| {submission_link(stem, repo)} 盘 {i} | {sub['machine']['cpu']} | {v['fs']} | "
+                f"{KIND_LABEL.get(v['kind'], v['kind'])} | {v['disk_model']} | {iops} | {v['items_k']:,}k | "
+                f"{names.get(top['id'], top['id'])} |"
+            )
+    lines.append("")
+
     for stem, sub in reversed(subs):
         m = sub["machine"]
-        issue = stem.replace("issue-", "")
-        link = f"[#{issue}](https://github.com/{repo}/issues/{issue})" if stem.startswith("issue-") else stem
-        cores = f"{m.get('physical_cores') or '?'} 核 / {m['logical_cores']} 线程"
+        cores = int(m["logical_cores"])
         lines += [
-            f"## {link} · {m['cpu']} · {cores} · {m['ram_gb']} GB · {m['os_version']}",
+            f"## {submission_link(stem, repo)} · {m['cpu']} · {m.get('physical_cores') or '?'} 核 / {cores} 线程 · "
+            f"{m['ram_gb']} GB · {m['os_version']}",
             "",
-            f"提交日期 {sub['date']}，套件版本 `{sub['suite']}`。",
+            f"提交日期 {sub['date']}，套件版本 `{sub['suite']}`，{len(sub['volumes'])} 块盘。",
             "",
         ]
+        if len(sub["volumes"]) > 1:
+            lines += ["**这份提交的综合**", ""]
+            lines += ranking_table(ranking([(v, cores) for v in sub["volumes"]]), names) + [""]
         for i, v in enumerate(sub["volumes"], start=1):
-            note = "" if v["cold_purged"] else "（未能清缓存：冷扫实为热扫）"
-            iops = f"{v['rand_read_iops']:,} IOPS" if v.get("rand_read_iops") else "IOPS 未测"
-            lines += [
-                f"**盘 {i}**：{v['fs']} · {v.get('kind', v['media'])} · {v.get('link', v['bus'])} · {v['disk_model']} · "
-                f"{iops} · {v['used_gb']}/{v['size_gb']} GB · 约 {v['items_k']}k 项{note}",
-                "",
-                "| 扫描器 | 版本 | 冷扫 (s) | 热扫 (s) | 峰值内存 (MB) | 报告大小 (GB) |",
-                "| :--- | :--- | ---: | ---: | ---: | ---: |",
-            ]
-            for r in sorted(v["results"], key=lambda r: r["cold_ms"]):
-                lines.append(
-                    f"| {names.get(r['scanner'], r['scanner'])} | `{r['version']}` | {r['cold_ms'] / 1000:.2f} "
-                    f"| {r['warm_ms'] / 1000:.2f} | {r['peak_rss_mb']:.0f} | {r['size_gb']} |"
-                )
-            lines.append("")
+            lines += [drive_line(i, v), ""] + drive_table(v, cores, names) + [""]
     return "\n".join(lines) + "\n"
 
 

@@ -25,20 +25,21 @@ def author_projects(registry: Path = REGISTRY) -> List[str]:
     return [s.get("display_name", s["name"]) for s in data.get("scanners", []) if s.get("author_project")]
 
 
-def notice(registry: Path = REGISTRY) -> List[str]:
+def notice(registry: Path = REGISTRY, readme: str = "") -> List[str]:
     """A quoted Chinese and English line for the top of a ranking (nothing when no scanner is marked); one paragraph,
     so it takes little room above the scores."""
     names = author_projects(registry)
     if not names:
         return []
+    link = readme + ANCHOR  # readme: the path to README.md from a page elsewhere, e.g. "../README.md"
     zh = "、".join(names[:-1]) + " 和 " + names[-1] if len(names) > 1 else names[0]
     en = ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]
     many = len(names) > 1
     return [
         f"> ⚖️ **利益声明**：{zh} 属于本基准作者的项目，作者从{'它们' if many else '它'}的排名中直接受益，"
-        f"详见[利益声明]({ANCHOR})。<br>",
+        f"详见[利益声明]({link})。<br>",
         f"> ⚖️ **Conflict of interest**: {en} {'belong' if many else 'belongs'} to a project of this benchmark's author, "
-        f"who benefits directly from how {'they rank' if many else 'it ranks'}; see [Conflict of interest]({ANCHOR}).",
+        f"who benefits directly from how {'they rank' if many else 'it ranks'}; see [Conflict of interest]({link}).",
         "",
     ]
 
