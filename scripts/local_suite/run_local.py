@@ -36,7 +36,7 @@ sys.path.insert(0, str(HERE))
 
 from hwinfo import clean_text, disk_info, os_detail, physical_cores  # noqa: E402
 from run_cli_scanners import detect_os_arch  # noqa: E402
-from scoring import SCORING_NOTE, drive_line, drive_table, ranking, ranking_table  # noqa: E402
+from scoring import SCORING_NOTE, author_note, drive_line, drive_table, ranking, ranking_table  # noqa: E402
 from submission_schema import FS_VALUES, SCHEMA, validate  # noqa: E402
 
 RUNNER = REPO / "scripts" / "wrappers" / "run_cli_scanners.py"
@@ -251,6 +251,7 @@ def render_preview(sub: Dict[str, Any], warnings: List[str], names: Dict[str, st
         f"系统：{m['os_version']}（{m['arch']}）· 套件版本 `{sub['suite']}` · {sub['date']}",
         "",
     ]
+    lines += author_note(sub, "https://github.com/DuskXi/Disk-Scan-Benchmark#利益声明--conflict-of-interest")
     drives = [(v, int(m["logical_cores"])) for v in sub["volumes"]]
     if len(drives) > 1:
         lines += [f"**{len(drives)} 块盘综合**", ""] + ranking_table(ranking(drives), names) + [""]
@@ -260,6 +261,25 @@ def render_preview(sub: Dict[str, Any], warnings: List[str], names: Dict[str, st
     if warnings:
         lines += ["> [!WARNING]"] + [f"> {w}" for w in warnings] + [""]
     return "\n".join(lines)
+
+
+def is_system_drive(os_key: str, target: str) -> bool:
+    """Whether the OS runs from the drive that holds `target` (only the answer is kept, never the path)."""
+    try:
+        if os_key == "windows":
+            system = os.environ.get("SystemDrive", "C:").rstrip("\\/").lower()
+            return Path(target).resolve().drive.lower() == system
+        return os.stat(target).st_dev == os.stat("/").st_dev
+    except OSError:
+        return False
+
+
+def parse_years(text: str) -> Any:
+    """'1' -> 1, '3-4' -> [3, 4] (in_use_years)."""
+    lo, _, hi = text.replace("–", "-").partition("-")
+    nums = [float(x) for x in (lo, hi) if x.strip()]
+    vals = [int(x) if x.is_integer() else x for x in nums]
+    return vals[0] if len(vals) == 1 else vals
 
 
 def strings(obj: Any) -> Iterator[str]:
@@ -336,6 +356,17 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=3600, help="Seconds allowed per scan")
     ap.add_argument("--no-cold", action="store_true", help="Skip the cache purge (warm-only results)")
     ap.add_argument("--no-iops", action="store_true", help="Skip the random-read IOPS test (writes 1 GB per drive)")
+    ap.add_argument(
+        "--drive-years",
+        action="append",
+        default=[],
+        help="How long each --target's drive has been in use, in years, in --target order (e.g. 1 or 3-4; optional)",
+    )
+    ap.add_argument(
+        "--by-author",
+        action="store_true",
+        help="Only for this benchmark's author: marks the results as theirs (one of their tools is ranked)",
+    )
     ap.add_argument("--submit", action="store_true", help="After review, open a GitHub issue with the submission")
     ap.add_argument("--yes", action="store_true", help="Do not ask for confirmation (declaration and submission)")
     ap.add_argument("--repo", default="DuskXi/Disk-Scan-Benchmark")
@@ -353,8 +384,15 @@ def main() -> int:
     subprocess.run([sys.executable, str(RUNNER), "--install-only", "--bin-dir", args.bin_dir], check=False)
     probe = None if args.no_iops else hw_probe_binary(os_key)
 
+    if len(args.drive_years) > len(args.target):
+        ap.error("--drive-years: at most one per --target")
+    try:
+        years = [parse_years(y) for y in args.drive_years]
+    except ValueError:
+        ap.error("--drive-years: a number of years or a range such as 3-4")
+
     volumes: List[Dict[str, Any]] = []
-    for target in args.target:
+    for idx, target in enumerate(args.target):
         print(f"\n######## 第 {len(volumes) + 1} 个目标 ########")
         raw = run_scanners(target, args)
         results = to_results(raw)
@@ -364,8 +402,11 @@ def main() -> int:
         disk = disk_info(os_key, target)
         usage = shutil.disk_usage(target)
         counts = [r["files_k"] for r in results if r["files_k"] > 0]
+        age = {"in_use_years": years[idx]} if idx < len(years) else {}
         volumes.append(
             {
+                "system_drive": is_system_drive(os_key, target),
+                **age,
                 "fs": disk["fs"] if disk["fs"] in FS_VALUES else "other",
                 "kind": disk["kind"],
                 "media": disk["media"],
@@ -384,7 +425,7 @@ def main() -> int:
         print("[local] 没有任何有效成绩")
         return 1
 
-    sub = {
+    sub: Dict[str, Any] = {
         "schema": SCHEMA,
         "suite": suite_version(),
         "date": dt.date.today().isoformat(),
@@ -399,6 +440,8 @@ def main() -> int:
         },
         "volumes": volumes,
     }
+    if args.by_author:
+        sub["by_author"] = True
     registry = json.loads(REGISTRY.read_text(encoding="utf-8"))
     leaks = privacy_leaks(sub, args.target)
     if leaks:

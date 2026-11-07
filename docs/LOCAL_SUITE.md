@@ -37,6 +37,8 @@ sudo python3 scripts/local_suite/run_local.py --target /home --target /mnt/data
 | `--no-iops` | 不测 IOPS（不往盘里写测试文件） |
 | `--warm-runs 3` | 热扫次数 |
 | `--timeout 3600` | 单次扫描的超时秒数 |
+| `--drive-years 1 --drive-years 3-4` | 每块盘大约用了几年，按 `--target` 的顺序，可以写范围（可选；榜单会注明每块盘的年头） |
+| `--by-author` | 仅限本基准作者：把成绩标为作者自己的电脑（作者的 SpaceKnife 也在榜上，见 README 的利益声明） |
 | `--submit` | 跑完、你确认后，直接提交成 GitHub Issue |
 | `--yes` | 跳过所有确认（声明和提交） |
 
@@ -88,6 +90,8 @@ sudo python3 scripts/local_suite/run_local.py --target /home --target /mnt/data
 | 每块盘的文件系统和硬盘型号 | `ntfs`、`TOPMORE Aquarius` | 只有型号，没有序列号 |
 | 每块盘的容量和已用空间 | `2050`、`930` | 按 GB 取整（100 GB 以上取整到 10 GB） |
 | 每块盘的大致项数 | `1609`（千项） | 各扫描器报告的文件数的中位数 |
+| 每块盘是不是系统盘 | `true` / `false` | 只记是或否，自动判断 |
+| 每块盘大约用了几年 | `1`、`[3, 4]` | 只有用了 `--drive-years` 才有 |
 | 每个扫描器的成绩 | 冷扫 / 热扫毫秒数、峰值内存、CPU 时间、读盘次数、报告的总大小和文件数 | |
 | 套件版本和日期 | `36e418b`、`2026-10-25` | |
 

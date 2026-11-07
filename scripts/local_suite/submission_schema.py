@@ -55,9 +55,16 @@ VERSION_RE = re.compile(r"^[A-Za-z0-9 ()._+,-]{1,64}$")
 OS_VERSION_RE = re.compile(r"^[A-Za-z0-9 ()._+,-]{1,96}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-TOP_KEYS = {"schema", "suite", "date", "machine", "volumes"}
+# Optional context, never free text: "by_author" (the submitter is this benchmark's author, whose own tool is ranked:
+# see the README's conflict-of-interest section), and per drive "system_drive" (the OS runs from it) and "in_use_years"
+# (how long it has been in use, the submitter's estimate: a number or a [low, high] range). A drive in daily use for
+# years is the point of real-drive results, so the boards say how old each one is.
+TOP_KEYS = {"schema", "suite", "date", "machine", "volumes", "by_author"}
 MACHINE_KEYS = {"os", "os_version", "arch", "cpu", "physical_cores", "logical_cores", "ram_gb"}
+MAX_YEARS = 60
 VOLUME_KEYS = {
+    "system_drive",
+    "in_use_years",
     "fs",
     "kind",
     "media",
@@ -89,6 +96,13 @@ def _num(v: Any, lo: float, hi: float) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi
 
 
+def years_ok(v: Any) -> bool:
+    """in_use_years: a number of years, or a [low, high] range of them."""
+    if isinstance(v, list):
+        return len(v) == 2 and all(_num(x, 0, MAX_YEARS) for x in v) and v[0] <= v[1]
+    return _num(v, 0, MAX_YEARS)
+
+
 def validate(sub: Any, scanner_ids: Set[str]) -> Tuple[List[str], List[str]]:
     """Returns (errors, warnings). Any error rejects the submission."""
     errors: List[str] = []
@@ -108,6 +122,8 @@ def validate(sub: Any, scanner_ids: Set[str]) -> Tuple[List[str], List[str]]:
         errors.append("suite: missing or not a plain version string")
     if not isinstance(sub.get("date"), str) or not DATE_RE.match(sub.get("date", "")):
         errors.append("date must be YYYY-MM-DD")
+    if "by_author" in sub and not isinstance(sub["by_author"], bool):
+        errors.append("by_author must be true or false")
 
     m = sub.get("machine")
     if not isinstance(m, dict):
@@ -159,6 +175,10 @@ def validate(sub: Any, scanner_ids: Set[str]) -> Tuple[List[str], List[str]]:
                 errors.append(f"{where}.{key} out of range")
         if not isinstance(v.get("cold_purged"), bool):
             errors.append(f"{where}.cold_purged must be true or false")
+        if "system_drive" in v and not isinstance(v["system_drive"], bool):
+            errors.append(f"{where}.system_drive must be true or false")
+        if "in_use_years" in v and not years_ok(v["in_use_years"]):
+            errors.append(f"{where}.in_use_years must be 0 to {MAX_YEARS} years, or a [low, high] range of them")
         results = v.get("results")
         if not isinstance(results, list) or not results:
             errors.append(f"{where}.results: need at least one scanner result")

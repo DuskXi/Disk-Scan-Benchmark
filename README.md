@@ -6,11 +6,18 @@
 > 本基准的作者也是参赛工具 SpaceKnife 的作者，SpaceKnife 排名靠前作者直接受益，见[利益声明](#利益声明--conflict-of-interest)。<br>
 > This benchmark's author also wrote SpaceKnife, one of the scanners it ranks, and benefits when it ranks well: see [Conflict of interest](#利益声明--conflict-of-interest).
 
-[🏆 排行榜 Leaderboard](#-排行榜--leaderboard) · [⚖️ 利益声明 Conflict of interest](#利益声明--conflict-of-interest) · [📐 方法说明 Methodology](docs/METHODOLOGY.md) · [🧪 本地套件 Local suite](docs/LOCAL_SUITE.md) · [➕ 新增扫描器 Add a scanner](#新增扫描器--adding-a-scanner)
+[🏆 排行榜 Leaderboard](#-排行榜--leaderboard) · [🖥️ 真实盘成绩 Real drives](#real-drives) · [⚖️ 利益声明 Conflict of interest](#利益声明--conflict-of-interest) · [📐 方法说明 Methodology](docs/METHODOLOGY.md) · [🧪 本地套件 Local suite](docs/LOCAL_SUITE.md) · [➕ 新增扫描器 Add a scanner](#新增扫描器--adding-a-scanner)
 
 在 GitHub Actions 的免费 Runner 上（Linux、macOS、Windows，x86_64 与 ARM64，多种文件系统），用确定性生成的合成文件树（最多 900 万个文件，逻辑上几 TB、物理上只占几 GB）给主流磁盘空间扫描工具做冷扫和热扫计时，核对每个工具自己报告的结果是否完整，再按平台归一化，排出跨平台、跨体量的总榜。合成数据会模拟用了多年的磁盘布局；生成算法只按"像不像真实的盘"取舍，不看任何扫描器的表现。
 
 On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, several filesystems), mainstream disk-space scanners are timed on cold and warm scans of a deterministic synthetic tree (up to 9 million files, terabytes in logical size but only a few GB on disk). Each scanner's own output is checked for completeness, scores are normalized within each platform, and the results form one board across platforms and sizes. The test data imitates a drive that has been in use for years; generator choices are judged only by how closely they match real drives, never by how any scanner performs.
+
+<!-- COMMUNITY-ENTRY:START -->
+
+> 🖥️ **真实盘成绩 · Real drives**：还没有社区提交，欢迎用[本地套件](docs/LOCAL_SUITE.md)在自己的硬盘上跑一遍。<br>
+> No real-drive submissions yet: run the [local suite](docs/LOCAL_SUITE.md) on your own drives.
+
+<!-- COMMUNITY-ENTRY:END -->
 
 <!-- LEADERBOARD:START -->
 
@@ -628,6 +635,8 @@ One size only: use `<scanner>-<size>.json` (e.g. `gdu-low.json`). For the MFT co
 <!-- LEADERBOARD:END -->
 
 <!-- COMMUNITY:START -->
+
+<a id="real-drives"></a>
 
 ## 🖥️ 社区真实盘成绩 · Community results on real drives
 

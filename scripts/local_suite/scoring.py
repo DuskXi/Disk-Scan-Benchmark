@@ -108,14 +108,75 @@ KIND_LABEL = {
 }
 
 
+def years_text(v: Dict[str, Any]) -> str:
+    """'1' or '3–4' from in_use_years, '' when the submission does not say."""
+    y = v.get("in_use_years")
+    if isinstance(y, list):
+        return f"{y[0]:g}–{y[1]:g}" if y[0] != y[1] else f"{y[0]:g}"
+    return f"{y:g}" if isinstance(y, (int, float)) else ""
+
+
+def usage(v: Dict[str, Any], en: bool = False) -> str:
+    """What the drive is for and how long it has been in use ('系统盘，已使用约 1 年'), '' when not given."""
+    parts = []
+    if "system_drive" in v:
+        parts.append(
+            ("system drive" if v["system_drive"] else "data drive")
+            if en
+            else ("系统盘" if v["system_drive"] else "数据盘")
+        )
+    years = years_text(v)
+    if years:
+        unit = "year" if years == "1" else "years"
+        parts.append(f"in use for about {years} {unit}" if en else f"已使用约 {years} 年")
+    return (", " if en else "，").join(parts)
+
+
 def drive_line(i: int, v: Dict[str, Any]) -> str:
     """One drive's hardware: what a submission records about it, nothing that names the machine or its folders."""
     cold_note = "" if v["cold_purged"] else "（未能清缓存：冷扫实为热扫）"
     iops = f"{v['rand_read_iops']:,} IOPS" if v.get("rand_read_iops") else "IOPS 未测"
+    role = f"（{usage(v)}）" if usage(v) else ""
     return (
-        f"**盘 {i}**：{v['fs']} · {KIND_LABEL.get(v['kind'], v['kind'])} · {v['link']} · {v['disk_model']} · "
+        f"**盘 {i}**{role}：{v['fs']} · {KIND_LABEL.get(v['kind'], v['kind'])} · {v['link']} · {v['disk_model']} · "
         f"{iops} · {v['used_gb']}/{v['size_gb']} GB · 约 {v['items_k']}k 项{cold_note}"
     )
+
+
+FS_NAMES = {"ntfs": "NTFS", "refs": "ReFS", "apfs": "APFS", "btrfs": "Btrfs", "xfs": "XFS", "zfs": "ZFS"}
+
+
+def drives_summary(volumes: List[Dict[str, Any]], en: bool = False) -> str:
+    """'1 块 NTFS 系统盘（已使用约 1 年）、2 块 ReFS 数据盘（已使用约 3–4 年）': alike drives counted together."""
+    groups: Dict[Tuple[str, str, str], int] = {}
+    for v in volumes:
+        role = ""
+        if "system_drive" in v:
+            role = ("system" if v["system_drive"] else "data") if en else ("系统盘" if v["system_drive"] else "数据盘")
+        key = (FS_NAMES.get(v["fs"], v["fs"]), role, years_text(v))
+        groups[key] = groups.get(key, 0) + 1
+    parts = []
+    for (fs, role, years), n in groups.items():
+        if en:
+            noun = f"{role} drive" if role else "drive"
+            age = f" in use for about {years} year{'' if years == '1' else 's'}" if years else ""
+            parts.append(f"{n} {fs} {noun}{'s' if n > 1 else ''}{age}")
+        else:
+            parts.append(f"{n} 块 {fs} {role or '盘'}" + (f"（已使用约 {years} 年）" if years else ""))
+    return (", " if en else "、").join(parts)
+
+
+def author_note(sub: Dict[str, Any], link: str) -> List[str]:
+    """For a submission by this benchmark's author: whose machine it is and how old its drives are."""
+    if not sub.get("by_author"):
+        return []
+    return [
+        f"> ⚖️ 这份成绩来自本基准作者自己的电脑：{drives_summary(sub['volumes'])}。作者也是 SpaceKnife 的作者，见"
+        f"[利益声明]({link})。<br>",
+        f"> ⚖️ These results come from this benchmark's author's own machine: {drives_summary(sub['volumes'], True)}. "
+        f"The author also wrote SpaceKnife: see [Conflict of interest]({link}).",
+        "",
+    ]
 
 
 def marked(rows: List[Dict[str, Any]], key: str) -> List[str]:
