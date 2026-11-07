@@ -16,6 +16,10 @@ shuffled by --shuffle-seed, so parallel jobs on different runners each see a dif
 --configs picks configurations by label, among them the thread-count variants of gdu (-m), dua-cli (DUA_THREADS) and
 SpaceKnife (SPACEKNIFE_SCAN_THREADS): whether fewer reads in flight make the parallel scanners faster on the CI disks.
 
+--reset-atime: access-time updates are on, as on a computer in daily use (the caller turns them on before the volume is
+mounted). Whether the volume really updates them is probed first, and every access time under --path is set two days
+back before each cold scan, as the benchmark does, so each scan pays for the updates it causes.
+
   python scanner_io_profile.py --path X:/bench --bin-dir ./bin --md-out io.md --json-out io.json
 """
 
@@ -50,6 +54,7 @@ CONFIGS: List[Config] = [
     ("gdu", "gdu", None, {}, []),
     ("dua-cli", "dua", None, {}, []),
     ("SpaceKnife", "spaceknife", None, {}, []),
+    ("SpaceKnife (Rust)", "spaceknife-rust", None, {}, []),
     ("WinDirStat default", "windirstat", 0, {}, []),
     ("WinDirStat 1 thread", "windirstat", 1, {}, []),
     ("WinDirStat 4 threads", "windirstat", 4, {}, []),
@@ -170,12 +175,17 @@ def run_config(
     purge: str = "vdisk",
     extra_env: Optional[Dict[str, str]] = None,
     extra_args: Optional[List[str]] = None,
+    reset_atime: bool = False,
 ) -> Dict[str, Any]:
     os_key = "windows"
     rcs.configure_windows_gui_scanner(scanner["id"], os_key, bin_path, False)
     if threads is not None:
         set_windirstat_threads(threads)
     rcs.prewarm_scanner_binary(scanner, bin_path, os_key)
+    if reset_atime:
+        # as the benchmark without a fresh copy of the volume: every file and folder, since the listing's copy of a
+        # file's times may lag behind the updates the last scan made
+        rcs.reset_access_times_fast(scan_path, os_key, REPO, ["--atime-files", "all"])
     # vdisk: remount the VHDX (the benchmark); system: OS-wide standby-list purge, for a folder on a physical drive or
     # a RAM disk, which cannot be remounted
     if not rcs.invoke_purge_cache(os_key, scan_path, REPO, False, purge) and purge != "none":
@@ -288,6 +298,11 @@ def main() -> int:
         help="Comma-separated labels of the configurations to run (default: the standard set; thread variants too)",
     )
     ap.add_argument(
+        "--reset-atime",
+        action="store_true",
+        help="Access-time updates are on: probe that the volume updates them, set them two days back before each scan",
+    )
+    ap.add_argument(
         "--shuffle-seed",
         type=int,
         default=-1,
@@ -310,6 +325,21 @@ def main() -> int:
     by_id = {s["id"]: s for s in registry["scanners"]}
     work = Path(tempfile.mkdtemp(prefix="io_profile_"))
     print(f"[io-profile] {os_key}/{arch_key}, psutil {'on' if psutil else 'off'}, work dir {work}")
+    atime_note = ""
+    if args.reset_atime:
+        active = rcs.probe_access_time_updates(args.path, os_key, REPO, False, args.purge)
+        state = {True: "updates them", False: "does NOT update them", None: "could not be probed"}[active]
+        print(f"[io-profile] access times: this volume {state}", flush=True)
+        found = {
+            True: "探测确认这个卷会更新访问时间。",
+            False: "**探测发现这个卷并不更新访问时间。**",
+            None: "探测失败。",
+        }
+        atime_note = (
+            "访问时间更新开着（日常设置），每次冷扫前整棵树的访问时间都调回两天前；"
+            f"{found[active]} · Access-time updates on, every access time set two days back before each cold scan; "
+            f"the volume {state}.\n\n"
+        )
 
     results: List[Dict[str, Any]] = []
     rng = random.Random(args.shuffle_seed)
@@ -326,7 +356,9 @@ def main() -> int:
             if not bin_path:
                 print(f"[io-profile] {label}: not installed for {os_key}/{arch_key}, skipped")
                 continue
-            r = run_config(label, scanner, threads, bin_path, args.path, work, args.purge, extra_env, extra_args)
+            r = run_config(
+                label, scanner, threads, bin_path, args.path, work, args.purge, extra_env, extra_args, args.reset_atime
+            )
             r["round"] = rnd + 1
             results.append(r)
             print(
@@ -355,7 +387,7 @@ def main() -> int:
             f"| {fmt(r['host_read_ms'], '.2f')} | {fmt(r['proc_cpu_s'], '.1f')} "
             f"| {r['proc_max_threads'] if r['proc_max_threads'] is not None else '-'} |"
         )
-    md = "\n".join(lines) + "\n"
+    md = atime_note + "\n".join(lines) + "\n"
     if args.md_out:
         Path(args.md_out).write_text(md, encoding="utf-8")
     if args.json_out:
