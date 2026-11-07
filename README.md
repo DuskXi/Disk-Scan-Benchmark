@@ -810,9 +810,9 @@ GitHub 免费 Runner 的盘都是限速的云盘：同时发 32 个随机 4&nbsp
 
 The disks of the free GitHub runners are all throttled cloud disks: with 32 random 4&nbsp;KiB reads in flight they manage only about 4,000 to 24,000 reads per second in the `low` runs, where a local NVMe drive usually does hundreds of thousands. Windows was measured in more detail: a single read is fast (about 0.1&nbsp;ms), but reads per second hit the cap at once (about 9,000-10,000 on x64 and 6,000 on ARM64), so one read in flight is nearly as fast as 64. Cold scans on CI therefore measure who reads most economically on an IOPS-capped cloud disk: a scanner that keeps one or two reads in flight loses nothing, while a deeply parallel scanner only queues longer at the disk. A local NVMe drive gets faster the more reads are in flight, so cold scans may rank differently there; the [local suite](docs/LOCAL_SUITE.md) measures your own drive.
 
-同一棵树（100 万个文件，总大小缩到 4&nbsp;GiB）在 Windows&nbsp;x64 上放到三种盘上冷扫，每次冷扫前清空缓存，各跑两轮（单位：秒）：
+同一棵树（100 万个文件，总大小缩到 4&nbsp;GiB）在 Windows&nbsp;x64 上放到三种盘上冷扫，每次冷扫前清空缓存，各跑两轮（单位：秒；10 月 26 日测，当时诊断工作流还没有打开访问时间更新）：
 
-The same tree (1 million files, total size shrunk to 4&nbsp;GiB) on three kinds of volume on Windows&nbsp;x64, caches dropped before every cold scan, two rounds each (seconds):
+The same tree (1 million files, total size shrunk to 4&nbsp;GiB) on three kinds of volume on Windows&nbsp;x64, caches dropped before every cold scan, two rounds each (seconds; measured on 26 October, before the diagnostic workflow turned access-time updates on):
 
 | | VHDX<br>（榜单所用 · the boards' volume） | 物理盘上的目录<br>Folder on the physical drive | 内存盘<br>RAM disk |
 | :--- | ---: | ---: | ---: |
@@ -826,7 +826,21 @@ The same tree (1 million files, total size shrunk to 4&nbsp;GiB) on three kinds 
 - **没有上限的内存盘上，排名反过来**：读盘不再是瓶颈，比的是 CPU。WinDirStat 冷扫一次约用 33 秒 CPU 时间，gdu 和 dua 约 21 秒，于是它从第一变成最后。<br>**On a RAM disk with no cap the order flips**: reading is no longer the bottleneck and CPU decides. WinDirStat uses about 33 s of CPU time per cold scan, gdu and dua about 21 s, so it drops from first to last.
 - **内存盘相当于无限快的盘**：真实 NVMe 介于两者之间，单个读的延迟和云盘差不多，但同时发的读越多，每秒读得越多。内存盘装不下榜单的体量，所以不作为正式榜单。SpaceKnife 在内存盘上只开 13 个线程（云盘上是 73 个），这一列不代表它深并发时的表现。<br>**A RAM disk is an infinitely fast drive**: a real NVMe drive sits in between, with single reads about as fast as the cloud disk's but more reads per second the more are in flight. A RAM disk cannot hold the board's sizes, so it is not a board of its own. SpaceKnife starts only 13 threads on the RAM disk (73 on the cloud disk), so its RAM-disk times do not show its deeply parallel mode.
 
-数据来自诊断工作流 `scanner-io-profile.yml`，它每秒记录队列深度、读次数和读延迟：[VHDX](https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40377822224) · [物理盘 · physical drive](https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40378228753) · [内存盘 · RAM disk](https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40395968314)。
+**内存盘上开、关访问时间 · Access times off and on, on the RAM disk**：同一台 Runner、同一棵树依次跑三遍（关 → 开 → 关），每遍先探测确认设置真的生效，开着的那遍每次冷扫前把整棵树的访问时间调回两天前；每遍两轮，表里是两轮平均（单位：秒），「开 ÷ 关」用第 2 遍比第 3 遍。<br>One runner, one tree, three passes (off, on, off), each probed first to confirm the setting took effect; with access times on, the whole tree was set two days back before each cold scan. Two rounds per pass, averaged (seconds); "on ÷ off" compares pass 2 with pass 3.
+
+| | 关 off<br>（第 1 遍 · pass 1） | 开 on<br>（第 2 遍 · pass 2） | 关 off<br>（第 3 遍 · pass 3） | 开 ÷ 关<br>on ÷ off |
+| :--- | ---: | ---: | ---: | ---: |
+| SpaceKnife&nbsp;(Rust) | 10.3 | <mark>**9.1**</mark> | 8.8 | 1.04× |
+| SpaceKnife | 9.9 | 9.8 | 9.5 | 1.03× |
+| dua&#8209;cli | <mark>**7.2**</mark> | 12.1 | <mark>**6.6**</mark> | 1.84× |
+| gdu | <mark>**7.2**</mark> | 12.1 | 6.7 | 1.81× |
+| WinDirStat（默认 · default） | 13.8 | 18.5 | 12.7 | 1.46× |
+| WinDirStat（1 线程 · 1 thread） | 33.9 | 38.2 | 31.9 | 1.20× |
+
+- **开着访问时间，gdu、dua、WinDirStat 每次冷扫多出 5.4–6.3 秒**：多出的数额差不多，看起来是 NTFS 更新这棵树（112 万项）访问时间的大致固定成本，平均每项约 5 微秒。两个 SpaceKnife 只多约 0.3 秒，看起来扫描时基本没有触发访问时间更新，CI 榜单写盘量一栏也是这样。于是关着时 dua 和 gdu 最快，开着时（普通电脑的默认设置）两个 SpaceKnife 最快。<br>**With access times on, gdu, dua and WinDirStat take 5.4-6.3 s longer per cold scan**: about the same amount each, which looks like the rough fixed cost of NTFS updating the access times of this tree (1.12M items), some 5 µs per item. Both SpaceKnife builds take about 0.3 s longer: they seem to trigger hardly any access-time updates, as the disk-write column of the CI boards shows too. So dua and gdu are fastest with access times off, and the two SpaceKnife builds with them on, as a computer ships.
+- **SpaceKnife 是本基准作者的项目**（见[利益声明](#利益声明--conflict-of-interest)）。这是一台 Runner 上的一棵合成树：第 1 遍有预热的痕迹（几项明显偏慢），第 3 遍两轮几乎一样，所以拿它作对照。<br>**SpaceKnife is a project of this benchmark's author** (see [Conflict of interest](#利益声明--conflict-of-interest)). This is one synthetic tree on one runner: pass 1 shows some warm-up (a few slow scans), pass 3's two rounds nearly match, so it is the baseline.
+
+数据来自诊断工作流 `scanner-io-profile.yml`，它每秒记录队列深度、读次数和读延迟：[VHDX](https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40377822224) · [物理盘 · physical drive](https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40378228753) · [内存盘 · RAM disk](https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40395968314) · [内存盘开关访问时间 · RAM disk, access times off / on / off](https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/42349532902)。
 
 From the diagnostic workflow `scanner-io-profile.yml`, which records queue depth, reads and read latency every second; runs linked above.
 
