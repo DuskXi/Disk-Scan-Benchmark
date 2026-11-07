@@ -303,6 +303,11 @@ def main() -> int:
         help="Access-time updates are on: probe that the volume updates them, set them two days back before each scan",
     )
     ap.add_argument(
+        "--probe-atime",
+        action="store_true",
+        help="Only probe whether the volume updates access times, and say so above the table (updates off)",
+    )
+    ap.add_argument(
         "--shuffle-seed",
         type=int,
         default=-1,
@@ -326,20 +331,19 @@ def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="io_profile_"))
     print(f"[io-profile] {os_key}/{arch_key}, psutil {'on' if psutil else 'off'}, work dir {work}")
     atime_note = ""
-    if args.reset_atime:
+    if args.reset_atime or args.probe_atime:
         active = rcs.probe_access_time_updates(args.path, os_key, REPO, False, args.purge)
-        state = {True: "updates them", False: "does NOT update them", None: "could not be probed"}[active]
+        state = {True: "updates them", False: "does not update them", None: "could not be probed"}[active]
         print(f"[io-profile] access times: this volume {state}", flush=True)
-        found = {
-            True: "探测确认这个卷会更新访问时间。",
-            False: "**探测发现这个卷并不更新访问时间。**",
-            None: "探测失败。",
-        }
-        atime_note = (
-            "访问时间更新开着（日常设置），每次冷扫前整棵树的访问时间都调回两天前；"
-            f"{found[active]} · Access-time updates on, every access time set two days back before each cold scan; "
-            f"the volume {state}.\n\n"
-        )
+        found = {True: "探测确认这个卷会更新访问时间", False: "探测确认这个卷不更新访问时间", None: "探测失败"}
+        if args.reset_atime:
+            atime_note = (
+                f"访问时间更新开着（日常设置），每次冷扫前整棵树的访问时间都调回两天前；{found[active]}。"
+                " · Access-time updates on, every access time set two days back before each cold scan; "
+                f"the volume {state}.\n\n"
+            )
+        else:
+            atime_note = f"访问时间更新关着；{found[active]}。 · Access-time updates off; the volume {state}.\n\n"
 
     results: List[Dict[str, Any]] = []
     rng = random.Random(args.shuffle_seed)

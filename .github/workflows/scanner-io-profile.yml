@@ -1,6 +1,6 @@
 name: Scanner I/O Profile (diagnostic)
 
-run-name: "Scanner I/O profile ${{ inputs.preset }} | ${{ inputs.backings }}${{ inputs.logical_gb && format(' | {0} GiB', inputs.logical_gb) || '' }}${{ inputs.atime && ' | atime on' || ' | atime off' }}"
+run-name: "Scanner I/O profile ${{ inputs.preset }} | ${{ inputs.backings }}${{ inputs.logical_gb && format(' | {0} GiB', inputs.logical_gb) || '' }}${{ format(' | atime {0}', inputs.atime) }}"
 
 # Cold scans of gdu, dua-cli, SpaceKnife (both builds) and WinDirStat (default, 1, 4 and 8 scanning threads) with the
 # benchmark volume's queue depth, reads/s, read latency and size, the VHDX host drive and the CPU sampled every second
@@ -63,10 +63,14 @@ on:
         default: '["windows-x86_64","windows-arm64"]'
         type: string
       atime:
-        description: "Access-time updates on, as in daily use and the benchmark (set two days back before each cold scan)"
+        description: "Access-time updates: on (daily use, as the benchmark; set two days back before each cold scan), off, or off-on-off (three passes on one runner, the volume remounted between them)"
         required: false
-        default: true
-        type: boolean
+        default: "on"
+        type: choice
+        options:
+          - "on"
+          - "off"
+          - off-on-off
 
 permissions:
   contents: read
@@ -146,11 +150,12 @@ jobs:
       - name: Prepare The Volume (${{ matrix.backing }})
         shell: pwsh
         run: |
-          # NTFS reads the last-access setting when a volume is mounted: on before the RAM disk is created; the VHDX
+          # NTFS reads the last-access setting when a volume is mounted: set before the RAM disk is created; the VHDX
           # (whose create turns it off) picks it up at the remount before each cold scan; the runner's own data drive
-          # was mounted at boot, so the folder backing may not follow it (the profiler's probe says)
-          $atime = "${{ inputs.atime }}" -eq "true"
-          function Set-LastAccess { if ($atime) { fsutil behavior set disablelastaccess 0 | Out-Null } }
+          # was mounted at boot, so the folder backing may not follow it (the profiler's probe says). off-on-off
+          # starts off.
+          $on = "${{ inputs.atime }}" -eq "on"
+          function Set-LastAccess { fsutil behavior set disablelastaccess $(if ($on) { 0 } else { 1 }) | Out-Null }
           Set-LastAccess
           switch ("${{ matrix.backing }}") {
             "vhdx" {
@@ -211,21 +216,40 @@ jobs:
         shell: bash
         env:
           CONFIGS: ${{ inputs.configs }}
+          REPLICAS: ${{ inputs.replicas }}
+          ATIME: ${{ inputs.atime }}
         run: |
           EXTRA=()
           if [ -n "$CONFIGS" ]; then EXTRA+=(--configs "$CONFIGS"); fi
-          # one replica keeps the forward / reverse alternation; several each shuffle with their own seed
-          if [ "${{ inputs.replicas }}" != '["1"]' ]; then EXTRA+=(--shuffle-seed "${{ matrix.replica }}"); fi
-          if [ "${{ inputs.atime }}" = "true" ]; then EXTRA+=(--reset-atime); fi
-          python ./scripts/profile/scanner_io_profile.py --path "$ROOT" --purge "$PURGE" --bin-dir ./bin \
-            --rounds "${{ inputs.rounds }}" --md-out out/io_profile.md --json-out out/io_profile.json "${EXTRA[@]}"
+          # one replica keeps the forward / reverse alternation; several each shuffle with their own seed (compared
+          # through the environment: inlined into the script, the JSON lost its quotes and every run shuffled)
+          if [ "$REPLICAS" != '["1"]' ]; then EXTRA+=(--shuffle-seed "${{ matrix.replica }}"); fi
+          # off-on-off: the same tree on the same runner, the setting the only difference; NTFS reads it at mount, so
+          # the volume is dismounted between passes and mounts again with it at the next access (the VHDX is also
+          # remounted before each cold scan; the runner's own data drive is never dismounted)
+          if [ "$ATIME" = "off-on-off" ]; then PASSES="off on off"; else PASSES="$ATIME"; fi
           {
-            echo "## ${{ matrix.target }} | ${{ matrix.backing }} | replica ${{ matrix.replica }} (${{ inputs.preset }}, $GEN_ARGS, atime ${{ inputs.atime && 'on' || 'off' }})"
+            echo "## ${{ matrix.target }} | ${{ matrix.backing }} | replica ${{ matrix.replica }} (${{ inputs.preset }}, $GEN_ARGS, atime $ATIME)"
             echo
             cat out/rand_sweep.md
             echo
-            cat out/io_profile.md
           } >> "$GITHUB_STEP_SUMMARY"
+          i=0
+          for pass in $PASSES; do
+            i=$((i + 1))
+            if [ "$ATIME" = "off-on-off" ]; then
+              value=1; if [ "$pass" = "on" ]; then value=0; fi
+              powershell -NoProfile -Command "fsutil behavior set disablelastaccess $value | Out-Null"
+              if [ "${{ matrix.backing }}" != "folder" ]; then
+                powershell -NoProfile -Command "fsutil volume dismount ${ROOT:0:2}" || true
+              fi
+            fi
+            MODE=(--probe-atime); if [ "$pass" = "on" ]; then MODE=(--reset-atime); fi
+            python ./scripts/profile/scanner_io_profile.py --path "$ROOT" --purge "$PURGE" --bin-dir ./bin \
+              --rounds "${{ inputs.rounds }}" --md-out "out/io_profile_${i}_${pass}.md" \
+              --json-out "out/io_profile_${i}_${pass}.json" "${EXTRA[@]}" "${MODE[@]}"
+            { echo "### Pass $i: atime $pass"; echo; cat "out/io_profile_${i}_${pass}.md"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Teardown
         if: always()
