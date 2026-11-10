@@ -602,24 +602,44 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 >
 > **For comparison only, not a ranking.** This board only shows what turning Windows last-access updates off (`fsutil behavior set disablelastaccess 1`) changes. Windows in daily use keeps them on, and so does the main board; turning them off moves the ranking away from how the scanners perform in real use, so the main board is the one that counts.
 
-同一批 Windows 平台（Win ARM64 (NTFS)、Win x64 (NTFS)、Win x64 (ReFS)）、同样的体量（`very-lite`）：**开** = 主榜在这些平台上的成绩（访问时间开着，日常设置），**关** = 关掉访问时间更新后另跑的一次。
+同一批 Windows 平台（Win ARM64 (NTFS)、Win x64 (NTFS)、Win x64 (ReFS)）、同样的体量（`very-lite`, `lite`）：**开** = 主榜在这些平台上的成绩（访问时间开着，日常设置），**关** = 关掉访问时间更新后另跑的一次。
 
-Same Windows platforms (Win ARM64 (NTFS), Win x64 (NTFS), Win x64 (ReFS)) and sizes (`very-lite`): **On** = the main board's results there (access times on, the daily-use setting), **Off** = a separate run with last-access updates turned off.
+Same Windows platforms (Win ARM64 (NTFS), Win x64 (NTFS), Win x64 (ReFS)) and sizes (`very-lite`, `lite`): **On** = the main board's results there (access times on, the daily-use setting), **Off** = a separate run with last-access updates turned off.
 
 | 扫⁠描⁠器<br>Scanner | 开&nbsp;·&nbsp;日⁠常<br>On&nbsp;·&nbsp;daily&nbsp;use | 关<br>Off | 名⁠次⁠变⁠化<br>Change |
 | :--- | :---: | :---: | :---: |
-| **SpaceKnife** | #1&nbsp;100.0\* | #1&nbsp;93.4\* | = |
-| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;66.8\* | 参考&nbsp;58.9\* | — |
-| **gdu** | #2&nbsp;41.4\* | #2&nbsp;74.7\* | = |
-| **WinDirStat** | #3&nbsp;34.2\* | #5&nbsp;42.5\* | ↓2 |
-| **SquirrelDisk** | #4&nbsp;32.9\* | #3&nbsp;64.4\* | ↑1 |
-| **dua‑cli** | #5&nbsp;31.3\* | #4&nbsp;58.8\* | ↑1 |
-| **WizTree** | #6&nbsp;19.6\* | #6&nbsp;42.1\* | = |
-| **SpaceSniffer** | #7&nbsp;15.6\* | #10&nbsp;18.0\* | ↓3 |
-| **pdu** | #8&nbsp;12.8\* | #7&nbsp;20.5\* | ↑1 |
-| **diskus** | #9&nbsp;12.2\* | #9&nbsp;18.3\* | = |
-| **dust** | #10&nbsp;11.9\* | #8&nbsp;18.8\* | ↑2 |
+| **SpaceKnife** | #1&nbsp;99.3\* | #1&nbsp;93.8\* | = |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;75.7\* | 参考&nbsp;69.1\* | — |
+| **gdu** | #2&nbsp;40.9\* | #2&nbsp;77.7\* | = |
+| **SquirrelDisk** | #3&nbsp;33.3\* | #3&nbsp;65.4\* | = |
+| **WinDirStat** | #4&nbsp;33.1\* | #6&nbsp;42.6\* | ↓2 |
+| **dua‑cli** | #5&nbsp;32.4\* | #4&nbsp;62.4\* | ↑1 |
+| **WizTree** | #6&nbsp;21.9\* | #5&nbsp;45.6\* | ↑1 |
+| **SpaceSniffer** | #7&nbsp;16.1\* | #9&nbsp;18.4\* | ↓2 |
+| **pdu** | #8&nbsp;12.2\* | #7&nbsp;20.4\* | ↑1 |
+| **diskus** | #9&nbsp;11.7\* | #10&nbsp;18.3\* | ↓1 |
+| **dust** | #10&nbsp;11.4\* | #8&nbsp;18.6\* | ↑2 |
 | **erdtree** | #11&nbsp;8.4\* | #11&nbsp;13.1\* | = |
+
+<details>
+<summary><b>lite</b> · 40 万文件 · 400k files · 关 Off: 2026-11-10 <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/42904712794">run 42904712794</a></summary>
+
+| 扫⁠描⁠器<br>Scanner | 开&nbsp;·&nbsp;分<br>On&nbsp;·&nbsp;score | 关&nbsp;·&nbsp;分<br>Off&nbsp;·&nbsp;score | 开&nbsp;冷/热<br>On&nbsp;cold/warm | 关&nbsp;冷/热<br>Off&nbsp;cold/warm |
+| :--- | :---: | :---: | ---: | ---: |
+| **SpaceKnife** | #1&nbsp;98.6 | #1&nbsp;94.2 | 13.6&nbsp;s&nbsp;/&nbsp;0.81&nbsp;s | 8.81&nbsp;s&nbsp;/&nbsp;0.54&nbsp;s |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;85.8 | 参考&nbsp;81.0 | 13.5&nbsp;s&nbsp;/&nbsp;1.12&nbsp;s | 8.75&nbsp;s&nbsp;/&nbsp;0.76&nbsp;s |
+| **gdu** | #2&nbsp;40.5 | #2&nbsp;80.9 | 78.3&nbsp;s&nbsp;/&nbsp;1.11&nbsp;s | 9.31&nbsp;s&nbsp;/&nbsp;0.69&nbsp;s |
+| **SquirrelDisk** | #3&nbsp;33.7 | #3&nbsp;66.4 | 81.7&nbsp;s&nbsp;/&nbsp;1.57&nbsp;s | 8.03&nbsp;s&nbsp;/&nbsp;0.90&nbsp;s |
+| **dua‑cli** | #4&nbsp;33.5 | #4&nbsp;66.1 | 81.2&nbsp;s&nbsp;/&nbsp;1.56&nbsp;s | 9.16&nbsp;s&nbsp;/&nbsp;1.05&nbsp;s |
+| **WinDirStat** | #5&nbsp;32.1 | #6&nbsp;42.7 | 31.5&nbsp;s&nbsp;/&nbsp;3.85&nbsp;s | 7.66&nbsp;s&nbsp;/&nbsp;2.95&nbsp;s |
+| **WizTree** | #6&nbsp;24.4 | #5&nbsp;49.3 | 76.9&nbsp;s&nbsp;/&nbsp;2.85&nbsp;s | 7.64&nbsp;s&nbsp;/&nbsp;1.81&nbsp;s |
+| **SpaceSniffer** | #7&nbsp;16.7 | #8&nbsp;18.9 | 53.3&nbsp;s&nbsp;/&nbsp;10.9&nbsp;s | 17.4&nbsp;s&nbsp;/&nbsp;6.93&nbsp;s |
+| **pdu** | #8&nbsp;11.7 | #7&nbsp;20.3 | 112&nbsp;s&nbsp;/&nbsp;8.89&nbsp;s | 18.0&nbsp;s&nbsp;/&nbsp;5.74&nbsp;s |
+| **diskus** | #9&nbsp;11.2 | #10&nbsp;18.3 | 104&nbsp;s&nbsp;/&nbsp;10.2&nbsp;s | 18.0&nbsp;s&nbsp;/&nbsp;6.87&nbsp;s |
+| **dust** | #10&nbsp;10.9 | #9&nbsp;18.4 | 115&nbsp;s&nbsp;/&nbsp;10.1&nbsp;s | 18.5&nbsp;s&nbsp;/&nbsp;6.86&nbsp;s |
+| **erdtree** | #11&nbsp;8.5 | #11&nbsp;13.1 | 105&nbsp;s&nbsp;/&nbsp;17.4&nbsp;s | 17.7&nbsp;s&nbsp;/&nbsp;10.3&nbsp;s |
+
+</details>
 
 <details>
 <summary><b>very-lite</b> · 10 万文件 · 100k files · 关 Off: 2026-11-10 <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/42904689518">run 42904689518</a></summary>
