@@ -413,6 +413,12 @@ def generate_report(
                     f"| `⛔ CANNOT RUN` | **{r['scanner']}** | `{r.get('version', '-')}` | - | - | - | {reason} |"
                 )
                 continue
+            if "UNFINISHED" in reason:
+                # the job's time ran out first (sizes scored from what finished): no times to show
+                lines.append(
+                    f"| `⏱️ UNFINISHED` | **{r['scanner']}** | `{r.get('version', '-')}` | - | - | - | {reason} |"
+                )
+                continue
             status_badge = "❌ DISQUALIFIED" if "DISQUALIFIED" in reason else "⚠️ INVALID"
             lines.append(
                 f"| `{status_badge}` | **{r['scanner']}** | `{r.get('version', '-')}` | `{r['cold_time_ms']:,.1f}` "
@@ -455,7 +461,7 @@ def generate_report(
             lines.append(f"| **Ground Truth (基准真值)** | {metric_label[metric]} | {cells} |")
 
     for r in normalized_rows:
-        if "CANNOT RUN" in str(r.get("invalid_reason", "")):
+        if any(tag in str(r.get("invalid_reason", "")) for tag in ("CANNOT RUN", "UNFINISHED")):
             continue
         samples: Dict[str, Dict[str, Any]] = r.get("structure_samples", {})
         metric = "apparent" if r.get("size_metric") == "apparent" else "allocated"

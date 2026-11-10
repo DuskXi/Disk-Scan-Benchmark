@@ -9,6 +9,10 @@ take at least --min-anchor-s: on a small tree the timing noise outweighs the run
 first one with a valid anchor result; its baseline and ground truth describe the merged platform. Memory, CPU time
 and device reads are not scaled: they do not depend on how fast the runner is.
 
+--planned (the sizes scored from what finished): the plan's shard matrix. A scanner planned for a shard that left no
+result (it failed, ran out of time or never got a runner) gets an UNFINISHED row, so the board shows it as unfinished
+there instead of leaving it out silently.
+
   python merge_shards.py --shards-dir shards/ --anchor dua --out-dir results/macos-x86_64
 """
 
@@ -18,6 +22,34 @@ import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+REGISTRY = Path(__file__).resolve().parent.parent / "wrappers" / "scanners_registry.json"
+# the same tag as run_cli_scanners.py UNFINISHED_REASON (leaderboard.py: not scored, shown as unfinished)
+UNFINISHED_REASON = "⏱️ UNFINISHED: its shard failed or ran out of time before it finished; not scored on this platform"
+
+
+def unfinished_row(sid: str, meta: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": sid,
+        "scanner": meta.get("name", sid),
+        "version": meta.get("version", "-"),
+        "runner_type": meta.get("runner_type", "cli"),
+        "size_metric": meta.get("size_metric", "allocated"),
+        "cold_time_ms": 0.0,
+        "warm_time_ms": 0.0,
+        "warm_runs_ms": [],
+        "peak_rss_mb": 0.0,
+        "scanned_files": 0,
+        "scanned_bytes": 0,
+        "accuracy_diff_pct": None,
+        "valid": False,
+        "invalid_reason": UNFINISHED_REASON,
+        "structure_samples": {},
+    }
+
+
+def is_unfinished(row: Dict[str, Any]) -> bool:
+    return "UNFINISHED" in str(row.get("invalid_reason", ""))
 
 
 def anchor_times(rows: List[Dict[str, Any]], anchor: str) -> Optional[Tuple[float, float]]:
@@ -58,7 +90,12 @@ def main() -> int:
         help="Scale cold (warm) times only when the anchor's cold (warm) scans took this long: shorter ones are noise",
     )
     ap.add_argument("--out-dir", required=True, help="Platform result folder: raw_results.json, baseline.json, ...")
+    ap.add_argument("--planned", default="", help='The plan matrix: {"include": [{"shard": 1, "scanners": "..."}]}')
     args = ap.parse_args()
+    planned: Dict[int, List[str]] = {}
+    if args.planned:
+        for item in json.loads(args.planned).get("include", []):
+            planned[int(item["shard"])] = [x.strip() for x in str(item["scanners"]).split(",") if x.strip()]
 
     shards: List[Tuple[int, Path, List[Dict[str, Any]]]] = []
     for meta in sorted(Path(args.shards_dir).rglob("shard.json")):
@@ -100,7 +137,7 @@ def main() -> int:
                 "scale_cold": round(sc, 4),
                 "scale_warm": round(sw, 4),
                 "rand_read_iops": iops,
-                "scanners": [r.get("id") for r in rows],
+                "scanners": [f"{r.get('id')} ⏱️" if is_unfinished(r) else r.get("id") for r in rows],
                 "scaled": can_c or can_w,
             }
         )
@@ -115,6 +152,20 @@ def main() -> int:
             row = scale_row(r, sc, sw) if n != ref else dict(r, shard_scale_cold=1.0, shard_scale_warm=1.0)
             row["shard"] = n
             merged.append(row)
+
+    # shards that left nothing: their scanners did not finish on this platform
+    done = {n for n, _, _ in shards}
+    lost = {n: ids for n, ids in sorted(planned.items()) if n not in done}
+    if lost:
+        registry = {s["id"]: s for s in json.loads(REGISTRY.read_text(encoding="utf-8")).get("scanners", [])}
+        for n, ids in lost.items():
+            print(f"[merge] shard {n} left no result: {', '.join(ids)} unfinished")
+            summary.append({"shard": n, "lost": True, "scanners": [f"{sid} ⏱️" for sid in ids]})
+            for sid in ids:
+                if sid not in seen:
+                    seen[sid] = n
+                    merged.append(dict(unfinished_row(sid, registry.get(sid, {})), shard=n))
+        summary.sort(key=lambda s: s["shard"])
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -137,6 +188,9 @@ def main() -> int:
         "| ---: | ---: | ---: | ---: | ---: | ---: | :--- |",
     ]
     for s in summary:
+        if s.get("lost"):
+            lines.append(f"| {s['shard']} (no result) | - | - | - | - | - | {', '.join(s['scanners'])} |")
+            continue
         cold = f"{s['anchor_cold_ms'] / 1000:.1f}" if s["anchor_cold_ms"] else "-"
         warm = f"{s['anchor_warm_ms'] / 1000:.1f}" if s["anchor_warm_ms"] else "-"
         iops = f"{s['rand_read_iops']:,.0f}" if s["rand_read_iops"] else "-"

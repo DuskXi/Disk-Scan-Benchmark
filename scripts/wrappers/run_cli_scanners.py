@@ -1829,7 +1829,50 @@ def windows_defender_state(scan_path: str) -> Optional[Dict[str, Any]]:
     return {"realtime": bool(data.get("realtime")), "tamper": bool(data.get("tamper")), "bench_excluded": excluded}
 
 
+# --deadline: a scan never starts with less than this many seconds left
+MIN_SCAN_S = 60
+# The reason of a scanner the job's time ran out on (leaderboard.py: not scored, shown as unfinished)
+UNFINISHED_REASON = "⏱️ UNFINISHED: the job ran out of time before this scanner finished; not scored on this platform"
+
+
+class DeadlineReached(Exception):
+    """--deadline came before a scanner finished: it and the scanners after it stay unfinished."""
+
+
+def unfinished_row(scanner: Dict[str, Any], mft_mode: bool = False) -> Dict[str, Any]:
+    """The row of a scanner that has not finished (yet): replaced by its result when it does."""
+    return {
+        "id": scanner["id"],
+        "scanner": scanner["name"],
+        "version": scanner["version"],
+        "runner_type": scanner.get("runner_type", "cli"),
+        "size_metric": scanner.get("size_metric", "allocated"),
+        "cold_time_ms": 0.0,
+        "warm_time_ms": 0.0,
+        "warm_runs_ms": [],
+        "tool_reported_scan_ms": None,
+        "peak_rss_mb": 0.0,
+        "scanned_files": 0,
+        "scanned_bytes": 0,
+        "reference_bytes": 0,
+        "accuracy_diff_pct": None,
+        "mode": "mft" if mft_mode else "api",
+        "valid": False,
+        "invalid_reason": UNFINISHED_REASON,
+        "structure_samples": {},
+    }
+
+
 def main() -> int:
+    try:
+        return run_benchmarks()
+    except DeadlineReached as exc:
+        # every finished scanner is already saved; the others' rows say UNFINISHED
+        print(f"\n[runner] {exc}")
+        return 0
+
+
+def run_benchmarks() -> int:
     # Windows runners default stdout to cp1252, which cannot encode the status emoji in log lines
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
@@ -1881,6 +1924,14 @@ def main() -> int:
         help="Windows/NTFS only: run just the scanners that support raw $MFT scanning, scanning the volume root",
     )
     parser.add_argument("--with-gui-render", action="store_true", help="Do not minimize Windows GUI scanner windows")
+    parser.add_argument(
+        "--deadline",
+        type=float,
+        default=0.0,
+        help="Unix time by which the scans must end (a CI job's time limit): --out lists every scanner from the start, "
+        "the ones not done yet as UNFINISHED; a scan is cut at the deadline and that scanner and the ones after it "
+        "stay UNFINISHED, the finished ones count",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent.parent
@@ -1922,8 +1973,51 @@ def main() -> int:
 
     results: List[Dict[str, Any]] = []
     gui_monitor_ps1 = repo_root / "scripts" / "wrappers" / "win_gui_monitor.ps1"
+    out_path = Path(args.out)
 
     atime_active: Optional[bool] = None
+
+    # With --deadline every scanner this run will time is listed as UNFINISHED from the start and replaced by its result
+    # when it finishes: a job killed at its time limit still leaves the finished ones, and says which did not finish
+    pending: Dict[str, Dict[str, Any]] = {}
+    if args.deadline:
+        for s in registry_data.get("scanners", []):
+            if not s.get("enabled", True) or s.get("unavailable"):
+                continue
+            if os_key not in s.get("platforms", []) or arch_key not in s.get("architectures", []):
+                continue
+            if (allowed_ids and s["id"] not in allowed_ids) or (args.mft_mode and not s.get("mft")):
+                continue
+            pending[s["id"]] = unfinished_row(s, args.mft_mode)
+
+    def save_results() -> None:
+        """Writes --out now (after every scanner), through a temporary file so a killed job never leaves half of it."""
+        if args.reset_atime:
+            for entry in results:
+                entry["atime_mode"] = "daily"  # timed with access-time updates on: the cold run's writes are those
+                entry["atime_updates_active"] = atime_active
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out_path.with_name(out_path.name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(results + list(pending.values()), f, indent=2)
+        os.replace(tmp, out_path)
+
+    def time_limit(limit: int) -> Tuple[int, bool]:
+        """A scan's time limit, cut to the time left before --deadline (True: cut)."""
+        if not args.deadline:
+            return limit, False
+        left = int(args.deadline - time.time())
+        if left < MIN_SCAN_S:
+            raise DeadlineReached(f"deadline reached ({left} s left); the scanners not done yet stay UNFINISHED")
+        return (left, True) if left < limit else (limit, False)
+
+    def check_cut(cut: bool, name: str) -> None:
+        """After a scan whose limit was cut to the deadline: it ran into the deadline, so it did not finish."""
+        if cut and time.time() >= args.deadline - 5:
+            raise DeadlineReached(f"deadline reached during {name}; it and the scanners after it stay UNFINISHED")
+
+    if args.deadline:
+        save_results()
     fresh_disks = False  # each purge brings back the volume with old access times (a fresh copy, a ZFS rollback)
     # the tree's folders (macOS): listed when the tree was generated, or else by the first reset, and read back by the
     # resets (walking a very-high tree for them took 30-60 min there)
@@ -2015,8 +2109,11 @@ def main() -> int:
 
         if not bin_path:
             print(f"[runner] Skipping {scanner['name']} (binary not found and not installed)")
+            if pending.pop(scanner_id, None):
+                save_results()
             continue
 
+        time_limit(MIN_SCAN_S)  # too little time left to start it: it and the rest stay UNFINISHED
         print(f"\n=== Benchmarking {scanner['name']} v{scanner['version']} ({scanner['runner_type']}) ===")
         export_file = Path(tempfile.gettempdir()) / f"bench_export_{scanner_id}.csv"
 
@@ -2079,7 +2176,9 @@ def main() -> int:
                 ]
                 # win_gui_monitor.ps1 gives up after 90 s by default, which is far too short for millions of files
                 # twice as long with access-time updates on (ReFS cold scans take up to 14x as long then)
-                gui_timeout = max(90, int(gt_data.get("total_files", 0)) // (2000 if atime_active else 4000) + 90)
+                gui_timeout, gui_cut = time_limit(
+                    max(90, int(gt_data.get("total_files", 0)) // (2000 if atime_active else 4000) + 90)
+                )
                 ps_cmd.extend(["-TimeoutSec", str(gui_timeout)])
                 if args.with_gui_render:
                     ps_cmd.append("-WithGuiRender")
@@ -2087,6 +2186,7 @@ def main() -> int:
                     ps_cmd.append("-Elevated")
 
                 out = subprocess.check_output(ps_cmd, text=True, encoding="utf-8", errors="replace")
+                check_cut(gui_cut, scanner["name"])
                 lines = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("{")]
                 payload = json.loads(lines[-1]) if lines else {}
                 elapsed = float(payload.get("elapsed_ms", 0.0))
@@ -2107,13 +2207,14 @@ def main() -> int:
             cmd_tokens = build_cmd()
             # Large presets (millions of files) need far more than the 15 minute default per scan run
             # 1 ms per file, 2 ms with access-time updates on: a ReFS cold scan then takes up to 0.9 ms per file
-            cli_timeout = args.timeout or max(
-                900, int(gt_data.get("total_files", 0)) // (500 if atime_active else 1000)
+            cli_timeout, cli_cut = time_limit(
+                args.timeout or max(900, int(gt_data.get("total_files", 0)) // (500 if atime_active else 1000))
             )
             io_out: Dict[str, Any] = {}
             elapsed, rss, stdout_text, cpu_s = run_monitored_cli(
                 cmd_tokens, os_key, cli_timeout, {k: str(v) for k, v in scanner.get("env", {}).items()}, io_out
             )
+            check_cut(cli_cut, scanner["name"])
             run_cpu.append(cpu_s)
             proc_written = io_out.get("written_bytes")
             run_proc_written.append(None if proc_written is None else max(0, int(proc_written) - export_size()))
@@ -2249,13 +2350,15 @@ def main() -> int:
                 tok.replace("{bin}", bin_path).replace("{path}", scan_path).replace("{export_file}", str(export_file))
                 for tok in scanner["verify_command_template"]
             ]
+            v_limit, v_cut = time_limit(7200)
             try:
-                subprocess.run(vcmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=7200, check=False)
+                subprocess.run(vcmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=v_limit, check=False)
                 if scanner.get("verify_parser") == "ncdu_json":
                     v_bytes, v_files, v_zones = parse_ncdu_export(export_file, effective_size_metric(scanner, os_key))
                     scanned_bytes, scanned_files, accumulated_zones = v_bytes, v_files, v_zones
                     print(f"  [Verify] {v_bytes:,} B, {v_files:,} files, zones {sorted(v_zones)}")
             except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                check_cut(v_cut and isinstance(exc, subprocess.TimeoutExpired), scanner["name"])
                 print(f"  [Verify] failed: {exc}")
             finally:
                 if export_file.exists():
@@ -2422,20 +2525,15 @@ def main() -> int:
                 "structure_samples": accumulated_zones,
             }
         )
+        pending.pop(scanner_id, None)
+        save_results()
 
     if os_key == "windows" and results:
         defender = windows_defender_state(scan_path)
         print(f"[runner] Windows Defender during the scans: {defender}")
         for entry in results:
             entry["defender"] = defender
-    if args.reset_atime:
-        for entry in results:
-            entry["atime_mode"] = "daily"  # timed with access-time updates on: the cold run's writes are those updates
-            entry["atime_updates_active"] = atime_active
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
+    save_results()
 
     print(f"\n[runner] Saved {len(results)} scanner result(s) to {out_path}")
     return 0

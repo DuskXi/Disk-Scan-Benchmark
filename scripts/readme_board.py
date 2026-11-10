@@ -26,6 +26,7 @@ from disclosure import notice, table_note
 from leaderboard import (
     MEDALS,
     NB,
+    STATUS_ICON,
     aggregate_overall,
     apply_display_names,
     display_names,
@@ -40,6 +41,7 @@ from leaderboard import (
     render_matrix,
     render_notes,
     render_overall_table,
+    scores_what_finished,
 )
 
 PRESETS = ["very-lite", "lite", "low", "mid", "high", "very-high", "before-death"]
@@ -244,7 +246,7 @@ def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
             if sid not in seen:
                 seen.add(sid)
                 rows.append(("—", sid, rec["payload"]["scanners"][sid]["name"], "—"))
-    status_icon = {"cannot_run": "⛔", "disqualified": "❌", "invalid": "⚠️"}
+    status_icon = STATUS_ICON
     heads = ["#", head("扫描器", "Scanner", True), head("**综合分**", "**Score**", True)]
     lines = [
         "| " + " | ".join(heads + [preset_head(p) for p in present]) + " |",
@@ -629,8 +631,13 @@ def main() -> int:
                 print("[readme_board] not publishing: the supplement has no platform results", file=sys.stderr)
                 return 0
             out = data_dir / f"{args.kind}-{preset}+{'+'.join(payload['platforms'])}.json"
-        elif payload.get("missing_platforms") and not args.allow_partial:
-            # A run with failed platforms would replace this preset's complete result with a partial one
+        elif not payload.get("overall"):
+            # nothing finished anywhere: an empty board would only replace whatever this size had
+            print("[readme_board] not publishing: no scanner has a valid result on any platform", file=sys.stderr)
+            return 0
+        elif payload.get("missing_platforms") and not (args.allow_partial or scores_what_finished(preset)):
+            # A run with failed platforms would replace this preset's complete result with a partial one (the sizes
+            # scored from what finished are published as they are: their notes list what is missing)
             print(
                 f"[readme_board] not publishing: platforms without results {payload['missing_platforms']}",
                 file=sys.stderr,

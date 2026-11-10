@@ -89,6 +89,10 @@ env:
   # back what moved before each scanner, on Windows it sets them back once and gives each scanner a fresh copy of
   # the volume (windows_vhd.ps1 freeze).
   BENCH_ATIME: daily
+  # very-high and before-death are scored from what finished (scripts/leaderboard.py PARTIAL_PRESETS): the scans stop
+  # before the job's time limit, a platform, shard or scanner that fails or runs out of time is left out (its scanners
+  # show as unfinished), and the board is published all the same
+  BENCH_PARTIAL: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
 
 jobs:
   # The Linux / macOS targets of the benchmark job. mid and up leave macOS out: with access-time updates on its scans
@@ -142,6 +146,11 @@ jobs:
         include: ${{ fromJSON(needs.targets.outputs.include) }}
 
     steps:
+      # BENCH_PARTIAL: the scans end 20 min before the job's 360-minute limit (--deadline), leaving time to report
+      - name: Note The Job Start
+        shell: bash
+        run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -301,6 +310,8 @@ jobs:
           fi
           DIR_LIST=()
           if [ "$RUNNER_OS" = "macOS" ]; then DIR_LIST=(--atime-dir-list "$RUNNER_TEMP/bench_dirs.txt"); fi
+          DEADLINE=()
+          if [ "$BENCH_PARTIAL" = "true" ]; then DEADLINE=(--deadline "$((JOB_T0 + 340 * 60))"); fi
           python ./scripts/wrappers/run_cli_scanners.py \
             --path "${{ matrix.mount_path }}" \
             --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
@@ -308,11 +319,18 @@ jobs:
             --bin-dir "./bin" \
             --warm-runs "$WARM_RUNS" \
             --reset-atime \
-            "${DIR_LIST[@]}"
+            "${DIR_LIST[@]}" \
+            "${DEADLINE[@]}"
 
+      # BENCH_PARTIAL: also after a failed or timed-out scan step, from the results saved after each scanner
       - name: Generate Normalized Report
+        if: ${{ success() || (always() && env.BENCH_PARTIAL == 'true') }}
         shell: bash
         run: |
+          if [ ! -f "results/${{ matrix.target_label }}/raw_results.json" ]; then
+            echo "::error::no scanner results to report"
+            exit 1
+          fi
           python ./scripts/report_gen.py \
             --ground-truth "results/${{ matrix.target_label }}/ground_truth.json" \
             --baseline "results/${{ matrix.target_label }}/baseline.json" \
@@ -325,6 +343,7 @@ jobs:
 
       # before the teardown: a job that runs out of time while detaching the disk still keeps its results
       - name: Upload Benchmark Artifacts
+        if: ${{ success() || (always() && env.BENCH_PARTIAL == 'true') }}
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-${{ matrix.target_label }}-${{ inputs.preset }}
@@ -941,6 +960,7 @@ jobs:
       max_physical_mb: ${{ inputs.max_physical_mb }}
       seed: ${{ inputs.seed }}
       aging: ${{ inputs.aging }}
+      partial: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}  # = BENCH_PARTIAL
 
   # The Windows platforms run in shards for this preset, and how (scripts/ci/windows_shards.py says which and why)
   windows-shards:
@@ -988,6 +1008,7 @@ jobs:
       seed: ${{ inputs.seed }}
       aging: ${{ inputs.aging }}
       defender_scan: ${{ inputs.defender_scan }}
+      partial: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}  # = BENCH_PARTIAL
 
   windows-summary:
     name: "Windows NTFS+ReFS Summary (${{ inputs.preset }})"
@@ -1115,7 +1136,8 @@ jobs:
           retention-days: 30
 
       # Only plain runs of a standard preset on main reach the README; experiments (Defender on, fresh timeline,
-      # custom sizes) and runs with failed platforms stay in their own run summary.
+      # custom sizes) and runs with failed platforms stay in their own run summary, except very-high and before-death
+      # (BENCH_PARTIAL): published with what finished, their notes list what is missing (readme_board.py).
       - name: Publish Leaderboard To README
         if: >-
           github.ref == 'refs/heads/main' && inputs.preset != 'custom' &&

@@ -113,6 +113,16 @@ on:
         required: false
         default: false
         type: boolean
+      partial:
+        description: "Score what finished: each shard stops its scans 20 min before its time limit and a shard that fails or runs out of time leaves its scanners unfinished instead of voiding the platform"
+        required: false
+        default: false
+        type: boolean
+      deadline_min:
+        description: "partial: minutes after the shard job starts by which its scans end (its limit is 355); the shards test sets it low to cut scans on purpose"
+        required: false
+        default: "335"
+        type: string
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -241,6 +251,11 @@ jobs:
       OUT: shard-out/${{ inputs.label }}-shard-${{ matrix.shard }}
       MOUNT: ${{ inputs.platform == 'macos' && '/tmp/BenchVol' || 'X:/bench' }}
     steps:
+      # partial: the scans end 20 min before the job's 355-minute limit (--deadline), leaving time to upload
+      - name: Note The Job Start
+        shell: bash
+        run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
@@ -346,6 +361,8 @@ jobs:
           echo '{"shard": ${{ matrix.shard }}, "scanners": "${{ matrix.scanners }}"}' > "$OUT/shard.json"
           DIR_LIST=()
           if [ "${{ inputs.platform }}" = "macos" ]; then DIR_LIST=(--atime-dir-list "$RUNNER_TEMP/bench_dirs.txt"); fi
+          DEADLINE=()
+          if [ "${{ inputs.partial }}" = "true" ]; then DEADLINE=(--deadline "$((JOB_T0 + ${{ inputs.deadline_min }} * 60))"); fi
           python ./scripts/wrappers/run_cli_scanners.py \
             --path "$MOUNT" \
             --ground-truth "$OUT/ground_truth.json" \
@@ -354,7 +371,8 @@ jobs:
             --scanners "${{ matrix.scanners }}" \
             --warm-runs "${{ inputs.warm_runs }}" \
             --reset-atime \
-            "${DIR_LIST[@]}"
+            "${DIR_LIST[@]}" \
+            "${DEADLINE[@]}"
 
       # before the teardown, so a job that runs out of time later still keeps its results
       - name: Upload Shard Results
@@ -374,16 +392,22 @@ jobs:
 
   merge:
     name: "Merge ${{ inputs.label }} shards (${{ inputs.preset }})"
-    needs: shard
+    needs: [plan, shard]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       # A platform with some of its scanners missing would be ranked as if they had never run: like a failed platform
-      # job, a failed or timed-out shard leaves the platform without a result (and the preset unpublished)
+      # job, a failed or timed-out shard leaves the platform without a result (and the preset unpublished). With
+      # partial (the sizes scored from what finished) the shards that finished are merged, and the scanners of a shard
+      # that left nothing are listed as unfinished
       - name: Every Shard Finished
         if: ${{ needs.shard.result != 'success' }}
         shell: bash
         run: |
+          if [ "${{ inputs.partial }}" = "true" ]; then
+            echo "::warning::a shard of ${{ inputs.label }} did not finish (${{ needs.shard.result }}); merging what finished, the rest is listed as unfinished"
+            exit 0
+          fi
           echo "::error::a shard of ${{ inputs.label }} did not finish (${{ needs.shard.result }}); no partial result for the platform"
           exit 1
 
@@ -403,9 +427,11 @@ jobs:
 
       - name: Merge The Shards And Report
         shell: bash
+        env:
+          PLANNED: ${{ inputs.partial && needs.plan.outputs.matrix || '' }}
         run: |
           R="results/${{ inputs.label }}"
-          python ./scripts/ci/merge_shards.py --shards-dir shards --anchor dua --out-dir "$R"
+          python ./scripts/ci/merge_shards.py --shards-dir shards --anchor dua --out-dir "$R" --planned "$PLANNED"
           if [ "${{ inputs.normalize }}" = "true" ]; then
             python ./scripts/report_gen.py \
               --ground-truth "$R/ground_truth.json" \

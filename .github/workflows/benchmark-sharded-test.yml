@@ -32,6 +32,16 @@ on:
           - all
           - windows
           - macos
+      partial:
+        description: "Score what finished (as very-high and before-death): failed or timed-out shards leave their scanners unfinished"
+        required: false
+        default: false
+        type: boolean
+      deadline_min:
+        description: "With partial: minutes after each shard job starts by which its scans end (set it low to cut scans on purpose)"
+        required: false
+        default: "335"
+        type: string
 
 permissions:
   contents: read
@@ -65,6 +75,8 @@ jobs:
       max_physical_mb: "1500"
       seed: "42"
       aging: true
+      partial: ${{ inputs.partial }}
+      deadline_min: ${{ inputs.deadline_min }}
 
   sharded-windows:
     name: "Sharded ${{ matrix.label }}"
@@ -111,6 +123,8 @@ jobs:
       max_physical_mb: "1500"
       seed: "42"
       aging: true
+      partial: ${{ inputs.partial }}
+      deadline_min: ${{ inputs.deadline_min }}
 
   summary:
     name: "Sharded Leaderboard (${{ inputs.preset }}, not published)"

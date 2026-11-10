@@ -52,11 +52,19 @@ CORE_PLATFORMS = [
 # ReFS is not run from very-high up (scripts/ci/windows_shards.py): generating its tree and one shard of its scans each
 # outgrow a 6-hour job there
 NO_REFS_PRESETS = ("very-high", "before-death")
+# Scored from what finished: a platform, shard or scanner that fails or runs out of time is left out (its scanners
+# show as unfinished) and the board is published all the same. These sizes push every job to its 6-hour limit (and the
+# macOS shards to the 24-hour queue limit), so one of them failing must not cost the whole result.
+PARTIAL_PRESETS = ("very-high", "before-death")
 
 
 def core_platforms(preset: str) -> List[str]:
     base = preset.split(" ")[0]  # "high · Defender on" -> "high"
     return [lbl for lbl in CORE_PLATFORMS if not (lbl == "windows-x86_64-refs" and base in NO_REFS_PRESETS)]
+
+
+def scores_what_finished(preset: str) -> bool:
+    return preset.split(" ")[0] in PARTIAL_PRESETS
 
 
 OS_NAMES = {"linux": "Linux", "macos": "macOS", "windows": "Win"}
@@ -74,7 +82,8 @@ FS_NAMES = {
     "ramdisk": "RAM",
 }
 FS_ORDER = ["ext4", "apfs", "ntfs", "btrfs", "xfs", "zfs", "refs", "mft", "ramdisk"]
-STATUS_TEXT = {"cannot_run": "⛔ 无法运行", "disqualified": "❌ 违规", "invalid": "⚠️ 无效"}
+STATUS_TEXT = {"cannot_run": "⛔ 无法运行", "disqualified": "❌ 违规", "invalid": "⚠️ 无效", "unfinished": "⏱️ 未跑完"}
+STATUS_ICON = {"cannot_run": "⛔", "disqualified": "❌", "invalid": "⚠️", "unfinished": "⏱️"}
 
 
 def parse_label(label: str) -> Tuple[str, str, str]:
@@ -117,13 +126,15 @@ def find_platform_dirs(artifacts: Path) -> Dict[str, Path]:
 
 
 def status_of(row: Dict[str, Any]) -> str:
-    """'ok', 'cannot_run', 'disqualified' or 'invalid'."""
+    """'ok', 'cannot_run', 'unfinished', 'disqualified' or 'invalid'."""
     if row.get("valid", True) is not False:
         cold, warm = float(row.get("cold_time_ms") or 0), float(row.get("warm_time_ms") or 0)
         return "ok" if cold > 0 and warm > 0 else "invalid"
     reason = str(row.get("invalid_reason", ""))
     if "CANNOT RUN" in reason:
         return "cannot_run"
+    if "UNFINISHED" in reason:
+        return "unfinished"
     if "DISQUALIFIED" in reason:
         return "disqualified"
     return "invalid"
@@ -626,7 +637,7 @@ def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], b
         f"| {head('扫描器', 'Scanner', bi)} | " + " | ".join(titles[lbl] for lbl in labels) + " |",
         "| :--- | " + " | ".join(":---:" for _ in labels) + " |",
     ]
-    status_bi = {"cannot_run": "⛔", "disqualified": "❌", "invalid": "⚠️"}
+    status_bi = STATUS_ICON
     # per platform column: the fastest cold and the fastest warm time in bold (they can belong to different scanners)
     fastest: Dict[str, Dict[str, str]] = {}
     for lbl in labels:
@@ -691,8 +702,35 @@ NOTES_EN = [
 ]
 
 
+def partial_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
+    """What is missing from a size scored from what finished (PARTIAL_PRESETS); nothing when everything finished."""
+    missing = p.get("missing_platforms") or []
+    unfinished = sorted(
+        {sid for plat in p["per_platform"].values() for sid, e in plat.items() if e.get("status") == "unfinished"}
+    )
+    if not missing and not unfinished:
+        return []
+    zh = "本档跑完入分：哪个平台、分片或扫描器失败或超时，都不影响出分，跑完的照常计分。"
+    en = "Scored from what finished: a platform, shard or scanner that failed or ran out of time does not hold the "
+    en += "result back; whatever finished counts."
+    if missing:
+        names = "、".join(platform_title(lbl) for lbl in missing)
+        zh += f"没有结果的平台（不计入）：{names}。"
+        en += f" Platforms without results (left out): {', '.join(platform_title(lbl) for lbl in missing)}."
+    if unfinished:
+        zh += (
+            "⏱️ 未跑完 = 作业时间用完时它还没跑完：这个平台不计它的分，和无效成绩一样既不扣分也不加分，"
+            "它的综合分只来自跑完的平台。"
+        )
+        en += (
+            " ⏱️ unfinished = the job's time ran out before it finished: that platform is left out of its score, "
+            "like an invalid result (no penalty, no bonus), so its score comes from the platforms it finished."
+        )
+    return [zh, en] if bi else [zh]
+
+
 def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
-    notes: List[str] = []
+    notes: List[str] = partial_notes(p, bi)
     if bi:
         notes += [
             "冷扫、热扫下方的小字是它在有效平台上用时（秒）的几何平均；各平台硬件不同、每个扫描器参加的平台也不同，"
@@ -751,7 +789,10 @@ def render_run_summary(p: Dict[str, Any], title_preset: str) -> str:
             warning.append(
                 "> 没有 ReFS 成绩，Win x64 NTFS 的成绩没有经过 NTFS/ReFS 交叉核查（MFT 逃逸），只能当作未核查的参考。"
             )
-        warning.append("> 缺少核心平台的运行只出现在这份运行总结里，不会发布到 README 榜单。")
+        if scores_what_finished(p.get("preset") or ""):
+            warning.append("> 这一档跑完入分：缺的平台不计入，其余照常计分并发布到 README 榜单。")
+        else:
+            warning.append("> 缺少核心平台的运行只出现在这份运行总结里，不会发布到 README 榜单。")
         lines += ["\n".join(warning), ""]
     if "windows-x86_64-refs" not in core_platforms(p.get("preset") or "") and "windows-x86_64" in p["platforms"]:
         lines += [
