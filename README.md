@@ -39,9 +39,9 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | 名⁠次<br>Rank | 综⁠合<br>Overall | 冷⁠扫<br>Cold | 热⁠扫<br>Warm | 内⁠存⁠峰⁠值\*<br>Peak&nbsp;RAM\* | 扫⁠描⁠效⁠率\*<br>I/O&nbsp;efficiency\* | 写⁠盘⁠量\*<br>Disk&nbsp;writes\* |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | 🥇 | **SpaceKnife**<br><sub>96.3</sub> | **SpaceKnife**<br><sub>96.3</sub> | **SpaceKnife**<br><sub>96.0</sub> | **ncdu**<br><sub>3.5&nbsp;MB</sub> | **WizTree**<br><sub>99.8</sub> | **SpaceKnife**<br><sub>0.0%&nbsp;·&nbsp;0.2&nbsp;MB</sub> |
-| 🥈 | **gdu**<br><sub>59.2</sub> | **BSD&nbsp;du**<br><sub>49.1</sub> | **gdu**<br><sub>67.0</sub> | **GNU&nbsp;du**<br><sub>14&nbsp;MB</sub> | **GNU&nbsp;du**<br><sub>99.3</sub> | **SpaceSniffer**<br><sub>82%&nbsp;·&nbsp;2,155.0&nbsp;MB</sub> |
-| 🥉 | **SquirrelDisk**<br><sub>53.1</sub> | **gdu**<br><sub>47.1</sub> | **SquirrelDisk**<br><sub>53.8</sub> | **BSD&nbsp;du**<br><sub>458&nbsp;MB</sub> | **SpaceKnife**<br><sub>98.0</sub> | **WinDirStat**<br><sub>84%&nbsp;·&nbsp;631.6&nbsp;MB</sub> |
-| 4 | **BSD&nbsp;du**<br><sub>45.8</sub> | **SquirrelDisk**<br><sub>46.3</sub> | **diskus**<br><sub>41.1</sub> | **dua‑cli**<br><sub>22&nbsp;MB</sub> | **ncdu**<br><sub>95.9</sub> | **SquirrelDisk**<br><sub>95%&nbsp;·&nbsp;795.5&nbsp;MB</sub> |
+| 🥈 | **gdu**<br><sub>59.1</sub> | **BSD&nbsp;du**<br><sub>47.7</sub> | **gdu**<br><sub>66.8</sub> | **BSD&nbsp;du**<br><sub>463&nbsp;MB</sub> | **GNU&nbsp;du**<br><sub>99.2</sub> | **SpaceSniffer**<br><sub>80%&nbsp;·&nbsp;2,053.1&nbsp;MB</sub> |
+| 🥉 | **SquirrelDisk**<br><sub>52.9</sub> | **gdu**<br><sub>47.0</sub> | **SquirrelDisk**<br><sub>53.7</sub> | **GNU&nbsp;du**<br><sub>14&nbsp;MB</sub> | **SpaceKnife**<br><sub>97.9</sub> | **WinDirStat**<br><sub>84%&nbsp;·&nbsp;631.6&nbsp;MB</sub> |
+| 4 | **BSD&nbsp;du**<br><sub>45.0</sub> | **diskus**<br><sub>46.0</sub> | **diskus**<br><sub>40.9</sub> | **dua‑cli**<br><sub>22&nbsp;MB</sub> | **ncdu**<br><sub>95.8</sub> | **SquirrelDisk**<br><sub>94%&nbsp;·&nbsp;795.5&nbsp;MB</sub> |
 
 <sub>**\* 只作参考，不计入综合分**（综合 = 冷扫、热扫、均衡指数）· † 只有小体量成绩 · 各列按 `low` 及以上体量合并<br>**内存峰值**：各平台、各体量的中位数，含放进 tmpfs 的数据（Linux）和被压缩的内存（macOS）<br>**扫描效率**：1 ÷ (IOPS × 扫描时间) = 1 ÷ 冷扫读盘次数，平台内最少 ÷ 自己 × 100<br>**写盘量**：扫描器自己写的文件（如磁盘缓存）+ 冷扫时更新访问时间写的盘（[按日常设置开着](#怎么算分--how-scoring-works)）。百分比 = 自己 ÷ 同平台典型扫描器，排名按它（NTFS 每项写的是 ext4 的近 4 倍，平台内比才公平）；MB 是每百万项实测值。macOS 的写入计数是整台机器的，不参与<br><br>**\* For reference, not in the overall score** (overall = cold, warm, balanced index) · † small sizes only · each column combines the sizes from `low` up<br>**Peak RAM**: median over platforms and sizes, including data parked in tmpfs (Linux) and compressed memory (macOS)<br>**I/O efficiency**: 1 / (IOPS x scan time) = 1 / cold-scan disk reads, platform's fewest / own x 100<br>**Disk writes**: files the scanner writes itself (e.g. a disk cache) + what the cold scan writes for access-time updates ([on, as in daily use](#怎么算分--how-scoring-works)). The percentage is own / the platform's typical scanner and sets the rank (NTFS writes nearly 4x what ext4 does per item, so platforms are compared within themselves); MB is measured per million items. macOS stays out: its write counter covers the whole machine.</sub>
 
@@ -49,21 +49,21 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 | # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | very‑lite\* | lite\* | low | mid | high |
 | :---: | :--- | ---: | :---: | :---: | :---: | :---: | :---: |
-| 🥇 | **SpaceKnife** | <mark>**96.3**</mark> | 🥇&nbsp;<mark>**88.8**</mark> | 🥇&nbsp;<mark>**96.9**</mark> | 🥇&nbsp;<mark>**97.0**</mark> | 🥇&nbsp;<mark>**95.6**</mark> | — |
-| 参考 | **SpaceKnife&nbsp;(0.3.4)** | 96.1 | 参考&nbsp;55.1 | 参考&nbsp;84.2 | 参考&nbsp;93.3 | 参考&nbsp;95.5 | 参考&nbsp;99.8 |
-| 🥈 | **gdu** | 59.2 | #4&nbsp;58.9 | 🥉&nbsp;58.1 | 🥉&nbsp;56.9 | 🥈&nbsp;61.9 | 🥇&nbsp;<mark>**58.9**</mark> |
-| 🥉 | **SquirrelDisk** | 53.1 | 🥈&nbsp;69.8 | 🥈&nbsp;66.1 | 🥈&nbsp;62.6 | 🥉&nbsp;50.5 | #4&nbsp;47.4 |
-| 4 | **BSD&nbsp;du** | 45.8 | 🥉&nbsp;60.1 | #4&nbsp;49.1 | #7&nbsp;36.5 | #4&nbsp;50.2 | 🥈&nbsp;52.5 |
-| 5 | **diskus** | 44.9 | #5&nbsp;51.3 | #7&nbsp;37.1 | #5&nbsp;38.6 | #5&nbsp;48.0 | 🥉&nbsp;48.7 |
-| 6 | **dua‑cli** | 43.2 | #7&nbsp;42.8 | #5&nbsp;40.7 | #4&nbsp;41.9 | #6&nbsp;45.2 | #5&nbsp;42.8 |
-| 7 | **pdu** | 40.4 | #6&nbsp;46.2 | #8&nbsp;35.2 | #8&nbsp;35.3 | #7&nbsp;43.8 | #6&nbsp;42.7 |
-| 8 | **GNU&nbsp;du** | 37.1 | #8&nbsp;40.8 | #6&nbsp;38.4 | #6&nbsp;37.9 | #9&nbsp;37.9 | #8&nbsp;35.7 |
-| 9 | **ncdu** | 36.7 | #9&nbsp;40.7 | #10&nbsp;33.1 | #9&nbsp;34.3 | #8&nbsp;38.6 | #7&nbsp;37.3 |
-| 10 | **WinDirStat** | 29.5 | #10&nbsp;37.2 | #9&nbsp;33.7 | #10&nbsp;32.9 | #11&nbsp;27.8 | #10&nbsp;27.9 |
-| 11 | **dust** | 28.3 | #11&nbsp;30.9 | #12&nbsp;24.0 | #12&nbsp;26.3 | #10&nbsp;31.8 | #11&nbsp;27.2 |
-| 12 | **WizTree** | 27.1 | #13&nbsp;24.3 | #11&nbsp;31.6 | #11&nbsp;29.4 | #13&nbsp;22.5 | #9&nbsp;30.2 |
-| 13 | **erdtree** | 23.2 | #12&nbsp;28.9 | #13&nbsp;22.6 | #13&nbsp;24.1 | #12&nbsp;24.4 | #12&nbsp;21.4 |
-| 14 | **SpaceSniffer** | 17.7 | #14&nbsp;16.3 | #14&nbsp;17.6 | #14&nbsp;16.1 | #14&nbsp;18.1 | #13&nbsp;19.2 |
+| 🥇 | **SpaceKnife** | <mark>**96.3**</mark> | 🥇&nbsp;<mark>**88.8**</mark> | 🥇&nbsp;<mark>**96.9**</mark> | 🥇&nbsp;<mark>**96.9**</mark> | 🥇&nbsp;<mark>**95.6**</mark> | — |
+| 参考 | **SpaceKnife&nbsp;(0.3.4)** | 96.2 | 参考&nbsp;55.1 | 参考&nbsp;84.2 | 参考&nbsp;93.3 | 参考&nbsp;95.5 | 参考&nbsp;99.8 |
+| 🥈 | **gdu** | 59.1 | #4&nbsp;58.9 | 🥉&nbsp;58.1 | 🥉&nbsp;56.5 | 🥈&nbsp;61.9 | 🥇&nbsp;<mark>**58.9**</mark> |
+| 🥉 | **SquirrelDisk** | 52.9 | 🥈&nbsp;69.8 | 🥈&nbsp;66.1 | 🥈&nbsp;61.8 | 🥉&nbsp;50.5 | #4&nbsp;47.4 |
+| 4 | **BSD&nbsp;du** | 45.0 | 🥉&nbsp;60.1 | #4&nbsp;49.1 | #9&nbsp;34.5 | #4&nbsp;50.2 | 🥈&nbsp;52.5 |
+| 5 | **diskus** | 44.6 | #5&nbsp;51.3 | #7&nbsp;37.1 | #6&nbsp;38.1 | #5&nbsp;48.0 | 🥉&nbsp;48.7 |
+| 6 | **dua‑cli** | 43.3 | #7&nbsp;42.8 | #5&nbsp;40.7 | #4&nbsp;41.9 | #6&nbsp;45.2 | #5&nbsp;42.8 |
+| 7 | **pdu** | 40.5 | #6&nbsp;46.2 | #8&nbsp;35.2 | #8&nbsp;35.5 | #7&nbsp;43.8 | #6&nbsp;42.7 |
+| 8 | **GNU&nbsp;du** | 37.7 | #8&nbsp;40.8 | #6&nbsp;38.4 | #5&nbsp;39.7 | #9&nbsp;37.9 | #8&nbsp;35.7 |
+| 9 | **ncdu** | 37.3 | #9&nbsp;40.7 | #10&nbsp;33.1 | #7&nbsp;35.9 | #8&nbsp;38.6 | #7&nbsp;37.3 |
+| 10 | **WinDirStat** | 29.0 | #10&nbsp;37.2 | #9&nbsp;33.7 | #10&nbsp;31.5 | #11&nbsp;27.8 | #10&nbsp;27.9 |
+| 11 | **dust** | 28.1 | #11&nbsp;30.9 | #12&nbsp;24.0 | #12&nbsp;25.5 | #10&nbsp;31.8 | #11&nbsp;27.2 |
+| 12 | **WizTree** | 26.4 | #13&nbsp;24.3 | #11&nbsp;31.6 | #11&nbsp;27.2 | #13&nbsp;22.5 | #9&nbsp;30.2 |
+| 13 | **erdtree** | 23.3 | #12&nbsp;28.9 | #13&nbsp;22.6 | #13&nbsp;24.4 | #12&nbsp;24.4 | #12&nbsp;21.4 |
+| 14 | **SpaceSniffer** | 17.4 | #14&nbsp;16.3 | #14&nbsp;17.6 | #14&nbsp;15.2 | #14&nbsp;18.1 | #13&nbsp;19.2 |
 | 15 | **Sysinternals&nbsp;du** | 6.2 | — | — | #15&nbsp;6.1 | — | #14&nbsp;6.3 |
 
 <sub><mark>**高亮**</mark> = 该列最高分 · <mark>**highlighted**</mark> = best in its column.<br><br>综合分 = `low` 及以上各体量综合分的几何平均；\* 为仅供参考的小体量（综合分带 \* 的扫描器只有小体量成绩）。缺平台、缺体量都不扣分也不加分：只用它实际跑过的平台和体量计算，等于把缺的部分按它自己的平均分补上，平台多的工具不会因此更容易刷分，平台少的工具也不会因此被扣分。<br><br>Score = geometric mean of the per-size scores from `low` up; \* marks the reference-only small sizes (a score with \* comes from small sizes only). Missing platforms and sizes neither cost nor earn points: only what a scanner actually ran counts, the same as filling the gaps with its own average, so more platforms do not make a high score easier and fewer do not mark a tool down.</sub>
@@ -76,21 +76,21 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 | # | 扫⁠描⁠器<br>Scanner | **冷⁠扫⁠分**<br>**Cold** | very‑lite\* | lite\* | low | mid | high |
 | :---: | :--- | ---: | :---: | :---: | :---: | :---: | :---: |
-| 参考 | **SpaceKnife&nbsp;(0.3.4)** | 98.0 | 参考&nbsp;64.2 | 参考&nbsp;91.4 | 参考&nbsp;94.8 | 参考&nbsp;99.1 | 参考&nbsp;100.0 |
+| 参考 | **SpaceKnife&nbsp;(0.3.4)** | 98.1 | 参考&nbsp;64.2 | 参考&nbsp;91.4 | 参考&nbsp;95.2 | 参考&nbsp;99.1 | 参考&nbsp;100.0 |
 | 🥇 | **SpaceKnife** | <mark>**96.3**</mark> | 🥇&nbsp;<mark>**82.0**</mark> | 🥇&nbsp;<mark>**94.7**</mark> | 🥇&nbsp;<mark>**96.4**</mark> | 🥇&nbsp;<mark>**96.2**</mark> | — |
-| 🥈 | **BSD&nbsp;du** | 49.1 | 🥉&nbsp;63.9 | #4&nbsp;48.5 | #10&nbsp;28.9 | 🥈&nbsp;59.0 | 🥇&nbsp;<mark>**69.4**</mark> |
-| 🥉 | **gdu** | 47.1 | #6&nbsp;52.7 | #5&nbsp;43.9 | #4&nbsp;46.3 | #4&nbsp;49.4 | 🥉&nbsp;45.7 |
-| 4 | **SquirrelDisk** | 46.3 | #5&nbsp;55.5 | 🥈&nbsp;55.7 | 🥈&nbsp;53.0 | #6&nbsp;44.0 | #5&nbsp;42.7 |
-| 5 | **diskus** | 46.2 | #4&nbsp;58.5 | #7&nbsp;42.5 | #5&nbsp;42.5 | 🥉&nbsp;50.2 | 🥈&nbsp;46.2 |
-| 6 | **dua‑cli** | 44.3 | #8&nbsp;43.9 | #6&nbsp;43.6 | #6&nbsp;42.3 | #5&nbsp;46.3 | #4&nbsp;44.4 |
-| 7 | **pdu** | 39.1 | #7&nbsp;46.6 | #8&nbsp;37.9 | #7&nbsp;34.8 | #7&nbsp;43.5 | #6&nbsp;39.5 |
-| 8 | **dust** | 35.8 | #9&nbsp;42.4 | #9&nbsp;32.8 | #8&nbsp;32.2 | #8&nbsp;38.6 | #7&nbsp;36.9 |
-| 9 | **WinDirStat** | 31.8 | 🥈&nbsp;66.4 | 🥉&nbsp;49.1 | 🥉&nbsp;48.4 | #12&nbsp;25.5 | #10&nbsp;26.1 |
-| 10 | **erdtree** | 30.6 | #10&nbsp;37.4 | #10&nbsp;28.7 | #9&nbsp;29.0 | #9&nbsp;33.9 | #9&nbsp;29.2 |
-| 11 | **ncdu** | 26.2 | #11&nbsp;29.4 | #14&nbsp;21.9 | #14&nbsp;21.7 | #10&nbsp;27.9 | #8&nbsp;29.7 |
-| 12 | **GNU&nbsp;du** | 25.4 | #12&nbsp;26.9 | #13&nbsp;25.3 | #12&nbsp;25.1 | #11&nbsp;25.8 | #11&nbsp;25.3 |
-| 13 | **SpaceSniffer** | 20.2 | #14&nbsp;20.3 | #11&nbsp;26.3 | #13&nbsp;23.2 | #13&nbsp;18.9 | #12&nbsp;18.7 |
-| 14 | **WizTree** | 18.2 | #13&nbsp;20.8 | #12&nbsp;25.6 | #11&nbsp;25.8 | #14&nbsp;15.0 | #13&nbsp;15.7 |
+| 🥈 | **BSD&nbsp;du** | 47.7 | 🥉&nbsp;63.9 | #4&nbsp;48.5 | #11&nbsp;26.5 | 🥈&nbsp;59.0 | 🥇&nbsp;<mark>**69.4**</mark> |
+| 🥉 | **gdu** | 47.0 | #6&nbsp;52.7 | #5&nbsp;43.9 | #4&nbsp;46.0 | #4&nbsp;49.4 | 🥉&nbsp;45.7 |
+| 4 | **diskus** | 46.0 | #4&nbsp;58.5 | #7&nbsp;42.5 | #6&nbsp;41.8 | 🥉&nbsp;50.2 | 🥈&nbsp;46.2 |
+| 5 | **SquirrelDisk** | 45.9 | #5&nbsp;55.5 | 🥈&nbsp;55.7 | 🥈&nbsp;51.6 | #6&nbsp;44.0 | #5&nbsp;42.7 |
+| 6 | **dua‑cli** | 44.5 | #8&nbsp;43.9 | #6&nbsp;43.6 | #5&nbsp;42.8 | #5&nbsp;46.3 | #4&nbsp;44.4 |
+| 7 | **pdu** | 39.3 | #7&nbsp;46.6 | #8&nbsp;37.9 | #7&nbsp;35.4 | #7&nbsp;43.5 | #6&nbsp;39.5 |
+| 8 | **dust** | 35.8 | #9&nbsp;42.4 | #9&nbsp;32.8 | #8&nbsp;32.1 | #8&nbsp;38.6 | #7&nbsp;36.9 |
+| 9 | **WinDirStat** | 31.7 | 🥈&nbsp;66.4 | 🥉&nbsp;49.1 | 🥉&nbsp;47.6 | #12&nbsp;25.5 | #10&nbsp;26.1 |
+| 10 | **erdtree** | 31.0 | #10&nbsp;37.4 | #10&nbsp;28.7 | #9&nbsp;30.1 | #9&nbsp;33.9 | #9&nbsp;29.2 |
+| 11 | **ncdu** | 26.8 | #11&nbsp;29.4 | #14&nbsp;21.9 | #13&nbsp;23.3 | #10&nbsp;27.9 | #8&nbsp;29.7 |
+| 12 | **GNU&nbsp;du** | 26.0 | #12&nbsp;26.9 | #13&nbsp;25.3 | #10&nbsp;26.9 | #11&nbsp;25.8 | #11&nbsp;25.3 |
+| 13 | **SpaceSniffer** | 20.1 | #14&nbsp;20.3 | #11&nbsp;26.3 | #14&nbsp;23.0 | #13&nbsp;18.9 | #12&nbsp;18.7 |
+| 14 | **WizTree** | 18.0 | #13&nbsp;20.8 | #12&nbsp;25.6 | #12&nbsp;25.0 | #14&nbsp;15.0 | #13&nbsp;15.7 |
 | 15 | **Sysinternals&nbsp;du** | 9.4 | — | — | #15&nbsp;11.6 | — | #14&nbsp;7.6 |
 
 <sub>只看冷扫：每个体量取冷扫相对分（该平台最快 ÷ 自己 × 100，跨平台几何平均），再对 `low` 及以上取几何平均；格子里是该体量冷扫的名次和分数，<mark>**高亮**</mark> = 该列最高分。<br><br>The cold-scan score alone: each size's cold-scan relative score (platform fastest / own x 100, geometric mean across platforms), then the geometric mean from `low` up; each cell is the cold-scan rank and score in that size, <mark>**highlighted**</mark> = best in its column.</sub>
@@ -100,20 +100,20 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 | # | 扫⁠描⁠器<br>Scanner | **热⁠扫⁠分**<br>**Warm** | very‑lite\* | lite\* | low | mid | high |
 | :---: | :--- | ---: | :---: | :---: | :---: | :---: | :---: |
 | 🥇 | **SpaceKnife** | <mark>**96.0**</mark> | 🥇&nbsp;<mark>**91.7**</mark> | 🥇&nbsp;<mark>**98.2**</mark> | 🥇&nbsp;<mark>**97.8**</mark> | 🥇&nbsp;<mark>**94.2**</mark> | — |
-| 参考 | **SpaceKnife&nbsp;(0.3.4)** | 93.7 | 参考&nbsp;40.8 | 参考&nbsp;73.9 | 参考&nbsp;90.2 | 参考&nbsp;91.9 | 参考&nbsp;99.3 |
-| 🥈 | **gdu** | 67.0 | 🥉&nbsp;60.1 | 🥉&nbsp;67.3 | 🥉&nbsp;62.4 | 🥈&nbsp;70.9 | 🥇&nbsp;<mark>**67.9**</mark> |
-| 🥉 | **SquirrelDisk** | 53.8 | 🥈&nbsp;76.8 | 🥈&nbsp;70.5 | 🥈&nbsp;66.0 | 🥉&nbsp;51.5 | #4&nbsp;45.8 |
-| 4 | **diskus** | 41.1 | #5&nbsp;44.2 | #9&nbsp;29.8 | #7&nbsp;32.2 | #4&nbsp;43.8 | 🥉&nbsp;49.3 |
-| 5 | **dua‑cli** | 37.6 | #8&nbsp;38.1 | #6&nbsp;34.1 | #5&nbsp;36.5 | #5&nbsp;40.0 | #6&nbsp;36.5 |
-| 6 | **WizTree** | 36.4 | #10&nbsp;22.8 | #7&nbsp;33.9 | #10&nbsp;29.0 | #10&nbsp;27.8 | 🥈&nbsp;59.9 |
-| 7 | **pdu** | 36.4 | #6&nbsp;41.8 | #10&nbsp;28.3 | #8&nbsp;30.5 | #6&nbsp;39.2 | #5&nbsp;40.3 |
-| 8 | **GNU&nbsp;du** | 34.8 | #7&nbsp;39.7 | #4&nbsp;37.1 | #4&nbsp;36.7 | #7&nbsp;36.0 | #7&nbsp;32.0 |
-| 9 | **ncdu** | 32.8 | #9&nbsp;37.7 | #8&nbsp;31.2 | #6&nbsp;33.9 | #8&nbsp;34.6 | #8&nbsp;30.1 |
-| 10 | **BSD&nbsp;du** | 28.9 | #4&nbsp;47.6 | #5&nbsp;34.7 | #9&nbsp;30.4 | #9&nbsp;29.4 | #9&nbsp;27.0 |
-| 11 | **WinDirStat** | 23.2 | #13&nbsp;19.2 | #11&nbsp;20.8 | #11&nbsp;20.4 | #11&nbsp;24.3 | #10&nbsp;25.3 |
-| 12 | **dust** | 19.1 | #12&nbsp;20.4 | #13&nbsp;14.9 | #12&nbsp;18.2 | #12&nbsp;22.9 | #11&nbsp;16.8 |
-| 13 | **erdtree** | 15.7 | #11&nbsp;20.7 | #12&nbsp;15.7 | #13&nbsp;17.3 | #13&nbsp;16.4 | #12&nbsp;13.7 |
-| 14 | **SpaceSniffer** | 10.1 | #14&nbsp;8.1 | #14&nbsp;8.1 | #14&nbsp;7.7 | #14&nbsp;11.0 | #13&nbsp;12.2 |
+| 参考 | **SpaceKnife&nbsp;(0.3.4)** | 93.6 | 参考&nbsp;40.8 | 参考&nbsp;73.9 | 参考&nbsp;89.9 | 参考&nbsp;91.9 | 参考&nbsp;99.3 |
+| 🥈 | **gdu** | 66.8 | 🥉&nbsp;60.1 | 🥉&nbsp;67.3 | 🥉&nbsp;62.0 | 🥈&nbsp;70.9 | 🥇&nbsp;<mark>**67.9**</mark> |
+| 🥉 | **SquirrelDisk** | 53.7 | 🥈&nbsp;76.8 | 🥈&nbsp;70.5 | 🥈&nbsp;65.6 | 🥉&nbsp;51.5 | #4&nbsp;45.8 |
+| 4 | **diskus** | 40.9 | #5&nbsp;44.2 | #9&nbsp;29.8 | #7&nbsp;31.8 | #4&nbsp;43.8 | 🥉&nbsp;49.3 |
+| 5 | **dua‑cli** | 37.7 | #8&nbsp;38.1 | #6&nbsp;34.1 | #5&nbsp;36.6 | #5&nbsp;40.0 | #6&nbsp;36.5 |
+| 6 | **pdu** | 36.4 | #6&nbsp;41.8 | #10&nbsp;28.3 | #8&nbsp;30.5 | #6&nbsp;39.2 | #5&nbsp;40.3 |
+| 7 | **GNU&nbsp;du** | 35.2 | #7&nbsp;39.7 | #4&nbsp;37.1 | #4&nbsp;38.0 | #7&nbsp;36.0 | #7&nbsp;32.0 |
+| 8 | **WizTree** | 35.0 | #10&nbsp;22.8 | #7&nbsp;33.9 | #10&nbsp;25.8 | #10&nbsp;27.8 | 🥈&nbsp;59.9 |
+| 9 | **ncdu** | 33.2 | #9&nbsp;37.7 | #8&nbsp;31.2 | #6&nbsp;35.0 | #8&nbsp;34.6 | #8&nbsp;30.1 |
+| 10 | **BSD&nbsp;du** | 28.4 | #4&nbsp;47.6 | #5&nbsp;34.7 | #9&nbsp;28.8 | #9&nbsp;29.4 | #9&nbsp;27.0 |
+| 11 | **WinDirStat** | 22.7 | #13&nbsp;19.2 | #11&nbsp;20.8 | #11&nbsp;19.0 | #11&nbsp;24.3 | #10&nbsp;25.3 |
+| 12 | **dust** | 18.8 | #12&nbsp;20.4 | #13&nbsp;14.9 | #13&nbsp;17.2 | #12&nbsp;22.9 | #11&nbsp;16.8 |
+| 13 | **erdtree** | 15.7 | #11&nbsp;20.7 | #12&nbsp;15.7 | #12&nbsp;17.2 | #13&nbsp;16.4 | #12&nbsp;13.7 |
+| 14 | **SpaceSniffer** | 9.8 | #14&nbsp;8.1 | #14&nbsp;8.1 | #14&nbsp;6.9 | #14&nbsp;11.0 | #13&nbsp;12.2 |
 | 15 | **Sysinternals&nbsp;du** | 2.7 | — | — | #15&nbsp;2.4 | — | #14&nbsp;3.0 |
 
 <sub>只看热扫：每个体量取热扫相对分（该平台最快 ÷ 自己 × 100，跨平台几何平均），再对 `low` 及以上取几何平均；格子里是该体量热扫的名次和分数，<mark>**高亮**</mark> = 该列最高分。<br><br>The warm-scan score alone: each size's warm-scan relative score (platform fastest / own x 100, geometric mean across platforms), then the geometric mean from `low` up; each cell is the warm-scan rank and score in that size, <mark>**highlighted**</mark> = best in its column.</sub>
@@ -307,28 +307,28 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 </details>
 
 <details>
-<summary><b>low</b> · 100 万文件 · 1M files · 2026-11-10 · <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/42860997126">run 42860997126</a> · <code>d36278b</code> · Win x64 (Btrfs): <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40257058978">run 40257058978</a> 2026-10-26</summary>
+<summary><b>low</b> · 100 万文件 · 1M files · 2026-11-10 · <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/42898208464">run 42898208464</a> · <code>68d5e90</code> · Win x64 (Btrfs): <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/40257058978">run 40257058978</a> 2026-10-26</summary>
 
 | # | 扫⁠描⁠器<br>Scanner | **综⁠合⁠分**<br>**Score** | 冷⁠扫<br>Cold | 热⁠扫<br>Warm | 均⁠衡<br>Balanced | 内⁠存<br>RAM | 误⁠差<br>Error | 核⁠验<br>Check | 平⁠台<br>Platforms |
 | :---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: | :---: |
-| 🥇 | **SpaceKnife** | <mark>**97.0**</mark> | <mark>**96.4**</mark><br><sub>13.9&nbsp;s</sub> | <mark>**97.8**</mark><br><sub>2.81&nbsp;s</sub> | <mark>**96.8**</mark> | 228&nbsp;MB | 0.09% | S·F·Z | 13/13 |
-| 参考 | **SpaceKnife&nbsp;(0.3.4)** | 93.3 | 94.8<br><sub>14.3&nbsp;s</sub> | 90.2<br><sub>3.11&nbsp;s</sub> | 94.9 | 263&nbsp;MB | 0.31% | S·F·Z | 14/14 |
-| 🥈 | **SquirrelDisk** | 62.6 | 53.0<br><sub>31.1&nbsp;s</sub> | 66.0<br><sub>6.18&nbsp;s</sub> | 70.1 | 29&nbsp;MB | 0.81% | S·F·Z | 9/9 |
-| 🥉 | **gdu** | 56.9 | 46.3<br><sub>29.4&nbsp;s</sub> | 62.4<br><sub>4.49&nbsp;s</sub> | 63.8 | 47&nbsp;MB | 0.41% | S·Z | 14/14 |
-| 4 | **dua‑cli** | 41.9 | 42.3<br><sub>32.2&nbsp;s</sub> | 36.5<br><sub>7.69&nbsp;s</sub> | 47.5 | 13&nbsp;MB | <mark>**0.00%**</mark> | S·Z | 14/14 |
-| 5 | **diskus** | 38.6 | 42.5<br><sub>32.0&nbsp;s</sub> | 32.2<br><sub>8.72&nbsp;s</sub> | 42.2 | 26&nbsp;MB | 0.06% | S | 14/14 |
-| 6 | **GNU&nbsp;du** | 37.9 | 25.1<br><sub>29.8&nbsp;s</sub> | 36.7<br><sub>4.49&nbsp;s</sub> | 59.2 | 9&nbsp;MB | <mark>**0.00%**</mark> | S·Z | 8/8 |
-| 7 | **BSD&nbsp;du** | 36.5 | 28.9<br><sub>112&nbsp;s</sub> | 30.4<br><sub>98.3&nbsp;s</sub> | 55.1 | 458&nbsp;MB | 17.48% | S·Z | 2/2 |
-| 8 | **pdu** | 35.3 | 34.8<br><sub>39.0&nbsp;s</sub> | 30.5<br><sub>9.18&nbsp;s</sub> | 41.3 | 48&nbsp;MB | 0.06% | S·Z | 14/14 |
-| 9 | **ncdu** | 34.3 | 21.7<br><sub>46.2&nbsp;s</sub> | 33.9<br><sub>8.66&nbsp;s</sub> | 55.0 | <mark>**3&nbsp;MB**</mark> | <mark>**0.00%**</mark> | S·F·Z | 10/10 |
-| 10 | **WinDirStat** | 32.9 | 48.4<br><sub>60.3&nbsp;s</sub> | 20.4<br><sub>12.2&nbsp;s</sub> | 36.2 | 247&nbsp;MB | 0.58% | S·F·Z | 4/4 |
-| 11 | **WizTree** | 29.4 | 25.8<br><sub>100&nbsp;s</sub> | 29.0<br><sub>9.65&nbsp;s</sub> | 33.9 | 517&nbsp;MB | 0.58% | S·F·Z | 3/3 |
-| 12 | **dust** | 26.3 | 32.2<br><sub>42.2&nbsp;s</sub> | 18.2<br><sub>15.4&nbsp;s</sub> | 31.1 | 391&nbsp;MB | 0.44% | S·Z | 14/14 |
-| 13 | **erdtree** | 24.1 | 29.0<br><sub>43.0&nbsp;s</sub> | 17.3<br><sub>16.8&nbsp;s</sub> | 27.8 | 857&nbsp;MB | <mark>**0.00%**</mark> | S·F·Z | 13/13 |
-| 14 | **SpaceSniffer** | 16.1 | 23.2<br><sub>112&nbsp;s</sub> | 7.7<br><sub>36.5&nbsp;s</sub> | 23.5 | 553&nbsp;MB | n/a | IO | 3/3 |
+| 🥇 | **SpaceKnife** | <mark>**96.9**</mark> | <mark>**96.4**</mark><br><sub>13.1&nbsp;s</sub> | <mark>**97.8**</mark><br><sub>2.72&nbsp;s</sub> | <mark>**96.6**</mark> | 225&nbsp;MB | 0.09% | S·F·Z | 13/13 |
+| 参考 | **SpaceKnife&nbsp;(0.3.4)** | 93.3 | 95.2<br><sub>13.5&nbsp;s</sub> | 89.9<br><sub>3.02&nbsp;s</sub> | 94.9 | 261&nbsp;MB | 0.28% | S·F·Z | 14/14 |
+| 🥈 | **SquirrelDisk** | 61.8 | 51.6<br><sub>28.5&nbsp;s</sub> | 65.6<br><sub>6.10&nbsp;s</sub> | 69.6 | 29&nbsp;MB | 0.81% | S·F·Z | 9/9 |
+| 🥉 | **gdu** | 56.5 | 46.0<br><sub>28.0&nbsp;s</sub> | 62.0<br><sub>4.38&nbsp;s</sub> | 63.3 | 47&nbsp;MB | 0.47% | S·Z | 14/14 |
+| 4 | **dua‑cli** | 41.9 | 42.8<br><sub>30.1&nbsp;s</sub> | 36.6<br><sub>7.42&nbsp;s</sub> | 46.9 | 13&nbsp;MB | <mark>**0.00%**</mark> | S·Z | 14/14 |
+| 5 | **GNU&nbsp;du** | 39.7 | 26.9<br><sub>29.0&nbsp;s</sub> | 38.0<br><sub>4.61&nbsp;s</sub> | 61.2 | 9&nbsp;MB | <mark>**0.00%**</mark> | S·Z | 8/8 |
+| 6 | **diskus** | 38.1 | 41.8<br><sub>30.8&nbsp;s</sub> | 31.8<br><sub>8.55&nbsp;s</sub> | 41.4 | 26&nbsp;MB | 0.06% | S | 14/14 |
+| 7 | **ncdu** | 35.9 | 23.3<br><sub>43.9&nbsp;s</sub> | 35.0<br><sub>8.76&nbsp;s</sub> | 56.8 | <mark>**3&nbsp;MB**</mark> | <mark>**0.00%**</mark> | S·F·Z | 10/10 |
+| 8 | **pdu** | 35.5 | 35.4<br><sub>36.3&nbsp;s</sub> | 30.5<br><sub>8.92&nbsp;s</sub> | 41.3 | 48&nbsp;MB | 0.06% | S·Z | 14/14 |
+| 9 | **BSD&nbsp;du** | 34.5 | 26.5<br><sub>114&nbsp;s</sub> | 28.8<br><sub>101&nbsp;s</sub> | 53.8 | 463&nbsp;MB | 17.48% | S·Z | 2/2 |
+| 10 | **WinDirStat** | 31.5 | 47.6<br><sub>47.9&nbsp;s</sub> | 19.0<br><sub>10.5&nbsp;s</sub> | 34.4 | 249&nbsp;MB | 0.58% | S·F·Z | 4/4 |
+| 11 | **WizTree** | 27.2 | 25.0<br><sub>74.8&nbsp;s</sub> | 25.8<br><sub>8.06&nbsp;s</sub> | 31.2 | 519&nbsp;MB | 0.58% | S·F·Z | 3/3 |
+| 12 | **dust** | 25.5 | 32.1<br><sub>40.1&nbsp;s</sub> | 17.2<br><sub>15.8&nbsp;s</sub> | 30.1 | 391&nbsp;MB | 0.42% | S·Z | 14/14 |
+| 13 | **erdtree** | 24.4 | 30.1<br><sub>39.0&nbsp;s</sub> | 17.2<br><sub>16.3&nbsp;s</sub> | 27.8 | 857&nbsp;MB | <mark>**0.00%**</mark> | S·F·Z | 13/13 |
+| 14 | **SpaceSniffer** | 15.2 | 23.0<br><sub>81.3&nbsp;s</sub> | 6.9<br><sub>30.2&nbsp;s</sub> | 22.2 | 552&nbsp;MB | n/a | IO | 3/3 |
 | 15 | **Sysinternals&nbsp;du** | 6.1 | 11.6<br><sub>148&nbsp;s</sub> | 2.4<br><sub>151&nbsp;s</sub> | 8.1 | 57&nbsp;MB | 34.70% | S·F·Z | 1/4 |
 
-单项第一 · Category winners：**冷扫 Cold** SpaceKnife (96.4) · **热扫 Warm** SpaceKnife (97.8) · **均衡 Balanced** SpaceKnife (96.8) · **最省内存 Least RAM** ncdu (3 MB) · **扫描效率 I/O efficiency** WizTree (99.7) · **最准 Most accurate** dua-cli (±0.00%)
+单项第一 · Category winners：**冷扫 Cold** SpaceKnife (96.4) · **热扫 Warm** SpaceKnife (97.8) · **均衡 Balanced** SpaceKnife (96.6) · **最省内存 Least RAM** ncdu (3 MB) · **扫描效率 I/O efficiency** WizTree (99.7) · **最准 Most accurate** dua-cli (±0.00%)
 
 **各平台名次 · Per platform**
 
@@ -336,65 +336,65 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 | 扫⁠描⁠器<br>Scanner | x64<br>ext4 | x64<br>Btrfs | x64<br>XFS | x64<br>ZFS |
 | :--- | :---: | :---: | :---: | :---: |
-| **SpaceKnife** | 🥇<br>12.2&nbsp;/&nbsp;<mark>**1.11**</mark> | 🥇<br><mark>**4.14**</mark>&nbsp;/&nbsp;<mark>**1.09**</mark> | 🥇<br><mark>**7.08**</mark>&nbsp;/&nbsp;<mark>**1.07**</mark> | 🥇<br><mark>**14.9**</mark>&nbsp;/&nbsp;<mark>**12.3**</mark> |
-| **SpaceKnife&nbsp;(0.3.4)** | 参考<br>12.4&nbsp;/&nbsp;1.19 | 参考<br>4.20&nbsp;/&nbsp;1.20 | 参考<br>6.78&nbsp;/&nbsp;1.26 | 参考<br>14.9&nbsp;/&nbsp;12.8 |
-| **SquirrelDisk** | 🥈<br><mark>**11.7**</mark>&nbsp;/&nbsp;1.22 | 🥈<br>5.43&nbsp;/&nbsp;1.22 | 🥈<br>7.54&nbsp;/&nbsp;1.22 | #7<br>34.5&nbsp;/&nbsp;14.5 |
-| **gdu** | 🥉<br>12.2&nbsp;/&nbsp;1.45 | 🥉<br>5.10&nbsp;/&nbsp;1.57 | 🥉<br>7.23&nbsp;/&nbsp;1.53 | 🥉<br>21.2&nbsp;/&nbsp;13.3 |
-| **dua‑cli** | #6<br>12.4&nbsp;/&nbsp;2.94 | #6<br>7.04&nbsp;/&nbsp;2.86 | #6<br>10.4&nbsp;/&nbsp;3.69 | #5<br>27.2&nbsp;/&nbsp;15.3 |
-| **diskus** | #5<br>12.2&nbsp;/&nbsp;1.92 | #4<br>4.61&nbsp;/&nbsp;1.92 | #5<br>7.83&nbsp;/&nbsp;2.56 | 🥈<br>19.7&nbsp;/&nbsp;13.4 |
-| **GNU&nbsp;du** | #10<br>36.5&nbsp;/&nbsp;2.98 | #10<br>17.1&nbsp;/&nbsp;3.15 | #10<br>26.0&nbsp;/&nbsp;3.20 | #10<br>58.3&nbsp;/&nbsp;29.7 |
-| **pdu** | #4<br>12.6&nbsp;/&nbsp;1.88 | #5<br>5.73&nbsp;/&nbsp;2.03 | #4<br>8.75&nbsp;/&nbsp;2.11 | #4<br>25.3&nbsp;/&nbsp;13.5 |
-| **ncdu** | #9<br>37.5&nbsp;/&nbsp;2.89 | #9<br>17.3&nbsp;/&nbsp;2.99 | #9<br>25.4&nbsp;/&nbsp;3.00 | #9<br>57.5&nbsp;/&nbsp;29.3 |
-| **dust** | #8<br>12.8&nbsp;/&nbsp;3.56 | #7<br>7.11&nbsp;/&nbsp;3.47 | #7<br>9.32&nbsp;/&nbsp;4.37 | #6<br>27.2&nbsp;/&nbsp;15.5 |
-| **erdtree** | #7<br>13.7&nbsp;/&nbsp;3.22 | #8<br>9.77&nbsp;/&nbsp;3.27 | #8<br>13.4&nbsp;/&nbsp;3.57 | #8<br>31.0&nbsp;/&nbsp;20.0 |
+| **SpaceKnife** | 🥇<br>8.77&nbsp;/&nbsp;<mark>**1.44**</mark> | 🥇<br><mark>**6.04**</mark>&nbsp;/&nbsp;<mark>**1.44**</mark> | 🥇<br><mark>**7.13**</mark>&nbsp;/&nbsp;<mark>**1.33**</mark> | 🥇<br><mark>**15.7**</mark>&nbsp;/&nbsp;<mark>**12.7**</mark> |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考<br>8.90&nbsp;/&nbsp;1.58 | 参考<br>5.81&nbsp;/&nbsp;1.58 | 参考<br>7.00&nbsp;/&nbsp;1.44 | 参考<br>15.8&nbsp;/&nbsp;12.6 |
+| **SquirrelDisk** | 🥈<br>10.2&nbsp;/&nbsp;1.52 | 🥈<br>7.69&nbsp;/&nbsp;1.52 | 🥈<br>8.43&nbsp;/&nbsp;1.47 | #7<br>36.9&nbsp;/&nbsp;14.9 |
+| **gdu** | 🥉<br>9.63&nbsp;/&nbsp;2.00 | 🥉<br>7.47&nbsp;/&nbsp;2.09 | 🥉<br>7.74&nbsp;/&nbsp;1.98 | 🥉<br>23.0&nbsp;/&nbsp;13.7 |
+| **dua‑cli** | #6<br>12.3&nbsp;/&nbsp;4.21 | #6<br>10.4&nbsp;/&nbsp;4.35 | #6<br>10.0&nbsp;/&nbsp;4.71 | #6<br>29.4&nbsp;/&nbsp;15.5 |
+| **GNU&nbsp;du** | #10<br>33.4&nbsp;/&nbsp;3.79 | #10<br>23.8&nbsp;/&nbsp;3.97 | #9<br>24.3&nbsp;/&nbsp;3.96 | #10<br>66.8&nbsp;/&nbsp;28.9 |
+| **diskus** | #4<br><mark>**8.65**</mark>&nbsp;/&nbsp;2.85 | #4<br>6.99&nbsp;/&nbsp;2.93 | #5<br>7.97&nbsp;/&nbsp;3.19 | 🥈<br>20.4&nbsp;/&nbsp;14.0 |
+| **ncdu** | #9<br>33.3&nbsp;/&nbsp;3.76 | #9<br>23.7&nbsp;/&nbsp;3.92 | #8<br>23.9&nbsp;/&nbsp;3.74 | #9<br>66.5&nbsp;/&nbsp;28.6 |
+| **pdu** | #5<br>11.4&nbsp;/&nbsp;2.81 | #5<br>8.77&nbsp;/&nbsp;3.65 | #4<br>9.48&nbsp;/&nbsp;2.77 | #4<br>27.3&nbsp;/&nbsp;13.8 |
+| **dust** | #8<br>12.8&nbsp;/&nbsp;5.69 | #7<br>11.0&nbsp;/&nbsp;5.63 | #7<br>10.7&nbsp;/&nbsp;5.61 | #5<br>29.5&nbsp;/&nbsp;15.5 |
+| **erdtree** | #7<br>14.0&nbsp;/&nbsp;4.21 | #8<br>14.2&nbsp;/&nbsp;4.39 | #10<br>15.0&nbsp;/&nbsp;4.51 | #8<br>30.1&nbsp;/&nbsp;20.6 |
 
 **Linux&nbsp;ARM64**
 
 | 扫⁠描⁠器<br>Scanner | ARM64<br>ext4 | ARM64<br>Btrfs | ARM64<br>XFS | ARM64<br>ZFS |
 | :--- | :---: | :---: | :---: | :---: |
-| **SpaceKnife** | 🥈<br>8.68&nbsp;/&nbsp;0.85 | 🥈<br>3.82&nbsp;/&nbsp;0.87 | 🥈<br>7.16&nbsp;/&nbsp;0.80 | 🥇<br><mark>**10.6**</mark>&nbsp;/&nbsp;6.48 |
-| **SpaceKnife&nbsp;(0.3.4)** | 参考<br>9.04&nbsp;/&nbsp;0.93 | 参考<br>3.53&nbsp;/&nbsp;0.95 | 参考<br>7.27&nbsp;/&nbsp;0.85 | 参考<br>9.67&nbsp;/&nbsp;6.62 |
-| **gdu** | 🥉<br>9.13&nbsp;/&nbsp;1.17 | 🥉<br>4.50&nbsp;/&nbsp;1.13 | #4<br>7.44&nbsp;/&nbsp;1.03 | #4<br>17.4&nbsp;/&nbsp;7.22 |
-| **dua‑cli** | #8<br>17.3&nbsp;/&nbsp;4.93 | #8<br>7.23&nbsp;/&nbsp;5.10 | #7<br>9.21&nbsp;/&nbsp;4.84 | #5<br>23.8&nbsp;/&nbsp;9.14 |
-| **diskus** | 🥇<br><mark>**8.45**</mark>&nbsp;/&nbsp;<mark>**0.84**</mark> | 🥇<br><mark>**3.60**</mark>&nbsp;/&nbsp;<mark>**0.86**</mark> | 🥇<br><mark>**6.90**</mark>&nbsp;/&nbsp;<mark>**0.75**</mark> | 🥈<br>13.5&nbsp;/&nbsp;<mark>**6.36**</mark> |
-| **GNU&nbsp;du** | #6<br>40.4&nbsp;/&nbsp;2.53 | #6<br>14.8&nbsp;/&nbsp;2.56 | #5<br>21.8&nbsp;/&nbsp;2.05 | #9<br>50.5&nbsp;/&nbsp;14.0 |
-| **pdu** | #4<br>15.1&nbsp;/&nbsp;1.08 | #4<br>5.16&nbsp;/&nbsp;1.11 | 🥉<br>7.62&nbsp;/&nbsp;1.00 | 🥉<br>19.9&nbsp;/&nbsp;6.47 |
-| **ncdu** | #5<br>39.3&nbsp;/&nbsp;2.34 | #5<br>13.7&nbsp;/&nbsp;2.40 | #6<br>23.7&nbsp;/&nbsp;1.96 | #8<br>49.2&nbsp;/&nbsp;13.9 |
-| **dust** | #7<br>16.8&nbsp;/&nbsp;5.21 | #7<br>7.18&nbsp;/&nbsp;5.15 | #8<br>9.36&nbsp;/&nbsp;5.05 | #6<br>24.9&nbsp;/&nbsp;9.58 |
-| **erdtree** | #9<br>19.8&nbsp;/&nbsp;5.53 | #9<br>11.0&nbsp;/&nbsp;5.49 | #9<br>12.9&nbsp;/&nbsp;5.36 | #7<br>27.0&nbsp;/&nbsp;13.5 |
+| **SpaceKnife** | 🥇<br><mark>**12.4**</mark>&nbsp;/&nbsp;<mark>**0.62**</mark> | 🥈<br>3.69&nbsp;/&nbsp;0.88 | 🥈<br>7.33&nbsp;/&nbsp;0.81 | 🥇<br><mark>**9.21**</mark>&nbsp;/&nbsp;<mark>**6.20**</mark> |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考<br>12.5&nbsp;/&nbsp;0.67 | 参考<br>3.57&nbsp;/&nbsp;0.97 | 参考<br>7.30&nbsp;/&nbsp;0.86 | 参考<br>8.60&nbsp;/&nbsp;6.68 |
+| **gdu** | #4<br><mark>**12.4**</mark>&nbsp;/&nbsp;0.86 | #4<br>4.50&nbsp;/&nbsp;1.16 | #4<br>7.48&nbsp;/&nbsp;1.07 | #4<br>14.5&nbsp;/&nbsp;7.33 |
+| **dua‑cli** | #8<br><mark>**12.4**</mark>&nbsp;/&nbsp;4.80 | #8<br>7.20&nbsp;/&nbsp;5.31 | #7<br>9.40&nbsp;/&nbsp;5.20 | #5<br>18.4&nbsp;/&nbsp;8.88 |
+| **GNU&nbsp;du** | #6<br>32.3&nbsp;/&nbsp;1.64 | #6<br>13.5&nbsp;/&nbsp;2.49 | #6<br>24.0&nbsp;/&nbsp;2.10 | #8<br>37.5&nbsp;/&nbsp;13.7 |
+| **diskus** | 🥈<br><mark>**12.4**</mark>&nbsp;/&nbsp;0.64 | 🥇<br><mark>**3.44**</mark>&nbsp;/&nbsp;<mark>**0.85**</mark> | 🥇<br><mark>**6.89**</mark>&nbsp;/&nbsp;<mark>**0.77**</mark> | 🥈<br>11.5&nbsp;/&nbsp;6.48 |
+| **ncdu** | #5<br>30.0&nbsp;/&nbsp;1.61 | #5<br>13.1&nbsp;/&nbsp;2.42 | #5<br>21.4&nbsp;/&nbsp;1.95 | #9<br>38.7&nbsp;/&nbsp;13.8 |
+| **pdu** | 🥉<br>12.5&nbsp;/&nbsp;0.79 | 🥉<br>4.84&nbsp;/&nbsp;1.09 | 🥉<br>8.06&nbsp;/&nbsp;1.00 | 🥉<br>15.7&nbsp;/&nbsp;6.50 |
+| **dust** | #7<br>12.7&nbsp;/&nbsp;4.60 | #7<br>7.29&nbsp;/&nbsp;5.33 | #8<br>9.38&nbsp;/&nbsp;5.44 | #6<br>19.0&nbsp;/&nbsp;9.58 |
+| **erdtree** | #9<br>13.5&nbsp;/&nbsp;4.95 | #9<br>10.6&nbsp;/&nbsp;5.56 | #9<br>14.0&nbsp;/&nbsp;5.83 | #7<br>20.7&nbsp;/&nbsp;13.0 |
 
 **macOS**
 
 | 扫⁠描⁠器<br>Scanner | x64<br>APFS | ARM64<br>APFS |
 | :--- | :---: | :---: |
-| **SpaceKnife** | 🥈<br>39.2&nbsp;/&nbsp;38.7 | 🥇<br><mark>**27.9**</mark>&nbsp;/&nbsp;<mark>**27.4**</mark> |
-| **SpaceKnife&nbsp;(0.3.4)** | 参考<br>49.0&nbsp;/&nbsp;46.0 | 参考<br>33.0&nbsp;/&nbsp;26.4 |
-| **SquirrelDisk** | 🥇<br><mark>**37.7**</mark>&nbsp;/&nbsp;<mark>**33.8**</mark> | 🥈<br>36.9&nbsp;/&nbsp;29.5 |
-| **gdu** | #5<br>178&nbsp;/&nbsp;91.9 | #5<br>197&nbsp;/&nbsp;78.3 |
-| **dua‑cli** | 🥉<br>82.2&nbsp;/&nbsp;58.8 | 🥉<br>90.2&nbsp;/&nbsp;46.1 |
-| **diskus** | #6<br>158&nbsp;/&nbsp;123 | #7<br>185&nbsp;/&nbsp;101 |
-| **BSD&nbsp;du** | #4<br>106&nbsp;/&nbsp;99.5 | #4<br>119&nbsp;/&nbsp;97.1 |
-| **pdu** | #8<br>167&nbsp;/&nbsp;132 | #8<br>211&nbsp;/&nbsp;122 |
-| **ncdu** | #10<br>258&nbsp;/&nbsp;152 | #10<br>290&nbsp;/&nbsp;135 |
-| **dust** | #7<br>166&nbsp;/&nbsp;131 | #6<br>200&nbsp;/&nbsp;92.7 |
-| **erdtree** | #9<br>186&nbsp;/&nbsp;124 | #9<br>226&nbsp;/&nbsp;110 |
+| **SpaceKnife** | 🥈<br>41.6&nbsp;/&nbsp;40.4 | 🥇<br><mark>**26.6**</mark>&nbsp;/&nbsp;<mark>**25.7**</mark> |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考<br>46.3&nbsp;/&nbsp;43.5 | 参考<br>33.0&nbsp;/&nbsp;28.7 |
+| **SquirrelDisk** | 🥇<br><mark>**34.2**</mark>&nbsp;/&nbsp;<mark>**32.7**</mark> | 🥈<br>36.7&nbsp;/&nbsp;31.0 |
+| **gdu** | #7<br>174&nbsp;/&nbsp;94.7 | #5<br>178&nbsp;/&nbsp;74.6 |
+| **dua‑cli** | 🥉<br>77.7&nbsp;/&nbsp;52.2 | 🥉<br>89.2&nbsp;/&nbsp;29.4 |
+| **diskus** | #5<br>156&nbsp;/&nbsp;103 | #6<br>153&nbsp;/&nbsp;87.8 |
+| **ncdu** | #10<br>244&nbsp;/&nbsp;146 | #10<br>266&nbsp;/&nbsp;110 |
+| **pdu** | #6<br>160&nbsp;/&nbsp;111 | #8<br>183&nbsp;/&nbsp;97.5 |
+| **BSD&nbsp;du** | #4<br>116&nbsp;/&nbsp;102 | #4<br>111&nbsp;/&nbsp;99.2 |
+| **dust** | #9<br>163&nbsp;/&nbsp;122 | #9<br>185&nbsp;/&nbsp;105 |
+| **erdtree** | #8<br>163&nbsp;/&nbsp;113 | #7<br>190&nbsp;/&nbsp;76.7 |
 
 **Windows**
 
 | 扫⁠描⁠器<br>Scanner | x64<br>NTFS | ARM64<br>NTFS | x64<br>Btrfs | x64<br>ReFS |
 | :--- | :---: | :---: | :---: | :---: |
-| **SpaceKnife** | 🥇<br><mark>**31.0**</mark>&nbsp;/&nbsp;<mark>**2.36**</mark> | 🥇<br><mark>**46.2**</mark>&nbsp;/&nbsp;<mark>**1.76**</mark> | — | 🥇<br><mark>**32.6**</mark>&nbsp;/&nbsp;<mark>**2.57**</mark> |
-| **SpaceKnife&nbsp;(0.3.4)** | 参考<br>32.1&nbsp;/&nbsp;2.66 | 参考<br>41.4&nbsp;/&nbsp;2.14 | 参考<br>17.2&nbsp;/&nbsp;3.59 | 参考<br>35.5&nbsp;/&nbsp;2.75 |
-| **SquirrelDisk** | #6<br>77.4&nbsp;/&nbsp;5.83 | — | 🥈<br><mark>**17.5**</mark>&nbsp;/&nbsp;22.2 | #5<br>879&nbsp;/&nbsp;3.83 |
-| **gdu** | 🥈<br>53.7&nbsp;/&nbsp;3.75 | 🥈<br>227&nbsp;/&nbsp;2.67 | 🥇<br>22.4&nbsp;/&nbsp;<mark>**10.1**</mark> | 🥉<br>723&nbsp;/&nbsp;4.07 |
-| **dua‑cli** | 🥉<br>53.2&nbsp;/&nbsp;4.29 | 🥉<br>236&nbsp;/&nbsp;4.92 | #4<br>28.2&nbsp;/&nbsp;18.5 | #4<br>707&nbsp;/&nbsp;4.51 |
-| **diskus** | #7<br>94.6&nbsp;/&nbsp;19.1 | #5<br>290&nbsp;/&nbsp;21.1 | #7<br>112&nbsp;/&nbsp;115 | #10<br>540&nbsp;/&nbsp;59.4 |
-| **pdu** | #8<br>97.6&nbsp;/&nbsp;20.3 | #6<br>310&nbsp;/&nbsp;25.7 | #9<br>131&nbsp;/&nbsp;125 | #8<br>721&nbsp;/&nbsp;34.1 |
-| **WinDirStat** | #5<br>42.9&nbsp;/&nbsp;9.28 | #4<br>214&nbsp;/&nbsp;6.78 | #5<br>20.2&nbsp;/&nbsp;21.3 | 🥈<br>71.1&nbsp;/&nbsp;16.6 |
-| **WizTree** | #4<br>56.5&nbsp;/&nbsp;6.57 | — | 🥉<br>21.1&nbsp;/&nbsp;18.2 | #7<br>851&nbsp;/&nbsp;7.49 |
-| **dust** | #9<br>100&nbsp;/&nbsp;23.9 | #7<br>318&nbsp;/&nbsp;30.4 | #8<br>122&nbsp;/&nbsp;123 | #9<br>676&nbsp;/&nbsp;37.0 |
-| **erdtree** | #11<br>124&nbsp;/&nbsp;49.7 | — | #10<br>123&nbsp;/&nbsp;123 | #11<br>639&nbsp;/&nbsp;59.8 |
-| **SpaceSniffer** | #10<br>115&nbsp;/&nbsp;31.7 | — | #6<br>53.9&nbsp;/&nbsp;55.2 | #6<br>225&nbsp;/&nbsp;27.8 |
+| **SpaceKnife** | 🥇<br><mark>**17.4**</mark>&nbsp;/&nbsp;<mark>**1.56**</mark> | 🥇<br><mark>**41.8**</mark>&nbsp;/&nbsp;<mark>**1.80**</mark> | — | 🥇<br><mark>**21.7**</mark>&nbsp;/&nbsp;<mark>**1.60**</mark> |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考<br>17.5&nbsp;/&nbsp;1.80 | 参考<br>42.2&nbsp;/&nbsp;2.12 | 参考<br>17.2&nbsp;/&nbsp;3.59 | 参考<br>21.9&nbsp;/&nbsp;1.84 |
+| **SquirrelDisk** | #5<br>38.6&nbsp;/&nbsp;3.82 | — | 🥈<br><mark>**17.5**</mark>&nbsp;/&nbsp;22.2 | #4<br>606&nbsp;/&nbsp;2.68 |
+| **gdu** | 🥈<br>27.1&nbsp;/&nbsp;2.21 | 🥈<br>214&nbsp;/&nbsp;2.59 | 🥇<br>22.4&nbsp;/&nbsp;<mark>**10.1**</mark> | 🥉<br>584&nbsp;/&nbsp;2.70 |
+| **dua‑cli** | 🥉<br>33.7&nbsp;/&nbsp;2.89 | 🥉<br>213&nbsp;/&nbsp;4.07 | #4<br>28.2&nbsp;/&nbsp;18.5 | #5<br>614&nbsp;/&nbsp;2.92 |
+| **diskus** | #7<br>49.1&nbsp;/&nbsp;12.5 | #5<br>286&nbsp;/&nbsp;22.8 | #7<br>112&nbsp;/&nbsp;115 | #10<br>551&nbsp;/&nbsp;37.4 |
+| **pdu** | #8<br>51.0&nbsp;/&nbsp;12.6 | #6<br>299&nbsp;/&nbsp;25.1 | #9<br>131&nbsp;/&nbsp;125 | #8<br>597&nbsp;/&nbsp;21.8 |
+| **WinDirStat** | #6<br>23.8&nbsp;/&nbsp;6.74 | #4<br>194&nbsp;/&nbsp;6.82 | #5<br>20.2&nbsp;/&nbsp;21.3 | 🥈<br>56.5&nbsp;/&nbsp;12.6 |
+| **WizTree** | #4<br>31.3&nbsp;/&nbsp;4.91 | — | 🥉<br>21.1&nbsp;/&nbsp;18.2 | #7<br>632&nbsp;/&nbsp;5.86 |
+| **dust** | #9<br>53.6&nbsp;/&nbsp;15.5 | #7<br>302&nbsp;/&nbsp;30.1 | #8<br>122&nbsp;/&nbsp;123 | #9<br>625&nbsp;/&nbsp;22.7 |
+| **erdtree** | #11<br>68.4&nbsp;/&nbsp;31.9 | — | #10<br>123&nbsp;/&nbsp;123 | #11<br>499&nbsp;/&nbsp;45.5 |
+| **SpaceSniffer** | #10<br>69.0&nbsp;/&nbsp;22.2 | — | #6<br>53.9&nbsp;/&nbsp;55.2 | #6<br>144&nbsp;/&nbsp;22.6 |
 | **Sysinternals&nbsp;du** | ⚠️ | ⚠️ | #11<br>148&nbsp;/&nbsp;151 | ⚠️ |
 
 <sub>**参考**：SpaceKnife (0.3.4) 是 SpaceKnife 的旧版本，只作对照。它的分数照常计算，但不占名次、奖牌、高亮和单项第一，后面的扫描器顺延；奖牌只给当前版本。<br><br>**参考** (reference): SpaceKnife (0.3.4) is the earlier release of SpaceKnife, kept for comparison. Its scores are computed as usual, but it takes no rank, medal, highlight or category win, and the scanners after it move up; the medals go to the current release only.<br><br>冷扫、热扫下方的小字是它在有效平台上用时（秒）的几何平均；各平台硬件不同、每个扫描器参加的平台也不同，用时只作参考，名次按相对分 · Small print under Cold / Warm: the geometric mean of its seconds over its valid platforms; hardware and the set of platforms differ between scanners, so it is for reference only and the ranks follow the relative scores. <mark>**高亮**</mark> = 该列最好（分数取最高，内存、误差取最低；各平台表格里是该平台最快的冷扫、热扫用时）· <mark>**Highlighted**</mark> = best in its column (highest score, least RAM and error; in the per-platform tables the platform's fastest cold and warm time). 表头 Columns：内存 RAM = 峰值内存 peak memory · 误差 Error = 大小误差 size error（n/a = 未核验 not verified）· 平台 Platforms = 有效 / 参加的平台数 valid / entered · 核验 Check：S = 总大小 total size · F = 文件数 file count · Z = 各顶层目录 top-level folders · IO = 只有 I/O 次数（图形界面工具没有输出 / GUI tool without output）。<br><br>各平台表格：名次，下一行 冷扫 / 热扫 秒 · Per platform: rank, then cold / warm seconds. ⛔ 无法运行 cannot run · ❌ 违规 disqualified · ⚠️ 无效 invalid · — 不支持 not supported · ❕ 报得比测试树多，成绩照常计入 reported more than the tree holds, still counted。<br><br>少报判无效，多报只警告：扫描器报告的大小、文件数或某个顶层目录明显少于测试树，说明它漏扫了，成绩无效；报得比测试树多（跟进了链接、重复计数等）只标 ❕ 警告，成绩照常计入，因为多扫只会让它更慢、不会占便宜。<br><br>Reporting less invalidates, reporting more only warns: a size, file count or top-level folder clearly below the tree means a skipped part, so the result is invalid; reporting more (links followed, entries counted twice) only gets a ❕ warning and still counts, since the extra work can only slow it down.<br><br>计分：每个平台内先算相对分，冷扫/热扫 = 该平台最快用时 ÷ 本扫描器用时 × 100，均衡指数 = 本扫描器均衡指数 ÷ 该平台最高 × 100（冷热两次取几何平均）。跨平台取几何平均，各平台硬件快慢在平台内就约掉了。综合分 = 冷扫、热扫、均衡指数三项的几何平均。峰值内存和大小误差取各有效平台的中位数（误差取绝对值）。只计有效成绩：违规、无效、无法运行的平台不计入，但在名次表里标出；—表示该平台不支持或没有原生版本。名次表按该平台三项相对分的几何平均排名。<br><br>缺平台不扣分、也不加分：每个工具只在它能运行的平台上算分，相当于把它没参加的平台按它自己的平均分补上。所以平台多的工具不会因为参赛平台多而更容易刷高分，只有 Windows 版的工具也不会因为缺 Linux、macOS 被扣分。要注意的是，平台少的工具只和别人比了它能跑的那几个平台，它在其他系统上表现如何，榜单反映不出来；覆盖面看有效平台数。<br><br>Scoring: within each platform a scanner gets relative scores first: cold / warm = the platform's fastest time / the scanner's time x 100, balanced = the scanner's balanced index / the platform's best x 100 (geometric mean of cold and warm). Across platforms the scores are combined by geometric mean, so each runner's hardware speed cancels out inside its own platform. Score = geometric mean of cold, warm and balanced. Peak RAM and size error are medians over the valid platforms (absolute error). Only valid results count; disqualified, invalid and unrunnable platforms are left out but marked in the per-platform table, and — means not supported or no native build.<br><br>Missing platforms neither cost nor earn points: a scanner is scored only on the platforms it runs on, which is the same as filling every missing platform with its own average. Running on more platforms therefore does not make a high score easier, and a Windows-only tool is not marked down for lacking Linux or macOS. The flip side: a tool with few platforms was only compared where it runs, which the Platforms column shows.<br><br>Win ARM64 没有 ReFS 对照任务，那一列的成绩没有经过 NTFS/ReFS 跨文件系统（MFT 逃逸）核查。<br><br>Win ARM64 has no ReFS counterpart, so its column is not cross-checked for MFT escapes.</sub>
@@ -608,18 +608,18 @@ Same Windows platforms (Win ARM64 (NTFS), Win x64 (NTFS), Win x64 (ReFS)) and si
 
 | 扫⁠描⁠器<br>Scanner | 开&nbsp;·&nbsp;日⁠常<br>On&nbsp;·&nbsp;daily&nbsp;use | 关<br>Off | 名⁠次⁠变⁠化<br>Change |
 | :--- | :---: | :---: | :---: |
-| **SpaceKnife** | #1&nbsp;92.0 | #1&nbsp;89.7 | = |
-| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;90.0 | 参考&nbsp;89.7 | — |
-| **gdu** | #2&nbsp;37.7 | #2&nbsp;76.0 | = |
-| **dua‑cli** | #3&nbsp;30.6 | #3&nbsp;68.4 | = |
-| **WinDirStat** | #4&nbsp;29.7 | #6&nbsp;46.0 | ↓2 |
-| **WizTree** | #5&nbsp;23.7 | #4&nbsp;55.7 | ↑1 |
-| **SquirrelDisk** | #6&nbsp;22.0 | #5&nbsp;51.3 | ↑1 |
-| **SpaceSniffer** | #7&nbsp;16.9 | #8&nbsp;19.3 | ↓1 |
+| **SpaceKnife** | #1&nbsp;92.6 | #1&nbsp;89.7 | = |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;90.2 | 参考&nbsp;89.7 | — |
+| **gdu** | #2&nbsp;37.9 | #2&nbsp;76.0 | = |
+| **dua‑cli** | #3&nbsp;30.3 | #3&nbsp;68.4 | = |
+| **WinDirStat** | #4&nbsp;28.9 | #6&nbsp;46.0 | ↓2 |
+| **WizTree** | #5&nbsp;22.4 | #4&nbsp;55.7 | ↑1 |
+| **SquirrelDisk** | #6&nbsp;21.9 | #5&nbsp;51.3 | ↑1 |
+| **SpaceSniffer** | #7&nbsp;16.2 | #8&nbsp;19.3 | ↓1 |
 | **pdu** | #8&nbsp;11.2 | #7&nbsp;19.9 | ↑1 |
-| **diskus** | #9&nbsp;10.9 | #10&nbsp;16.1 | ↓1 |
-| **dust** | #10&nbsp;10.4 | #9&nbsp;19.0 | ↑1 |
-| **erdtree** | #11&nbsp;7.5 | #11&nbsp;12.7 | = |
+| **diskus** | #9&nbsp;10.6 | #10&nbsp;16.1 | ↓1 |
+| **dust** | #10&nbsp;10.3 | #9&nbsp;19.0 | ↑1 |
+| **erdtree** | #11&nbsp;7.2 | #11&nbsp;12.7 | = |
 
 <details>
 <summary><b>mid</b> · 300 万文件 · 3M files · 关 Off: 2026-11-10 <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/42904725266">run 42904725266</a></summary>
@@ -646,18 +646,18 @@ Same Windows platforms (Win ARM64 (NTFS), Win x64 (NTFS), Win x64 (ReFS)) and si
 
 | 扫⁠描⁠器<br>Scanner | 开&nbsp;·&nbsp;分<br>On&nbsp;·&nbsp;score | 关&nbsp;·&nbsp;分<br>Off&nbsp;·&nbsp;score | 开&nbsp;冷/热<br>On&nbsp;cold/warm | 关&nbsp;冷/热<br>Off&nbsp;cold/warm |
 | :--- | :---: | :---: | ---: | ---: |
-| **SpaceKnife** | #1&nbsp;98.5 | #1&nbsp;94.9 | 36.0&nbsp;s&nbsp;/&nbsp;2.20&nbsp;s | 27.3&nbsp;s&nbsp;/&nbsp;1.69&nbsp;s |
-| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;93.2 | 参考&nbsp;89.0 | 36.1&nbsp;s&nbsp;/&nbsp;2.50&nbsp;s | 27.2&nbsp;s&nbsp;/&nbsp;1.96&nbsp;s |
-| **gdu** | #2&nbsp;38.1 | #2&nbsp;75.7 | 207&nbsp;s&nbsp;/&nbsp;3.45&nbsp;s | 29.2&nbsp;s&nbsp;/&nbsp;2.55&nbsp;s |
-| **dua‑cli** | #3&nbsp;33.1 | #3&nbsp;66.6 | 207&nbsp;s&nbsp;/&nbsp;4.57&nbsp;s | 29.6&nbsp;s&nbsp;/&nbsp;3.19&nbsp;s |
-| **WinDirStat** | #4&nbsp;31.8 | #6&nbsp;43.9 | 86.8&nbsp;s&nbsp;/&nbsp;10.1&nbsp;s | 23.6&nbsp;s&nbsp;/&nbsp;8.88&nbsp;s |
-| **SquirrelDisk** | #5&nbsp;29.3 | #4&nbsp;61.3 | 261&nbsp;s&nbsp;/&nbsp;4.73&nbsp;s | 29.1&nbsp;s&nbsp;/&nbsp;3.73&nbsp;s |
-| **WizTree** | #6&nbsp;25.0 | #5&nbsp;53.4 | 219&nbsp;s&nbsp;/&nbsp;7.02&nbsp;s | 27.5&nbsp;s&nbsp;/&nbsp;5.41&nbsp;s |
-| **SpaceSniffer** | #7&nbsp;15.9 | #7&nbsp;19.3 | 161&nbsp;s&nbsp;/&nbsp;29.7&nbsp;s | 64.4&nbsp;s&nbsp;/&nbsp;23.4&nbsp;s |
-| **pdu** | #8&nbsp;11.5 | #8&nbsp;19.1 | 279&nbsp;s&nbsp;/&nbsp;26.1&nbsp;s | 58.1&nbsp;s&nbsp;/&nbsp;19.8&nbsp;s |
-| **diskus** | #9&nbsp;11.5 | #10&nbsp;15.9 | 246&nbsp;s&nbsp;/&nbsp;28.8&nbsp;s | 71.0&nbsp;s&nbsp;/&nbsp;23.7&nbsp;s |
-| **dust** | #10&nbsp;10.8 | #9&nbsp;17.2 | 278&nbsp;s&nbsp;/&nbsp;30.0&nbsp;s | 63.3&nbsp;s&nbsp;/&nbsp;22.9&nbsp;s |
-| **erdtree** | #11&nbsp;7.9 | #11&nbsp;12.0 | 282&nbsp;s&nbsp;/&nbsp;54.5&nbsp;s | 69.0&nbsp;s&nbsp;/&nbsp;40.0&nbsp;s |
+| **SpaceKnife** | #1&nbsp;99.9 | #1&nbsp;94.9 | 25.1&nbsp;s&nbsp;/&nbsp;1.65&nbsp;s | 27.3&nbsp;s&nbsp;/&nbsp;1.69&nbsp;s |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;93.6 | 参考&nbsp;89.0 | 25.3&nbsp;s&nbsp;/&nbsp;1.91&nbsp;s | 27.2&nbsp;s&nbsp;/&nbsp;1.96&nbsp;s |
+| **gdu** | #2&nbsp;38.4 | #2&nbsp;75.7 | 150&nbsp;s&nbsp;/&nbsp;2.49&nbsp;s | 29.2&nbsp;s&nbsp;/&nbsp;2.55&nbsp;s |
+| **dua‑cli** | #3&nbsp;32.4 | #3&nbsp;66.6 | 164&nbsp;s&nbsp;/&nbsp;3.25&nbsp;s | 29.6&nbsp;s&nbsp;/&nbsp;3.19&nbsp;s |
+| **WinDirStat** | #4&nbsp;30.0 | #6&nbsp;43.9 | 63.9&nbsp;s&nbsp;/&nbsp;8.34&nbsp;s | 23.6&nbsp;s&nbsp;/&nbsp;8.88&nbsp;s |
+| **SquirrelDisk** | #5&nbsp;29.2 | #4&nbsp;61.3 | 153&nbsp;s&nbsp;/&nbsp;3.20&nbsp;s | 29.1&nbsp;s&nbsp;/&nbsp;3.73&nbsp;s |
+| **WizTree** | #6&nbsp;22.2 | #5&nbsp;53.4 | 141&nbsp;s&nbsp;/&nbsp;5.36&nbsp;s | 27.5&nbsp;s&nbsp;/&nbsp;5.41&nbsp;s |
+| **SpaceSniffer** | #7&nbsp;14.6 | #7&nbsp;19.3 | 99.8&nbsp;s&nbsp;/&nbsp;22.4&nbsp;s | 64.4&nbsp;s&nbsp;/&nbsp;23.4&nbsp;s |
+| **pdu** | #8&nbsp;11.5 | #8&nbsp;19.1 | 209&nbsp;s&nbsp;/&nbsp;19.0&nbsp;s | 58.1&nbsp;s&nbsp;/&nbsp;19.8&nbsp;s |
+| **diskus** | #9&nbsp;10.8 | #10&nbsp;15.9 | 198&nbsp;s&nbsp;/&nbsp;22.0&nbsp;s | 71.0&nbsp;s&nbsp;/&nbsp;23.7&nbsp;s |
+| **dust** | #10&nbsp;10.6 | #9&nbsp;17.2 | 216&nbsp;s&nbsp;/&nbsp;22.0&nbsp;s | 63.3&nbsp;s&nbsp;/&nbsp;22.9&nbsp;s |
+| **erdtree** | #11&nbsp;7.3 | #11&nbsp;12.0 | 185&nbsp;s&nbsp;/&nbsp;38.1&nbsp;s | 69.0&nbsp;s&nbsp;/&nbsp;40.0&nbsp;s |
 
 </details>
 
