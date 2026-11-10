@@ -68,6 +68,8 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 
 <sub><mark>**高亮**</mark> = 该列最高分 · <mark>**highlighted**</mark> = best in its column.<br><br>综合分 = `low` 及以上各体量综合分的几何平均；\* 为仅供参考的小体量（综合分带 \* 的扫描器只有小体量成绩）。缺平台、缺体量都不扣分也不加分：只用它实际跑过的平台和体量计算，等于把缺的部分按它自己的平均分补上，平台多的工具不会因此更容易刷分，平台少的工具也不会因此被扣分。<br><br>Score = geometric mean of the per-size scores from `low` up; \* marks the reference-only small sizes (a score with \* comes from small sizes only). Missing platforms and sizes neither cost nor earn points: only what a scanner actually ran counts, the same as filling the gaps with its own average, so more platforms do not make a high score easier and fewer do not mark a tool down.</sub>
 
+> 🪟 Windows 关掉访问时间更新之后会怎样，见下方的[访问时间关闭对照榜](#atime-off)：只作对照，不是正式排名。<br>What turning Windows last-access updates off changes: see the [access-times-off comparison](#atime-off) below, for comparison only, not a ranking.
+
 ### 冷扫综合榜 · Cold scans across sizes
 
 > CI Runner 的盘是 IOPS 受限的云盘，冷扫比的是在这种盘上谁读得省，和本地 NVMe 上的冷扫排名可能不同，见[CI 冷扫测的是什么](#ci-冷扫测的是什么--what-the-ci-cold-scans-measure)。<br>The CI runners' disks are IOPS-capped cloud disks: cold scans here measure who reads most economically on such a disk, and may rank differently on a local NVMe drive; see [What the CI cold scans measure](#ci-冷扫测的是什么--what-the-ci-cold-scans-measure).
@@ -600,7 +602,46 @@ On free GitHub Actions runners (Linux, macOS and Windows, x86_64 and ARM64, seve
 >
 > **For comparison only, not a ranking.** This board only shows what turning Windows last-access updates off (`fsutil behavior set disablelastaccess 1`) changes. Windows in daily use keeps them on, and so does the main board; turning them off moves the ranking away from how the scanners perform in real use, so the main board is the one that counts.
 
-_还没有运行结果 · No run yet (`benchmark.yml` with `atime_off`)._
+同一批 Windows 平台（Win ARM64 (NTFS)、Win x64 (NTFS)、Win x64 (ReFS)）、同样的体量（`very-lite`）：**开** = 主榜在这些平台上的成绩（访问时间开着，日常设置），**关** = 关掉访问时间更新后另跑的一次。
+
+Same Windows platforms (Win ARM64 (NTFS), Win x64 (NTFS), Win x64 (ReFS)) and sizes (`very-lite`): **On** = the main board's results there (access times on, the daily-use setting), **Off** = a separate run with last-access updates turned off.
+
+| 扫⁠描⁠器<br>Scanner | 开&nbsp;·&nbsp;日⁠常<br>On&nbsp;·&nbsp;daily&nbsp;use | 关<br>Off | 名⁠次⁠变⁠化<br>Change |
+| :--- | :---: | :---: | :---: |
+| **SpaceKnife** | #1&nbsp;100.0\* | #1&nbsp;93.4\* | = |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;66.8\* | 参考&nbsp;58.9\* | — |
+| **gdu** | #2&nbsp;41.4\* | #2&nbsp;74.7\* | = |
+| **WinDirStat** | #3&nbsp;34.2\* | #5&nbsp;42.5\* | ↓2 |
+| **SquirrelDisk** | #4&nbsp;32.9\* | #3&nbsp;64.4\* | ↑1 |
+| **dua‑cli** | #5&nbsp;31.3\* | #4&nbsp;58.8\* | ↑1 |
+| **WizTree** | #6&nbsp;19.6\* | #6&nbsp;42.1\* | = |
+| **SpaceSniffer** | #7&nbsp;15.6\* | #10&nbsp;18.0\* | ↓3 |
+| **pdu** | #8&nbsp;12.8\* | #7&nbsp;20.5\* | ↑1 |
+| **diskus** | #9&nbsp;12.2\* | #9&nbsp;18.3\* | = |
+| **dust** | #10&nbsp;11.9\* | #8&nbsp;18.8\* | ↑2 |
+| **erdtree** | #11&nbsp;8.4\* | #11&nbsp;13.1\* | = |
+
+<details>
+<summary><b>very-lite</b> · 10 万文件 · 100k files · 关 Off: 2026-11-10 <a href="https://github.com/DuskXi/Disk-Scan-Benchmark/actions/runs/42904689518">run 42904689518</a></summary>
+
+| 扫⁠描⁠器<br>Scanner | 开&nbsp;·&nbsp;分<br>On&nbsp;·&nbsp;score | 关&nbsp;·&nbsp;分<br>Off&nbsp;·&nbsp;score | 开&nbsp;冷/热<br>On&nbsp;cold/warm | 关&nbsp;冷/热<br>Off&nbsp;cold/warm |
+| :--- | :---: | :---: | ---: | ---: |
+| **SpaceKnife** | #1&nbsp;100.0 | #1&nbsp;93.4 | 2.49&nbsp;s&nbsp;/&nbsp;0.18&nbsp;s | 2.90&nbsp;s&nbsp;/&nbsp;0.17&nbsp;s |
+| **SpaceKnife&nbsp;(0.3.4)** | 参考&nbsp;66.8 | 参考&nbsp;58.9 | 2.63&nbsp;s&nbsp;/&nbsp;0.43&nbsp;s | 3.14&nbsp;s&nbsp;/&nbsp;0.43&nbsp;s |
+| **gdu** | #2&nbsp;41.4 | #2&nbsp;74.7 | 15.3&nbsp;s&nbsp;/&nbsp;0.23&nbsp;s | 3.43&nbsp;s&nbsp;/&nbsp;0.23&nbsp;s |
+| **WinDirStat** | #3&nbsp;34.2 | #5&nbsp;42.5 | 5.25&nbsp;s&nbsp;/&nbsp;0.86&nbsp;s | 2.77&nbsp;s&nbsp;/&nbsp;0.86&nbsp;s |
+| **SquirrelDisk** | #4&nbsp;32.9 | #3&nbsp;64.4 | 12.8&nbsp;s&nbsp;/&nbsp;0.37&nbsp;s | 2.32&nbsp;s&nbsp;/&nbsp;0.37&nbsp;s |
+| **dua‑cli** | #5&nbsp;31.3 | #4&nbsp;58.8 | 15.0&nbsp;s&nbsp;/&nbsp;0.40&nbsp;s | 2.96&nbsp;s&nbsp;/&nbsp;0.41&nbsp;s |
+| **WizTree** | #6&nbsp;19.6 | #6&nbsp;42.1 | 14.6&nbsp;s&nbsp;/&nbsp;0.79&nbsp;s | 2.64&nbsp;s&nbsp;/&nbsp;0.76&nbsp;s |
+| **SpaceSniffer** | #7&nbsp;15.6 | #10&nbsp;18.0 | 7.70&nbsp;s&nbsp;/&nbsp;2.99&nbsp;s | 5.18&nbsp;s&nbsp;/&nbsp;2.79&nbsp;s |
+| **pdu** | #8&nbsp;12.8 | #7&nbsp;20.5 | 20.5&nbsp;s&nbsp;/&nbsp;1.69&nbsp;s | 6.02&nbsp;s&nbsp;/&nbsp;1.67&nbsp;s |
+| **diskus** | #9&nbsp;12.2 | #9&nbsp;18.3 | 19.0&nbsp;s&nbsp;/&nbsp;1.95&nbsp;s | 6.28&nbsp;s&nbsp;/&nbsp;1.99&nbsp;s |
+| **dust** | #10&nbsp;11.9 | #8&nbsp;18.8 | 21.3&nbsp;s&nbsp;/&nbsp;1.90&nbsp;s | 6.28&nbsp;s&nbsp;/&nbsp;1.91&nbsp;s |
+| **erdtree** | #11&nbsp;8.4 | #11&nbsp;13.1 | 19.3&nbsp;s&nbsp;/&nbsp;3.15&nbsp;s | 6.00&nbsp;s&nbsp;/&nbsp;3.11&nbsp;s |
+
+</details>
+
+<sub>两边各自在自己的平台内算相对分（该平台最快 ÷ 自己 × 100，冷扫、热扫、均衡指数的几何平均），再对 `low` 及以上体量取几何平均，\* 为只有小体量成绩；名次变化 = 关掉以后名次的升降（↑ 升、↓ 降）。这里只列名次、不发奖牌；冷/热是有效平台上用时（秒）的几何平均。<br><br>Each side is scored within its own platforms (platform fastest / own x 100, geometric mean of cold, warm and the balanced index), then over the sizes from `low` up; \* = small sizes only. Change = how the rank moves once access times are off (↑ up, ↓ down). Ranks only, no medals; cold/warm = geometric mean of the seconds over the valid platforms.<br><br>**参考**：SpaceKnife (0.3.4) 是 SpaceKnife 的旧版本，只作对照。它的分数照常计算，但不占名次、奖牌、高亮和单项第一，后面的扫描器顺延；奖牌只给当前版本。<br><br>**参考** (reference): SpaceKnife (0.3.4) is the earlier release of SpaceKnife, kept for comparison. Its scores are computed as usual, but it takes no rank, medal, highlight or category win, and the scanners after it move up; the medals go to the current release only.</sub>
 
 ### NTFS MFT 专栏 · NTFS MFT column
 
