@@ -10,7 +10,8 @@ run-name: >-
   inputs.preset == 'very-high' && '9M files / 3TB' ||
   inputs.preset == 'before-death' && '14M files / 3.6TB' ||
   format('{0} files / {1}GB', inputs.files, inputs.logical_gb) }}${{
-  inputs.defender_scan && ' · Defender on' || '' }}
+  inputs.defender_scan && ' · Defender on' || '' }}${{
+  inputs.atime_off && ' · Windows, access times off' || '' }}
 
 on:
   # Triggered exclusively via manual workflow_dispatch (no schedule / cron)
@@ -75,6 +76,11 @@ on:
         required: false
         default: false
         type: boolean
+      atime_off:
+        description: "Comparison board only: Windows platforms with last-access updates left off for the scans (published apart from the main board, which keeps them on as in daily use)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -93,6 +99,9 @@ env:
   # before the job's time limit, a platform, shard or scanner that fails or runs out of time is left out (its scanners
   # show as unfinished), and the board is published all the same
   BENCH_PARTIAL: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}
+  # The Windows scans turn last-access updates on with --reset-atime (windows_vhd.ps1 mounts the volume with them off);
+  # atime_off (the comparison board) leaves them off
+  WIN_ATIME_FLAG: ${{ !inputs.atime_off && '--reset-atime' || '' }}
 
 jobs:
   # The Linux / macOS targets of the benchmark job. mid and up leave macOS out: with access-time updates on its scans
@@ -100,7 +109,7 @@ jobs:
   # A matrix exclude cannot drop entries added by include, hence this job.
   targets:
     name: "Targets (${{ inputs.preset }})"
-    if: ${{ !inputs.windows_only }}
+    if: ${{ !inputs.windows_only && !inputs.atime_off }}
     runs-on: ubuntu-24.04
     outputs:
       include: ${{ steps.pick.outputs.include }}
@@ -137,7 +146,7 @@ jobs:
 
   benchmark:
     needs: targets
-    if: ${{ !inputs.windows_only }}
+    if: ${{ !inputs.windows_only && !inputs.atime_off }}
     name: "Bench (${{ matrix.target_label }} | ${{ inputs.preset }})"
     runs-on: ${{ matrix.os }}
     strategy:
@@ -543,7 +552,7 @@ jobs:
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
             --bin-dir "./bin" \
-            --reset-atime
+            $WIN_ATIME_FLAG
 
       - name: Disk Space Monitor Report
         if: always()
@@ -681,7 +690,7 @@ jobs:
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
             --bin-dir "./bin" \
-            --reset-atime
+            $WIN_ATIME_FLAG
 
       - name: Disk Space Monitor Report
         if: always()
@@ -887,7 +896,7 @@ jobs:
             --ground-truth "results/$LABEL/ground_truth.json" \
             --out "results/$LABEL/raw_results.json" \
             --bin-dir "./bin" \
-            --reset-atime
+            $WIN_ATIME_FLAG
 
       - name: Teardown ReFS Virtual Disk
         if: always()
@@ -907,7 +916,7 @@ jobs:
   # only; low and up are run from benchmark-winbtrfs.yml on their own, since the WinBtrfs scans take hours there.
   winbtrfs:
     name: WinBtrfs (experimental)
-    if: ${{ (inputs.preset == 'very-lite' || inputs.preset == 'lite') && !inputs.defender_scan }}
+    if: ${{ (inputs.preset == 'very-lite' || inputs.preset == 'lite') && !inputs.defender_scan && !inputs.atime_off }}
     permissions:
       contents: write  # its publish job writes the supplement to main
     uses: ./.github/workflows/benchmark-winbtrfs.yml
@@ -925,7 +934,7 @@ jobs:
   # what moved; Windows: copying the frozen volume), "once" those of setting the whole tree back once first (Windows).
   sharded-macos:
     name: "Sharded ${{ matrix.label }}"
-    if: ${{ !inputs.windows_only && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
+    if: ${{ !inputs.windows_only && !inputs.atime_off && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
     strategy:
       fail-fast: false
       matrix:
@@ -1009,6 +1018,7 @@ jobs:
       aging: ${{ inputs.aging }}
       defender_scan: ${{ inputs.defender_scan }}
       partial: ${{ contains(fromJSON('["very-high","before-death"]'), inputs.preset) }}  # = BENCH_PARTIAL
+      atime_off: ${{ inputs.atime_off }}
 
   windows-summary:
     name: "Windows NTFS+ReFS Summary (${{ inputs.preset }})"
@@ -1120,7 +1130,7 @@ jobs:
           mkdir -p lb-out
           python ./scripts/leaderboard.py \
             --artifacts artifacts \
-            --preset "${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }}" \
+            --preset "${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }}${{ inputs.atime_off && ' · access times off' || '' }}" \
             --sha "${{ github.sha }}" \
             --out lb-out/leaderboard.md \
             --json-out lb-out/leaderboard.json \
@@ -1138,9 +1148,10 @@ jobs:
       # Only plain runs of a standard preset on main reach the README; experiments (Defender on, fresh timeline,
       # custom sizes) and runs with failed platforms stay in their own run summary, except very-high and before-death
       # (BENCH_PARTIAL): published with what finished, their notes list what is missing (readme_board.py).
+      # atime_off runs go to their own comparison board (kind atime-off), never into the main one.
       - name: Publish Leaderboard To README
         if: >-
           github.ref == 'refs/heads/main' && inputs.preset != 'custom' &&
           !inputs.defender_scan && inputs.aging
         shell: bash
-        run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json standard "${{ inputs.preset }}"
+        run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json "${{ inputs.atime_off && 'atime-off' || 'standard' }}" "${{ inputs.preset }}"

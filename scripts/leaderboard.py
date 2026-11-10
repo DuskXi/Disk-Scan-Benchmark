@@ -39,6 +39,44 @@ from report_gen import small_preset_notice, verification_label
 
 PAYLOAD_SCHEMA = 2
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+# An older build of a scanner that is also on the boards, kept for comparison: its scores are computed as usual, but it
+# shows as 参考 (reference) instead of a rank and takes no rank, medal, highlight or category win (the scanners after it
+# move up). Kept here, not in scanners_registry.json: a registry change reinstalls every scanner on every runner.
+REFERENCE_SCANNERS = {"spaceknife": "spaceknife-rust"}  # reference build -> the current build it is compared with
+REFERENCE_LABEL = "参考"
+
+
+def is_reference(sid: str) -> bool:
+    return sid in REFERENCE_SCANNERS
+
+
+def rank_text(rank: Optional[int], prefix: str = "") -> str:
+    """A medal, else the rank (with prefix, e.g. "#"); 参考 for a reference build (no rank)."""
+    if rank is None:
+        return REFERENCE_LABEL
+    return MEDALS.get(rank, f"{prefix}{rank}")
+
+
+def reference_note(names: Dict[str, str], bi: bool = False) -> List[str]:
+    """The note on the reference builds among these scanners (id -> board name); nothing when there is none."""
+    pairs = [(names[r], names.get(cur, cur)) for r, cur in REFERENCE_SCANNERS.items() if r in names]
+    if not pairs:
+        return []
+    zh = "、".join(f"{ref} 是 {cur} 的旧版本" for ref, cur in pairs)
+    lines = [
+        f"**{REFERENCE_LABEL}**：{zh}，只作对照。它的分数照常计算，但不占名次、奖牌、高亮和单项第一，"
+        "后面的扫描器顺延；奖牌只给当前版本。"
+    ]
+    if bi:
+        en = ", ".join(f"{ref} is the earlier release of {cur}" for ref, cur in pairs)
+        lines.append(
+            f"**{REFERENCE_LABEL}** (reference): {en}, kept for comparison. Its scores are computed as usual, but it "
+            "takes no rank, medal, highlight or category win, and the scanners after it move up; the medals go to "
+            "the current release only."
+        )
+    return lines
+
+
 # Platforms every standard run is expected to produce; a missing one is called out above the tables
 CORE_PLATFORMS = [
     "linux-x86_64",
@@ -58,9 +96,31 @@ NO_REFS_PRESETS = ("very-high", "before-death")
 PARTIAL_PRESETS = ("very-high", "before-death")
 
 
+# A run of the Windows comparison board (benchmark.yml atime_off): only the Windows platforms, access times left off
+ATIME_OFF_TAG = "access times off"
+
+
+def atime_off_warning() -> List[str]:
+    """The warning above every view of the access-times-off comparison (a GitHub alert block)."""
+    return [
+        "> [!WARNING]",
+        "> **只作对照，不是正式排名。** 这张榜只用来展示关闭 Windows 访问时间更新（`fsutil behavior set "
+        "disablelastaccess 1`）之后的效果。日常使用的 Windows 开着访问时间更新，主榜也是开着测的；关掉它反而会让排名"
+        "偏离真实使用场景下的性能排序，正式排名请以主榜为准。",
+        ">",
+        "> **For comparison only, not a ranking.** This board only shows what turning Windows last-access updates off "
+        "(`fsutil behavior set disablelastaccess 1`) changes. Windows in daily use keeps them on, and so does the main "
+        "board; turning them off moves the ranking away from how the scanners perform in real use, so the main board "
+        "is the one that counts.",
+    ]
+
+
 def core_platforms(preset: str) -> List[str]:
     base = preset.split(" ")[0]  # "high · Defender on" -> "high"
-    return [lbl for lbl in CORE_PLATFORMS if not (lbl == "windows-x86_64-refs" and base in NO_REFS_PRESETS)]
+    labels = [lbl for lbl in CORE_PLATFORMS if not (lbl == "windows-x86_64-refs" and base in NO_REFS_PRESETS)]
+    if ATIME_OFF_TAG in preset:
+        labels = [lbl for lbl in labels if lbl.startswith("windows")]
+    return labels
 
 
 def scores_what_finished(preset: str) -> bool:
@@ -413,6 +473,16 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
     w_ratios, w_typical = write_ratios(per_platform, labels)
     # the typical scanner's writes over the platforms that count: the ratio times this reads as MB on a typical one
     payload["write_typical_mb"] = statistics.median(w_typical) if w_typical else None
+    # per-platform ranks without the reference builds (payloads stored before they existed ranked them too)
+    for lbl in labels:
+        plat = per_platform[lbl]
+        ok_ids = [sid for sid, e in plat.items() if e.get("status") == "ok"]
+        ranked_ids = sorted((s for s in ok_ids if not is_reference(s)), key=lambda s: -(plat[s]["platform_score"] or 0))
+        for pos, sid in enumerate(ranked_ids, start=1):
+            plat[sid]["rank"] = pos
+        for sid in ok_ids:
+            if is_reference(sid):
+                plat[sid]["rank"] = None
     overall: List[Dict[str, Any]] = []
     unranked: List[str] = []
     for sid, meta in payload["scanners"].items():
@@ -454,8 +524,14 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
             }
         )
     overall.sort(key=lambda o: (-(o["overall"] or 0), -o["valid_platforms"]))
-    for pos, o in enumerate(overall, start=1):
-        o["rank"] = pos
+    pos = 0
+    for o in overall:
+        o["reference"] = is_reference(o["id"])
+        if o["reference"]:
+            o["rank"] = None  # shown as 参考, between the ranks its score falls between
+        else:
+            pos += 1
+            o["rank"] = pos
     payload["overall"] = overall
     payload["unranked"] = unranked
 
@@ -521,12 +597,18 @@ def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
         "| " + " | ".join(align for _, _, align in cols) + " |",
     ]
     rows = p["overall"]
-    # the best value of each column in bold (highest score; least RAM; smallest size error)
-    best = {key: best_flags([o.get(key) for o in rows], fmt_score) for key in ("overall", "cold", "warm", "index")}
-    best["rss_mb"] = best_flags([o.get("rss_mb") or None for o in rows], lambda v: f"{v:,.0f}", low=True)
-    best["abs_acc_pct"] = best_flags([o.get("abs_acc_pct") for o in rows], lambda v: f"{v:.2f}", low=True)
+
+    # the best value of each column in bold (highest score; least RAM; smallest size error), reference builds aside
+    def col(key: str) -> List[Optional[float]]:
+        return [None if is_reference(o["id"]) else (o.get(key) or None) for o in rows]
+
+    best = {key: best_flags(col(key), fmt_score) for key in ("overall", "cold", "warm", "index")}
+    best["rss_mb"] = best_flags(col("rss_mb"), lambda v: f"{v:,.0f}", low=True)
+    best["abs_acc_pct"] = best_flags(
+        [None if is_reference(o["id"]) else o.get("abs_acc_pct") for o in rows], lambda v: f"{v:.2f}", low=True
+    )
     for i, o in enumerate(rows):
-        medal = MEDALS.get(o["rank"], str(o["rank"]))
+        medal = rank_text(o["rank"])
         sep = NB if bi else " "
         rss = mark_best(f"{o['rss_mb']:,.0f}{sep}MB", best["rss_mb"][i]) if o.get("rss_mb") else "-"
         unverified = "n/a" if bi else "未核验"
@@ -566,7 +648,7 @@ def render_kings(p: Dict[str, Any], bi: bool = False) -> List[str]:
         return []
 
     def best(key: str, low: bool = False) -> Optional[Dict[str, Any]]:
-        cands = [o for o in rows if o.get(key) is not None]
+        cands = [o for o in rows if o.get(key) is not None and not is_reference(o["id"])]
         if not cands:
             return None
         return min(cands, key=lambda o: o[key]) if low else max(cands, key=lambda o: o[key])
@@ -641,7 +723,11 @@ def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], b
     # per platform column: the fastest cold and the fastest warm time in bold (they can belong to different scanners)
     fastest: Dict[str, Dict[str, str]] = {}
     for lbl in labels:
-        ok = [e for sid in order if (e := p["per_platform"][lbl].get(sid)) and e["status"] == "ok"]
+        ok = [
+            e
+            for sid in order
+            if (e := p["per_platform"][lbl].get(sid)) and e["status"] == "ok" and not is_reference(sid)
+        ]
         fastest[lbl] = {k: fmt_s(min(e[k] for e in ok)) for k in ("cold_s", "warm_s")} if ok else {}
     for sid in order:
         cells = []
@@ -650,10 +736,11 @@ def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], b
             if e is None:
                 cells.append("—")
             elif e["status"] == "ok":
-                rank = MEDALS.get(e["rank"], f"#{e['rank']}") + ("❕" if e.get("warnings") else "")
+                rank = rank_text(e.get("rank"), "#") + ("❕" if e.get("warnings") else "")
                 cold_t, warm_t = fmt_s(e["cold_s"]), fmt_s(e["warm_s"])
-                cold_t = mark_best(cold_t, cold_t == fastest[lbl].get("cold_s"))
-                warm_t = mark_best(warm_t, warm_t == fastest[lbl].get("warm_s"))
+                ref = is_reference(sid)
+                cold_t = mark_best(cold_t, not ref and cold_t == fastest[lbl].get("cold_s"))
+                warm_t = mark_best(warm_t, not ref and warm_t == fastest[lbl].get("warm_s"))
                 if bi:
                     cells.append(f"{rank}<br>{cold_t}{NB}/{NB}{warm_t}")
                 else:
@@ -730,7 +817,8 @@ def partial_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
 
 
 def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
-    notes: List[str] = partial_notes(p, bi)
+    names = {sid: meta["name"] for sid, meta in p["scanners"].items()}
+    notes: List[str] = partial_notes(p, bi) + reference_note(names, bi)
     if bi:
         notes += [
             "冷扫、热扫下方的小字是它在有效平台上用时（秒）的几何平均；各平台硬件不同、每个扫描器参加的平台也不同，"
@@ -782,6 +870,8 @@ def render_run_summary(p: Dict[str, Any], title_preset: str) -> str:
     if p.get("sha"):
         info += f"，commit `{p['sha'][:7]}`"
     lines += [info + "。各平台的完整报告在本总榜下方。", ""]
+    if ATIME_OFF_TAG in title_preset:
+        lines += atime_off_warning() + [""]
     if p["missing_platforms"]:
         names = "、".join(platform_title(lbl) for lbl in p["missing_platforms"])
         warning = [f"> [!WARNING]\n> 以下平台没有产出结果，未计入总榜：{names}。"]

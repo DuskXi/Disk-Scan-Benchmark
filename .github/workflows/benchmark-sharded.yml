@@ -123,6 +123,11 @@ on:
         required: false
         default: "335"
         type: string
+      atime_off:
+        description: "Windows comparison board: last-access updates stay off for the scans (no --reset-atime)"
+        required: false
+        default: false
+        type: boolean
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -223,6 +228,7 @@ jobs:
       # (last-access updates stay off on this volume until the scans), so no shard has to: setting the folders of a
       # high ReFS tree took over two hours in every shard
       - name: Set Access Times Back Once
+        if: ${{ !inputs.atime_off }}
         shell: bash
         run: ./target/release/fs-mirage --root "X:/bench" --reset-atime --atime-dirs moved
 
@@ -363,6 +369,8 @@ jobs:
           if [ "${{ inputs.platform }}" = "macos" ]; then DIR_LIST=(--atime-dir-list "$RUNNER_TEMP/bench_dirs.txt"); fi
           DEADLINE=()
           if [ "${{ inputs.partial }}" = "true" ]; then DEADLINE=(--deadline "$((JOB_T0 + ${{ inputs.deadline_min }} * 60))"); fi
+          ATIME=(--reset-atime)
+          if [ "${{ inputs.atime_off }}" = "true" ]; then ATIME=(); fi  # the comparison board: updates stay off
           python ./scripts/wrappers/run_cli_scanners.py \
             --path "$MOUNT" \
             --ground-truth "$OUT/ground_truth.json" \
@@ -370,7 +378,7 @@ jobs:
             --bin-dir "./bin" \
             --scanners "${{ matrix.scanners }}" \
             --warm-runs "${{ inputs.warm_runs }}" \
-            --reset-atime \
+            "${ATIME[@]}" \
             "${DIR_LIST[@]}" \
             "${DEADLINE[@]}"
 

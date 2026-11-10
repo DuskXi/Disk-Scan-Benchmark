@@ -28,6 +28,12 @@ from leaderboard import (
     NB,
     STATUS_ICON,
     aggregate_overall,
+    atime_off_warning,
+    platform_title,
+    seconds_geomean,
+    is_reference,
+    rank_text,
+    reference_note,
     apply_display_names,
     display_names,
     fmt_s,
@@ -98,7 +104,10 @@ def endpoint_badge(repo: str, branch: str, file_name: str) -> str:
     return "https://img.shields.io/endpoint?url=" + urllib.parse.quote(raw, safe="")
 
 
-def badge_json(label: str, rank: int, score: Optional[float]) -> Dict[str, Any]:
+def badge_json(label: str, rank: Optional[int], score: Optional[float]) -> Dict[str, Any]:
+    if rank is None:  # a reference build: no rank
+        msg = "reference" + (f" · {score:.1f}" if score is not None else "")
+        return {"schemaVersion": 1, "label": label, "message": msg, "color": "9f9f9f"}
     msg = f"#{rank}" + (f" · {score:.1f}" if score is not None else "")
     return {"schemaVersion": 1, "label": label, "message": msg, "color": RANK_COLORS.get(rank, "4c8eda")}
 
@@ -112,10 +121,13 @@ def cross_size(standard: Dict[str, Dict[str, Any]], key: str = "overall") -> Lis
     rows: Dict[str, Dict[str, Any]] = {}
     for preset, rec in standard.items():
         scored = [o for o in rec["payload"]["overall"] if o.get(key) is not None]
-        ranks = {o["id"]: pos for pos, o in enumerate(sorted(scored, key=lambda o: -o[key]), start=1)}
+        ranked = sorted((o for o in scored if not is_reference(o["id"])), key=lambda o: -o[key])
+        ranks = {o["id"]: pos for pos, o in enumerate(ranked, start=1)}  # reference builds take no rank
         for o in scored:
-            row = rows.setdefault(o["id"], {"id": o["id"], "name": o["scanner"], "presets": {}})
-            rank = o["rank"] if key == "overall" else ranks[o["id"]]
+            row = rows.setdefault(
+                o["id"], {"id": o["id"], "name": o["scanner"], "presets": {}, "reference": is_reference(o["id"])}
+            )
+            rank = o["rank"] if key == "overall" else ranks.get(o["id"])
             row["presets"][preset] = {"rank": rank, "score": o[key]}
     for row in rows.values():
         big = [v["score"] for p, v in row["presets"].items() if p not in SMALL]
@@ -123,8 +135,13 @@ def cross_size(standard: Dict[str, Dict[str, Any]], key: str = "overall") -> Lis
         row["combined"] = geomean(big) if big else geomean(small)
         row["combined_from_small_only"] = not big
     ordered = sorted(rows.values(), key=lambda r: (r["combined_from_small_only"], -(r["combined"] or 0)))
-    for pos, row in enumerate(ordered, start=1):
-        row["rank"] = pos
+    pos = 0
+    for row in ordered:
+        if row["reference"]:
+            row["rank"] = None
+        else:
+            pos += 1
+            row["rank"] = pos
     return ordered
 
 
@@ -140,7 +157,10 @@ def cross_size_writes(standard: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any
         for o in rec["payload"]["overall"]:
             if o.get("write_ratio") is None:
                 continue
-            row = rows.setdefault(o["id"], {"id": o["id"], "name": o["scanner"], "presets": {}, "mbs": {}})
+            row = rows.setdefault(
+                o["id"],
+                {"id": o["id"], "name": o["scanner"], "presets": {}, "mbs": {}, "reference": is_reference(o["id"])},
+            )
             row["presets"][preset] = o["write_ratio"]
             if o.get("write_mb") is not None:
                 row["mbs"][preset] = float(o["write_mb"])
@@ -152,8 +172,13 @@ def cross_size_writes(standard: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any
         row["mb"] = (mbs[(len(mbs) - 1) // 2] + mbs[len(mbs) // 2]) / 2 if mbs else None
         row["combined_from_small_only"] = not big
     ordered = sorted(rows.values(), key=lambda r: (r["combined_from_small_only"], r["combined"]))
-    for pos, row in enumerate(ordered, start=1):
-        row["rank"] = pos
+    pos = 0
+    for row in ordered:
+        if row["reference"]:
+            row["rank"] = None
+        else:
+            pos += 1
+            row["rank"] = pos
     return ordered
 
 
@@ -188,6 +213,7 @@ def top_table(standard: Dict[str, Dict[str, Any]], places: int = 4) -> List[str]
     """The first `places` scanners of every category, one category per column, each ranked across sizes."""
     columns = {key: cross_size(standard, key) for key, _, _ in TOP_COLUMNS if key != "write"}
     columns["write"] = cross_size_writes(standard)
+    columns = {key: [r for r in rows if not r["reference"]] for key, rows in columns.items()}  # places only
     lines = [
         "| " + " | ".join([head("名次", "Rank", True)] + [head(zh, en, True) for _, zh, en in TOP_COLUMNS]) + " |",
         "| " + " | ".join([":---:"] + [":---:" for _ in TOP_COLUMNS]) + " |",
@@ -230,7 +256,7 @@ def render_mft_table(mft: Dict[str, Dict[str, Any]]) -> List[str]:
     best_in = {p: preset_best(ranked, p) for p in present}
     rows: List[Tuple[str, str, str, str]] = [
         (
-            MEDALS.get(r["rank"], str(r["rank"])),
+            rank_text(r["rank"]),
             r["id"],
             r["name"],
             mark_best(
@@ -305,9 +331,7 @@ def cross_size_table(standard: Dict[str, Dict[str, Any]], present: List[str], ke
             for p in present
         ]
         lines.append(
-            f"| {MEDALS.get(row['rank'], str(row['rank']))} | **{nobreak(row['name'])}** | {combined} | "
-            + " | ".join(cells)
-            + " |"
+            f"| {rank_text(row['rank'])} | **{nobreak(row['name'])}** | {combined} | " + " | ".join(cells) + " |"
         )
     return lines
 
@@ -316,25 +340,186 @@ def preset_head(preset: str) -> str:
     return nobreak(preset) + ("\\*" if preset in SMALL else "")
 
 
-def score_cell(rank: int, score: Optional[float], best: bool = False) -> str:
-    return f"{MEDALS.get(rank, '#' + str(rank))}{NB}{mark_best(fmt_score(score), best)}"
+def score_cell(rank: Optional[int], score: Optional[float], best: bool = False) -> str:
+    return f"{rank_text(rank, '#')}{NB}{mark_best(fmt_score(score), best)}"
 
 
 def combined_best(ranked: List[Dict[str, Any]]) -> Dict[str, bool]:
     """Scanner id -> its combined score is the column's best (scores from small sizes only compete only when no
-    scanner has a full one)."""
+    scanner has a full one; reference builds never)."""
+    ranked = [r for r in ranked if not r.get("reference")]
     pool = [r for r in ranked if not r["combined_from_small_only"]] or ranked
     return dict(zip([r["id"] for r in pool], best_flags([r["combined"] for r in pool], fmt_score)))
 
 
 def preset_best(ranked: List[Dict[str, Any]], preset: str) -> Dict[str, bool]:
-    """Scanner id -> its score is the best in this preset's column."""
-    scored = [(r["id"], v["score"]) for r in ranked if (v := r["presets"].get(preset))]
+    """Scanner id -> its score is the best in this preset's column (reference builds aside)."""
+    scored = [(r["id"], v["score"]) for r in ranked if (v := r["presets"].get(preset)) and not r.get("reference")]
     return dict(zip([sid for sid, _ in scored], best_flags([s for _, s in scored], fmt_score)))
 
 
+def restrict_platforms(payload: Dict[str, Any], labels: List[str]) -> Dict[str, Any]:
+    """A copy of a payload with only these platforms and its overall ranking recomputed (relative scores are per
+    platform, so the platforms kept keep their entries)."""
+    sub: Dict[str, Any] = json.loads(json.dumps(payload))
+    sub["platforms"] = [lbl for lbl in sub["platforms"] if lbl in labels]
+    sub["per_platform"] = {lbl: sub["per_platform"][lbl] for lbl in sub["platforms"]}
+    sub["platform_info"] = {lbl: v for lbl, v in sub.get("platform_info", {}).items() if lbl in sub["platforms"]}
+    aggregate_overall(sub)
+    return sub
+
+
+def combined_scores(payloads: Dict[str, Dict[str, Any]]) -> Dict[str, Tuple[Optional[float], bool]]:
+    """Scanner id -> (its overall score combined across these sizes like the main board, from small sizes only)."""
+    per: Dict[str, Dict[str, float]] = {}
+    for preset, payload in payloads.items():
+        for o in payload["overall"]:
+            if o.get("overall"):
+                per.setdefault(o["id"], {})[preset] = float(o["overall"])
+    out: Dict[str, Tuple[Optional[float], bool]] = {}
+    for sid, scores in per.items():
+        big = [v for p, v in scores.items() if p not in SMALL]
+        out[sid] = (geomean(big) if big else geomean(list(scores.values())), not big)
+    return out
+
+
+def plain_ranks(scores: Dict[str, Tuple[Optional[float], bool]]) -> Dict[str, Optional[int]]:
+    """Scanner id -> rank by combined score (full scores first), reference builds unranked (None)."""
+    order = sorted(scores, key=lambda s: (scores[s][1], -(scores[s][0] or 0)))
+    ranks: Dict[str, Optional[int]] = {}
+    pos = 0
+    for sid in order:
+        if is_reference(sid):
+            ranks[sid] = None
+        else:
+            pos += 1
+            ranks[sid] = pos
+    return ranks
+
+
+def plain_cell(rank: Optional[int], score: Optional[float], small_only: bool = False) -> str:
+    """Rank and score without medals (the comparison board is no ranking): '#3 58.2', '参考 61.0'."""
+    if score is None:
+        return "—"
+    label = "参考" if rank is None else f"#{rank}"
+    return f"{label}{NB}{fmt_score(score)}" + ("\\*" if small_only else "")
+
+
+def render_atime_off(standard: Dict[str, Dict[str, Any]], atime_off: Dict[str, Dict[str, Any]]) -> List[str]:
+    """
+    The Windows comparison board: the main board's results on the Windows platforms (access times on, as in daily use)
+    next to a run with them left off, same platforms and sizes. Ranks without medals: it shows the effect of the
+    setting and ranks nothing.
+    """
+    lines = [
+        '<a id="atime-off"></a>',
+        "",
+        "### 🪟 Windows 访问时间关闭对照榜 · Windows with access times off (comparison only)",
+        "",
+    ]
+    lines += atime_off_warning() + [""]
+    pairs: Dict[str, Tuple[Dict[str, Any], Dict[str, Any]]] = {}
+    for p in PRESETS:
+        if p in atime_off and p in standard:
+            off = atime_off[p]["payload"]
+            pairs[p] = (restrict_platforms(standard[p]["payload"], off["platforms"]), off)
+    if not pairs:
+        return lines + ["_还没有运行结果 · No run yet (`benchmark.yml` with `atime_off`)._", ""]
+
+    on_scores = combined_scores({p: v[0] for p, v in pairs.items()})
+    off_scores = combined_scores({p: v[1] for p, v in pairs.items()})
+    on_ranks, off_ranks = plain_ranks(on_scores), plain_ranks(off_scores)
+    names = {o["id"]: o["scanner"] for on, off in pairs.values() for o in on["overall"] + off["overall"]}
+    labels = sorted({lbl for _, off in pairs.values() for lbl in off["platforms"]})
+    platforms = "、".join(platform_title(lbl) for lbl in labels)
+    sizes = ", ".join(f"`{p}`" for p in pairs)
+    lines += [
+        f"同一批 Windows 平台（{platforms}）、同样的体量（{sizes}）：**开** = 主榜在这些平台上的成绩（访问时间开着，"
+        "日常设置），**关** = 关掉访问时间更新后另跑的一次。",
+        "",
+        f"Same Windows platforms ({', '.join(platform_title(lbl) for lbl in labels)}) and sizes ({sizes}): **On** = the "
+        "main board's results there (access times on, the daily-use setting), **Off** = a separate run with "
+        "last-access updates turned off.",
+        "",
+        "| "
+        + " | ".join(
+            [
+                head("扫描器", "Scanner", True),
+                head("开 · 日常", "On · daily use", True),
+                head("关", "Off", True),
+                head("名次变化", "Change", True),
+            ]
+        )
+        + " |",
+        "| :--- | :---: | :---: | :---: |",
+    ]
+    order = sorted(
+        set(on_scores) | set(off_scores),
+        key=lambda s: (s not in on_scores, on_scores.get(s, (0, True))[1], -(on_scores.get(s, (0.0, True))[0] or 0)),
+    )
+    for sid in order:
+        s_on, s_off = on_scores.get(sid, (None, False)), off_scores.get(sid, (None, False))
+        r_on, r_off = on_ranks.get(sid), off_ranks.get(sid)
+        change = "—"
+        if r_on is not None and r_off is not None:
+            d = r_on - r_off
+            change = f"↑{d}" if d > 0 else f"↓{-d}" if d < 0 else "="
+        lines.append(
+            f"| **{nobreak(names.get(sid, sid))}** | {plain_cell(r_on, s_on[0], s_on[1])} "
+            f"| {plain_cell(r_off, s_off[0], s_off[1])} | {change} |"
+        )
+    lines.append("")
+    for p in reversed(list(pairs)):
+        on, off = pairs[p]
+        meta = atime_off[p]["meta"]
+        run = f"<a href=\"{meta['run_url']}\">run {meta.get('run_id', '')}</a>" if meta.get("run_url") else ""
+        lines += [
+            "<details>",
+            f"<summary><b>{p}</b> · {PRESET_SIZE.get(p, '')} · 关 Off: {meta.get('date', '')} {run}</summary>",
+            "",
+            "| "
+            + " | ".join(
+                [
+                    head("扫描器", "Scanner", True),
+                    head("开 · 分", "On · score", True),
+                    head("关 · 分", "Off · score", True),
+                    head("开 冷/热", "On cold/warm", True),
+                    head("关 冷/热", "Off cold/warm", True),
+                ]
+            )
+            + " |",
+            "| :--- | :---: | :---: | ---: | ---: |",
+        ]
+        on_o = {o["id"]: o for o in on["overall"]}
+        off_o = {o["id"]: o for o in off["overall"]}
+        for sid in sorted(set(on_o) | set(off_o), key=lambda s: -(on_o.get(s, {}).get("overall") or 0)):
+            a, b = on_o.get(sid, {}), off_o.get(sid, {})
+            secs = [
+                f"{seconds_geomean(pl, sid, 'cold_s')}{NB}/{NB}{seconds_geomean(pl, sid, 'warm_s')}" for pl in (on, off)
+            ]
+            lines.append(
+                f"| **{nobreak(names.get(sid, sid))}** | {plain_cell(a.get('rank'), a.get('overall'))} "
+                f"| {plain_cell(b.get('rank'), b.get('overall'))} | {secs[0]} | {secs[1]} |"
+            )
+        lines += ["", "</details>", ""]
+    notes = [
+        "两边各自在自己的平台内算相对分（该平台最快 ÷ 自己 × 100，冷扫、热扫、均衡指数的几何平均），再对 `low` 及以上"
+        "体量取几何平均，\\* 为只有小体量成绩；名次变化 = 关掉以后名次的升降（↑ 升、↓ 降）。这里只列名次、不发奖牌；"
+        "冷/热是有效平台上用时（秒）的几何平均。",
+        "Each side is scored within its own platforms (platform fastest / own x 100, geometric mean of cold, warm and "
+        "the balanced index), then over the sizes from `low` up; \\* = small sizes only. Change = how the rank moves "
+        "once access times are off (↑ up, ↓ down). Ranks only, no medals; cold/warm = geometric mean of the seconds over "
+        "the valid platforms.",
+    ] + reference_note(names, bi=True)
+    return lines + ["<sub>" + "<br><br>".join(notes) + "</sub>", ""]
+
+
 def render_section(
-    standard: Dict[str, Dict[str, Any]], mft: Dict[str, Dict[str, Any]], repo: str, branch: str
+    standard: Dict[str, Dict[str, Any]],
+    mft: Dict[str, Dict[str, Any]],
+    repo: str,
+    branch: str,
+    atime_off: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[str]:
     lines = [START, "", "## 🏆 排行榜 · Leaderboard", ""]
     dates = [rec["meta"].get("date", "") for rec in list(standard.values()) + list(mft.values())]
@@ -350,6 +535,10 @@ def render_section(
     ]
     lines.append(" ".join(f"![{lbl}]({static_badge(lbl, msg, col)})" for lbl, msg, col in header))
     lines += [""] + notice()  # this benchmark's author also writes some of the scanners it ranks
+    # an older build kept for comparison takes no medal (leaderboard.REFERENCE_SCANNERS)
+    names = {o["id"]: o["scanner"] for rec in standard.values() for o in rec["payload"]["overall"]}
+    if ref := reference_note(names, bi=True):
+        lines += ["> " + "<br>".join(ref), ""]
     lines += [
         "> 每个体量单独运行、单独更新：哪个体量跑完就刷新哪一列，其余保持上次的结果。`very-lite` / `lite` 体量过小，"
         "计时以进程启动等固定开销为主，只作参考，不计入跨体量综合分。评分方法与数据生成原理见 "
@@ -403,6 +592,13 @@ def render_section(
         "not make a high score easier and fewer do not mark a tool down.</sub>",
         "",
     ]
+    if atime_off:
+        lines += [
+            "> 🪟 Windows 关掉访问时间更新之后会怎样，见下方的[访问时间关闭对照榜](#atime-off)：只作对照，不是正式排名。"
+            "<br>What turning Windows last-access updates off changes: see the [access-times-off comparison](#atime-off) "
+            "below, for comparison only, not a ranking.",
+            "",
+        ]
 
     # The two halves of the score on their own: cold scans (first scan after the caches were dropped) and warm scans
     for key, title, zh, en in (
@@ -452,6 +648,9 @@ def render_section(
         lines += render_overall_table(payload, bi=True) + [""] + render_kings(payload, bi=True)
         lines += ["", "**各平台名次 · Per platform**", ""] + render_matrix(payload, bi=True)
         lines += [""] + render_notes(payload, bi=True) + ["", "</details>", ""]
+
+    # Windows with access times off, next to the main board: what turning them off changes, never a ranking
+    lines += render_atime_off(standard, atime_off or {})
 
     # NTFS raw-MFT column
     lines += ["### NTFS MFT 专栏 · NTFS MFT column", ""]
@@ -586,7 +785,12 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     ap = argparse.ArgumentParser(description="Publish leaderboard payloads into README.md and badge files")
     ap.add_argument("--ingest", default="", help="leaderboard.json of the run to publish")
-    ap.add_argument("--kind", choices=["standard", "mft"], default="standard")
+    ap.add_argument(
+        "--kind",
+        choices=["standard", "mft", "atime-off"],
+        default="standard",
+        help="atime-off: the Windows comparison board (access times off), shown next to the main board, never in it",
+    )
     ap.add_argument("--preset", default="", help="Preset of the ingested run (defaults to the payload's)")
     ap.add_argument("--run-id", default="")
     ap.add_argument("--run-url", default="")
@@ -670,7 +874,8 @@ def main() -> int:
         print(f"[readme_board] stored {out}")
 
     standard, mft = load_data(data_dir, "standard"), load_data(data_dir, "mft")
-    update_readme(Path(args.readme), render_section(standard, mft, args.repo, args.branch))
+    atime_off = load_data(data_dir, "atime-off")  # the Windows comparison board, never ranked with the main one
+    update_readme(Path(args.readme), render_section(standard, mft, args.repo, args.branch, atime_off))
     registry = Path(args.registry)
     if registry.exists():
         replace_block(Path(args.readme), SCANNERS_START, SCANNERS_END, render_scanners(registry))
