@@ -6,8 +6,8 @@
 
 Results from the [local suite](../docs/LOCAL_SUITE.md) on contributors' own drives, accepted after a maintainer's check. A submission holds numbers, versions, the OS version, CPU and drive models, filesystem and drive type, and nothing else: no paths, folder or file names, drive letters, volume labels, computer or user names.
 
-> ⚖️ **利益声明**：SpaceKnife 和 SpaceKnife (Rust) 属于本基准作者的项目，作者从它们的排名中直接受益，详见[利益声明](../README.md#利益声明--conflict-of-interest)。<br>
-> ⚖️ **Conflict of interest**: SpaceKnife and SpaceKnife (Rust) belong to a project of this benchmark's author, who benefits directly from how they rank; see [Conflict of interest](../README.md#利益声明--conflict-of-interest).
+> ⚖️ **利益声明**：SpaceKnife (0.3.4) 和 SpaceKnife 属于本基准作者的项目，作者从它们的排名中直接受益，详见[利益声明](../README.md#利益声明--conflict-of-interest)。<br>
+> ⚖️ **Conflict of interest**: SpaceKnife (0.3.4) and SpaceKnife belong to a project of this benchmark's author, who benefits directly from how they rank; see [Conflict of interest](../README.md#利益声明--conflict-of-interest).
 
 > ⚖️ 目前收录的成绩全部来自本基准作者自己的电脑：1 块 NTFS 系统盘（已使用约 1 年）、2 块 ReFS 数据盘（已使用约 3–4 年），都是日常在用的盘。<br>
 > ⚖️ Both submissions so far come from this benchmark's author's own machine: 1 NTFS system drive in use for about 1 year, 2 ReFS data drives in use for about 3–4 years, all of them in daily use.
@@ -16,7 +16,7 @@ Results from the [local suite](../docs/LOCAL_SUITE.md) on contributors' own driv
 
 | 名次 | 扫描器 | 综合分 | 冷扫分 | 热扫分 | 均衡分 | 盘数 |
 | :---: | :--- | ---: | ---: | ---: | ---: | ---: |
-| 🥇 | **SpaceKnife** | <mark>**87.4**</mark> | 90.4 | <mark>**85.1**</mark> | <mark>**86.6**</mark> | 3 |
+| 🥇 | **SpaceKnife (0.3.4)** | <mark>**87.4**</mark> | 90.4 | <mark>**85.1**</mark> | <mark>**86.6**</mark> | 3 |
 | 🥈 | **dua-cli** | 80.8 | <mark>**92.0**</mark> | 69.6 | 82.4 | 3 |
 | 🥉 | **gdu** | 57.8 | 59.0 | 53.7 | 60.9 | 3 |
 | 4 | **SquirrelDisk** | 49.6 | 35.8 | 55.3 | 61.8 | 3 |
@@ -33,9 +33,9 @@ Results from the [local suite](../docs/LOCAL_SUITE.md) on contributors' own driv
 
 | 提交 | CPU | 用途 | 文件系统 | 类型 | 型号 | 随机读 IOPS | 项数 | 本盘第一 |
 | :--- | :--- | :--- | :--- | :--- | :--- | ---: | ---: | :--- |
-| [#2](https://github.com/DuskXi/Disk-Scan-Benchmark/issues/2) 盘 1 | Intel(R) Core(TM) i9-14900K | 数据盘，已使用约 3–4 年 | refs | NVMe SSD | TOPMORE Aquarius | 33,085 | 2,892k | SpaceKnife |
-| [#2](https://github.com/DuskXi/Disk-Scan-Benchmark/issues/2) 盘 2 | Intel(R) Core(TM) i9-14900K | 数据盘，已使用约 3–4 年 | refs | NVMe SSD | TOPMORE Aquarius | 47,539 | 1,114k | SpaceKnife |
-| [#1](https://github.com/DuskXi/Disk-Scan-Benchmark/issues/1) 盘 1 | Intel(R) Core(TM) i9-14900K | 系统盘，已使用约 1 年 | ntfs | NVMe SSD | ZHITAI TiPro9000 4TB | 479,609 | 8,050k | SpaceKnife |
+| [#2](https://github.com/DuskXi/Disk-Scan-Benchmark/issues/2) 盘 1 | Intel(R) Core(TM) i9-14900K | 数据盘，已使用约 3–4 年 | refs | NVMe SSD | TOPMORE Aquarius | 33,085 | 2,892k | SpaceKnife (0.3.4) |
+| [#2](https://github.com/DuskXi/Disk-Scan-Benchmark/issues/2) 盘 2 | Intel(R) Core(TM) i9-14900K | 数据盘，已使用约 3–4 年 | refs | NVMe SSD | TOPMORE Aquarius | 47,539 | 1,114k | SpaceKnife (0.3.4) |
+| [#1](https://github.com/DuskXi/Disk-Scan-Benchmark/issues/1) 盘 1 | Intel(R) Core(TM) i9-14900K | 系统盘，已使用约 1 年 | ntfs | NVMe SSD | ZHITAI TiPro9000 4TB | 479,609 | 8,050k | SpaceKnife (0.3.4) |
 
 ## [#2](https://github.com/DuskXi/Disk-Scan-Benchmark/issues/2) · Intel(R) Core(TM) i9-14900K · 24 核 / 32 线程 · 64 GB · Windows 11 26H2 (build 26300.9711)
 
@@ -48,7 +48,7 @@ Results from the [local suite](../docs/LOCAL_SUITE.md) on contributors' own driv
 
 | 名次 | 扫描器 | 综合分 | 冷扫分 | 热扫分 | 均衡分 | 盘数 |
 | :---: | :--- | ---: | ---: | ---: | ---: | ---: |
-| 🥇 | **SpaceKnife** | <mark>**90.9**</mark> | 86.0 | <mark>**93.2**</mark> | 93.7 | 2 |
+| 🥇 | **SpaceKnife (0.3.4)** | <mark>**90.9**</mark> | 86.0 | <mark>**93.2**</mark> | 93.7 | 2 |
 | 🥈 | **dua-cli** | 83.9 | <mark>**99.7**</mark> | 60.1 | <mark>**98.7**</mark> | 2 |
 | 🥉 | **gdu** | 70.6 | 98.8 | 39.3 | 90.4 | 2 |
 | 4 | **SquirrelDisk** | 45.0 | 27.0 | 55.6 | 60.8 | 2 |
@@ -63,7 +63,7 @@ Results from the [local suite](../docs/LOCAL_SUITE.md) on contributors' own driv
 
 | 名次 | 扫描器 | 版本 | 综合分 | 冷扫分 | 热扫分 | 均衡分 | 冷扫 (s) | 热扫 (s) | 峰值内存 (MB) | 冷扫 CPU (s) | 冷扫读盘次数 | 报告大小 (GB) |
 | :---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 🥇 | SpaceKnife | `0.3.4` | <mark>**87.1**</mark> | 75.2 | <mark>**100.0**</mark> | 87.9 | 23.03 | 2.65 | 516 | 43 | 380,729 | 3408.5 |
+| 🥇 | SpaceKnife (0.3.4) | `0.3.4` | <mark>**87.1**</mark> | 75.2 | <mark>**100.0**</mark> | 87.9 | 23.03 | 2.65 | 516 | 43 | 380,729 | 3408.5 |
 | 🥈 | dua-cli | `2.46.0` | 83.4 | 99.3 | 58.3 | <mark>**100.0**</mark> | 17.43 | 4.55 | 167 | 50 | 381,891 | 3452.5 |
 | 🥉 | gdu | `5.38.0` | 74.7 | <mark>**100.0**</mark> | 47.7 | 87.3 | 17.31 | 5.56 | 67 | 58 | 512,995 | 3427.6 |
 | 4 | SquirrelDisk | `2.6.1` | 29.3 | 19.3 | 31.0 | 42.3 | 89.77 | 8.57 | 95 | 36 | 432,753 | 3502.3 |
@@ -78,7 +78,7 @@ Results from the [local suite](../docs/LOCAL_SUITE.md) on contributors' own driv
 
 | 名次 | 扫描器 | 版本 | 综合分 | 冷扫分 | 热扫分 | 均衡分 | 冷扫 (s) | 热扫 (s) | 峰值内存 (MB) | 冷扫 CPU (s) | 冷扫读盘次数 | 报告大小 (GB) |
 | :---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 🥇 | SpaceKnife | `0.3.4` | <mark>**94.8**</mark> | 98.3 | 86.8 | <mark>**100.0**</mark> | 2.46 | 0.45 | 234 | 7 | 99,715 | 3078.6 |
+| 🥇 | SpaceKnife (0.3.4) | `0.3.4` | <mark>**94.8**</mark> | 98.3 | 86.8 | <mark>**100.0**</mark> | 2.46 | 0.45 | 234 | 7 | 99,715 | 3078.6 |
 | 🥈 | dua-cli | `2.46.0` | 84.5 | <mark>**100.0**</mark> | 61.9 | 97.5 | 2.42 | 0.62 | 91 | 12 | 99,914 | 3023.7 |
 | 🥉 | SquirrelDisk | `2.6.1` | 69.1 | 37.7 | <mark>**100.0**</mark> | 87.4 | 6.42 | 0.39 | 31 | 5 | 47,812 | 3023.9 |
 | 4 | gdu | `5.38.0` | 66.7 | 97.5 | 32.4 | 93.7 | 2.48 | 1.19 | 85 | 17 | 100,021 | 3057.8 |
@@ -100,7 +100,7 @@ Results from the [local suite](../docs/LOCAL_SUITE.md) on contributors' own driv
 
 | 名次 | 扫描器 | 版本 | 综合分 | 冷扫分 | 热扫分 | 均衡分 | 冷扫 (s) | 热扫 (s) | 峰值内存 (MB) | 冷扫 CPU (s) | 冷扫读盘次数 | 报告大小 (GB) |
 | :---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 🥇 | SpaceKnife | `0.3.4` | <mark>**80.7**</mark> | <mark>**100.0**</mark> | 71.1 | 74.0 | 23.76 | 26.42 | 1291 | 276 | 1,067,847 | 3188.6 |
+| 🥇 | SpaceKnife (0.3.4) | `0.3.4` | <mark>**80.7**</mark> | <mark>**100.0**</mark> | 71.1 | 74.0 | 23.76 | 26.42 | 1291 | 276 | 1,067,847 | 3188.6 |
 | 🥈 | dua-cli | `2.46.0` | 74.8 | 78.5 | 93.1 | 57.3 | 30.29 | 20.17 | 325 | 355 | 1,482,772 | 3012.7 |
 | 🥉 | WizTree | `4.33` | 60.3 | 45.1 | 48.6 | <mark>**100.0**</mark> | 52.64 | 38.63 | 4324 | 58 | 408,467 | 3178.1 |
 | 4 | SquirrelDisk | `2.6.1` | 60.3 | 62.9 | 54.6 | 63.8 | 37.81 | 34.42 | 202 | 192 | 1,512,428 | 3150.8 |
