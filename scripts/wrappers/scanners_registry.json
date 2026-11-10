@@ -21,7 +21,7 @@
     "notes / notes_en": "Short Chinese / English notes shown in the README scanner table",
     "exe_by_arch": "Which executable of a multi-architecture archive to use per architecture",
     "verify_command_template": "Untimed extra run whose output is used to check completeness, for tools whose timed command prints nothing (ncdu -o /dev/null)",
-    "install specs": "URL of an archive or raw executable; gh-artifact:<repo>:<run>:<artifact>; system:<command or path>; cargo:<crate>@<version>:<binary>; brew:<formula>"
+    "install specs": "URL of an archive or raw executable; gh-artifact:<repo>:<run>:<artifact>; gh-release:<repo>:<tag>:<asset> (a portable archive, unpacked whole); system:<command or path>; cargo:<crate>@<version>:<binary>; brew:<formula>"
   },
   "mft_field_comment": "Optional 'mft' object (command_template using {volume} = volume root) marks scanners that can scan the raw NTFS $MFT; only those run in the MFT-only benchmark (benchmark-mft.yml).",
   "arm64_windows_comment": "The windows-11-arm job runs only scanners with a windows_aarch64 build (gdu, dua, dust, WinDirStat, SpaceKnife and its Rust build); x64-only tools (WizTree, SpaceSniffer, TreeSize, SquirrelDisk) are skipped instead of being timed under emulation.",
@@ -179,7 +179,7 @@
     {
       "id": "spaceknife",
       "name": "spaceknife-backend",
-      "display_name": "SpaceKnife",
+      "display_name": "SpaceKnife (0.3.4)",
       "author_project": true,
       "version": "0.3.4 (release run 40255561003, d50a09b)",
       "enabled": true,
@@ -194,20 +194,20 @@
       "output_parser": "spaceknife_cli",
       "env": {"COLUMNS": "200"},
       "install": {
-        "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:40255561003:SpaceKnife-portable-linux-x64",
-        "linux_aarch64": "gh-artifact:DuskXi/SpaceKnife:40255561003:SpaceKnife-portable-linux-arm64",
-        "windows_x86_64": "gh-artifact:DuskXi/SpaceKnife:40255561003:SpaceKnife-portable-win-x64",
-        "windows_aarch64": "gh-artifact:DuskXi/SpaceKnife:40255561003:SpaceKnife-portable-win-arm64",
-        "macos_x86_64": "gh-artifact:DuskXi/SpaceKnife:40255561003:SpaceKnife-mac-x64",
-        "macos_aarch64": "gh-artifact:DuskXi/SpaceKnife:40255561003:SpaceKnife-mac-arm64"
+        "linux_x86_64": "gh-release:DuskXi/SpaceKnife:v0.3.4:SpaceKnife-0.3.4-linux-x64-portable.tar.gz",
+        "linux_aarch64": "gh-release:DuskXi/SpaceKnife:v0.3.4:SpaceKnife-0.3.4-linux-arm64-portable.tar.gz",
+        "windows_x86_64": "gh-release:DuskXi/SpaceKnife:v0.3.4:SpaceKnife-0.3.4-win-x64-portable.zip",
+        "windows_aarch64": "gh-release:DuskXi/SpaceKnife:v0.3.4:SpaceKnife-0.3.4-win-arm64-portable.zip",
+        "macos_x86_64": "gh-release:DuskXi/SpaceKnife:v0.3.4:SpaceKnife-0.3.4-mac-x64-portable.zip",
+        "macos_aarch64": "gh-release:DuskXi/SpaceKnife:v0.3.4:SpaceKnife-0.3.4-mac-arm64-portable.zip"
       }
     },
     {
       "id": "spaceknife-rust",
       "name": "spaceknife-cli",
-      "display_name": "SpaceKnife (Rust)",
+      "display_name": "SpaceKnife",
       "author_project": true,
-      "version": "0.4.0 (dev-rust runs 42139238333 / 42139265922, a48f825)",
+      "version": "0.3.5 (runs 42837555463 / 42837555422, 2b7b4a2)",
       "enabled": true,
       "runner_type": "cli",
       "platforms": ["linux", "macos", "windows"],
@@ -219,15 +219,15 @@
       },
       "output_parser": "spaceknife_cli",
       "env": {"COLUMNS": "200"},
-      "notes": "SpaceKnife 的 Rust 重写版（dev-rust 分支），与原版并行测试；命令行和输出与原版相同",
-      "notes_en": "The Rust rewrite of SpaceKnife (dev-rust branch), run alongside the original; same command line and output",
+      "notes": "SpaceKnife 0.3.5：Rust 重写版合并进主线后的版本，与旧版 0.3.4 并行测试；命令行和输出与旧版相同",
+      "notes_en": "SpaceKnife 0.3.5, the Rust rewrite merged into the main line, run alongside the old 0.3.4; same command line and output",
       "install": {
-        "linux_x86_64": "gh-artifact:Ry3nZhao/SpaceKnife:42139238333:SpaceKnife-portable-linux-x64",
-        "linux_aarch64": "gh-artifact:Ry3nZhao/SpaceKnife:42139238333:SpaceKnife-portable-linux-arm64",
-        "windows_x86_64": "gh-artifact:Ry3nZhao/SpaceKnife:42139238333:SpaceKnife-portable-win-x64",
-        "windows_aarch64": "gh-artifact:Ry3nZhao/SpaceKnife:42139238333:SpaceKnife-portable-win-arm64",
-        "macos_x86_64": "gh-artifact:Ry3nZhao/SpaceKnife:42139265922:SpaceKnife-mac-x64",
-        "macos_aarch64": "gh-artifact:Ry3nZhao/SpaceKnife:42139265922:SpaceKnife-mac-arm64"
+        "linux_x86_64": "gh-artifact:DuskXi/SpaceKnife:42837555463:SpaceKnife-portable-linux-x64",
+        "linux_aarch64": "gh-artifact:DuskXi/SpaceKnife:42837555463:SpaceKnife-portable-linux-arm64",
+        "windows_x86_64": "gh-artifact:DuskXi/SpaceKnife:42837555463:SpaceKnife-portable-win-x64",
+        "windows_aarch64": "gh-artifact:DuskXi/SpaceKnife:42837555463:SpaceKnife-portable-win-arm64",
+        "macos_x86_64": "gh-artifact:DuskXi/SpaceKnife:42837555422:SpaceKnife-mac-x64",
+        "macos_aarch64": "gh-artifact:DuskXi/SpaceKnife:42837555422:SpaceKnife-mac-arm64"
       }
     },
     {

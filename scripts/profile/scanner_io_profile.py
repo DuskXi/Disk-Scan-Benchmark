@@ -53,8 +53,8 @@ Config = Tuple[str, str, Optional[int], Dict[str, str], List[str]]
 CONFIGS: List[Config] = [
     ("gdu", "gdu", None, {}, []),
     ("dua-cli", "dua", None, {}, []),
-    ("SpaceKnife", "spaceknife", None, {}, []),
-    ("SpaceKnife (Rust)", "spaceknife-rust", None, {}, []),
+    ("SpaceKnife 0.3.4", "spaceknife", None, {}, []),
+    ("SpaceKnife 0.3.5", "spaceknife-rust", None, {}, []),
     ("WinDirStat default", "windirstat", 0, {}, []),
     ("WinDirStat 1 thread", "windirstat", 1, {}, []),
     ("WinDirStat 4 threads", "windirstat", 4, {}, []),

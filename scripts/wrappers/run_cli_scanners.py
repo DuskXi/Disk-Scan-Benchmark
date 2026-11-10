@@ -1376,6 +1376,38 @@ def extract_zip_keep_modes(archive: Path, dest: Path) -> None:
                     target.chmod(mode)
 
 
+def download_url(url: str, dest: Path, timeout: int = 600) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": "disk-scanner-bench/0.1"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp, open(dest, "wb") as out_f:
+        shutil.copyfileobj(resp, out_f)
+
+
+def fetch_gh_artifact(repo_slug: str, run_id: str, artifact_name: str, tmp_dir: Path) -> None:
+    """A CI artifact's files into tmp_dir: gh run download, else nightly.link (artifacts of public repositories)."""
+    gh_res = subprocess.run(
+        ["gh", "run", "download", run_id, "-R", repo_slug, "-n", artifact_name, "-D", str(tmp_dir)], check=False
+    )
+    if gh_res.returncode != 0:
+        nightly_url = f"https://nightly.link/{repo_slug}/actions/runs/{run_id}/{artifact_name}.zip"
+        print(f"[installer] gh run download returned {gh_res.returncode}; downloading via {nightly_url}...")
+        outer_zip = tmp_dir / f"{artifact_name}.zip"
+        download_url(nightly_url, outer_zip, 180)
+        with zipfile.ZipFile(outer_zip, "r") as zf:
+            zf.extractall(tmp_dir)
+        outer_zip.unlink(missing_ok=True)
+
+
+def fetch_gh_release_asset(repo_slug: str, tag: str, asset: str, tmp_dir: Path) -> None:
+    """One release asset into tmp_dir: gh release download, else its public download URL."""
+    gh_res = subprocess.run(
+        ["gh", "release", "download", tag, "-R", repo_slug, "-p", asset, "-D", str(tmp_dir)], check=False
+    )
+    if gh_res.returncode != 0:
+        url = f"https://github.com/{repo_slug}/releases/download/{tag}/{asset}"
+        print(f"[installer] gh release download returned {gh_res.returncode}; downloading {url}...")
+        download_url(url, tmp_dir / asset)
+
+
 def install_runtime_packages(scanner: Dict[str, Any], os_key: str) -> None:
     """
     Shared libraries a prebuilt binary links against but a CI image may lack ("runtime_packages": {"linux": [...]}).
@@ -1482,28 +1514,21 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
     bin_dir.mkdir(parents=True, exist_ok=True)
     print(f"[installer] Installing pinned {scanner['name']} v{scanner['version']} for {target_key} from {spec}...")
 
-    if spec.startswith("gh-artifact:"):
-        # Format: gh-artifact:<owner/repo>:<run_id>:<artifact_name>
-        _, repo_slug, run_id, artifact_name = spec.split(":", 3)
+    if spec.startswith(("gh-artifact:", "gh-release:")):
+        # gh-artifact:<owner/repo>:<run_id>:<artifact_name>  a CI artifact, holding the portable archive
+        # gh-release:<owner/repo>:<tag>:<asset_name>          a release asset, the portable archive itself (artifacts
+        #                                                     expire; the release of the same build stays)
+        # Either way the whole bundle is unpacked into <bin>/<id>_portable: a portable app needs the files beside
+        # its executable (SpaceKnife 0.3.4's backend its _internal folder)
+        kind, repo_slug, ref, asset = spec.split(":", 3)
         portable_bundle_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory() as tmpd:
             tmp_dir = Path(tmpd)
-            gh_res = subprocess.run(
-                ["gh", "run", "download", run_id, "-R", repo_slug, "-n", artifact_name, "-D", str(tmp_dir)],
-                check=False,
-            )
-            if gh_res.returncode != 0:
-                nightly_url = f"https://nightly.link/{repo_slug}/actions/runs/{run_id}/{artifact_name}.zip"
-                print(f"[installer] gh run download returned {gh_res.returncode}; downloading via {nightly_url}...")
-                outer_zip = tmp_dir / f"{artifact_name}.zip"
-                req = urllib.request.Request(nightly_url, headers={"User-Agent": "disk-scanner-bench/0.1"})
-                with urllib.request.urlopen(req, timeout=180) as resp, open(outer_zip, "wb") as out_f:
-                    shutil.copyfileobj(resp, out_f)
-                with zipfile.ZipFile(outer_zip, "r") as zf:
-                    zf.extractall(tmp_dir)
-                outer_zip.unlink(missing_ok=True)
-
-            # Extract nested *-portable.zip or *-portable.tar.gz inside the downloaded artifact
+            if kind == "gh-artifact":
+                fetch_gh_artifact(repo_slug, ref, asset, tmp_dir)
+            else:
+                fetch_gh_release_asset(repo_slug, ref, asset, tmp_dir)
+            # Extract the nested *-portable.zip or *-portable.tar.gz
             for item in tmp_dir.rglob("*"):
                 if not item.is_file():
                     continue
