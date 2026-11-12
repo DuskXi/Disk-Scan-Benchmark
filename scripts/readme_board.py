@@ -711,6 +711,26 @@ def write_badges(standard: Dict[str, Dict[str, Any]], mft: Dict[str, Dict[str, A
                 label = f"{o['scanner']} · {'MFT ' if kind else ''}{preset}"
                 out = badge_dir / f"{o['id']}-{kind}{preset}.json"
                 out.write_text(json.dumps(badge_json(label, o["rank"], o["overall"])), encoding="utf-8")
+    # a scanner taking part without a rank (no valid result, or valid on an experimental platform only) gets a badge
+    # saying so, never the rank an earlier publish left behind
+    not_ranked = {"schemaVersion": 1, "message": "not ranked", "color": "9f9f9f"}
+    for kind, data in (("", standard), ("mft-", mft)):
+        ranked = {r["id"] for r in cross_size(data)}
+        for preset, rec in data.items():
+            payload = rec["payload"]
+            in_preset = {o["id"] for o in payload["overall"]}
+            for sid in (payload.get("experimental_only") or []) + payload["unranked"]:
+                name = payload["scanners"][sid]["name"]
+                if sid not in in_preset:
+                    label = f"{name} · {'MFT ' if kind else ''}{preset}"
+                    (badge_dir / f"{sid}-{kind}{preset}.json").write_text(
+                        json.dumps(dict(not_ranked, label=label)), encoding="utf-8"
+                    )
+                if sid not in ranked:
+                    label = f"{name} · disk-scan-bench{' MFT' if kind else ''}"
+                    (badge_dir / f"{sid}{'-mft' if kind else ''}.json").write_text(
+                        json.dumps(dict(not_ranked, label=label)), encoding="utf-8"
+                    )
 
 
 def update_readme(readme: Path, section: List[str]) -> None:

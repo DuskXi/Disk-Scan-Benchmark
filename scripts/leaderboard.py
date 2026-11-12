@@ -418,6 +418,10 @@ def merge_platforms(base: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, An
     for sid, meta in extra.get("scanners", {}).items():
         merged["scanners"].setdefault(sid, meta)
     merged["platforms"] = sorted(set(merged["platforms"]) | set(extra.get("platforms", [])), key=platform_sort_key)
+    # the added platforms are experimental: a scanner with results there only is not ranked (aggregate_overall)
+    merged["supplement_platforms"] = sorted(
+        set(merged.get("supplement_platforms") or []) | set(extra.get("platforms", [])), key=platform_sort_key
+    )
     aggregate_overall(merged)
     return merged
 
@@ -509,16 +513,23 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
                 plat[sid]["rank"] = None
     overall: List[Dict[str, Any]] = []
     unranked: List[str] = []
+    # experimental platforms merged in from a separate run (WinBtrfs): a scanner valid only there is not ranked, or one
+    # platform alone would make its score (and could hand it a medal)
+    experimental = set(payload.get("supplement_platforms") or [])
+    experimental_only: List[str] = []
     for sid, meta in payload["scanners"].items():
         entries = [per_platform[lbl][sid] for lbl in labels if sid in per_platform[lbl]]
         ok = [e for e in entries if e["status"] == "ok"]
         if not ok:
             unranked.append(sid)
             continue
+        ok_labels = [lbl for lbl in labels if per_platform[lbl].get(sid, {}).get("status") == "ok"]
+        if experimental and all(lbl in experimental for lbl in ok_labels):
+            experimental_only.append(sid)
+            continue
         cold = geomean([e["cold_rel"] for e in ok])
         warm = geomean([e["warm_rel"] for e in ok])
         index = geomean([e["index_rel"] for e in ok])
-        ok_labels = [lbl for lbl in labels if per_platform[lbl].get(sid, {}).get("status") == "ok"]
         writes = [w for e in ok if (w := write_total(e)) is not None]
         w_rel = [w_ratios[lbl][sid] for lbl in ok_labels if sid in w_ratios.get(lbl, {})]
         accs = [abs(e["acc_pct"]) for e in ok if e.get("acc_pct") is not None]
@@ -558,6 +569,7 @@ def aggregate_overall(payload: Dict[str, Any]) -> None:
             o["rank"] = pos
     payload["overall"] = overall
     payload["unranked"] = unranked
+    payload["experimental_only"] = experimental_only
 
 
 # --- Markdown rendering (shared with scripts/readme_board.py) ---
@@ -656,6 +668,15 @@ def render_overall_table(p: Dict[str, Any], bi: bool = False) -> List[str]:
             f"| {medal} | **{name}** | {score} | {cold} | {warm} | {index} | {rss} | {acc} | {verified} "
             f"| {o['valid_platforms']}/{o['entered_platforms']} |{wins}"
         )
+    if p.get("experimental_only"):
+        names = "、".join(p["scanners"][s]["name"] for s in p["experimental_only"])
+        where = "、".join(platform_title(lbl) for lbl in p.get("supplement_platforms") or [])
+        lines += [
+            "",
+            f"不排名（只在实验平台 {where} 上有有效成绩，一个实验平台撑不起综合分）"
+            + (f" · Not ranked (valid results on the experimental platform {where} only)" if bi else "")
+            + f"：{names}",
+        ]
     if p["unranked"]:
         names = "、".join(p["scanners"][s]["name"] for s in p["unranked"])
         lines += [
@@ -735,7 +756,7 @@ def render_matrix(p: Dict[str, Any], bi: bool = False) -> List[str]:
 
 
 def matrix_table(p: Dict[str, Any], labels: List[str], titles: Dict[str, str], bi: bool) -> List[str]:
-    order = [o["id"] for o in p["overall"]] + p["unranked"]
+    order = [o["id"] for o in p["overall"]] + (p.get("experimental_only") or []) + p["unranked"]
     if bi:
         # a scanner with no entry on any of these platforms gets no row in this table
         order = [sid for sid in order if any(p["per_platform"][lbl].get(sid) for lbl in labels)]

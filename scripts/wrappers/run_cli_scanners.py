@@ -2379,15 +2379,18 @@ def run_benchmarks() -> int:
         cold_purged = invoke_purge_cache(os_key, scan_path, repo_root, args.skip_purge, args.purge_mode)
         cold_ms, cold_rss, scanned_bytes, scanned_files, last_zones = execute_once(cold=True)
         accumulated_zones = dict(last_zones)
+        cold_reported = (scanned_bytes, scanned_files)  # what the timed cold run printed itself (0: nothing)
         print(f"  [Cold Cache] {cold_ms:.2f} ms | Peak RSS: {cold_rss:.2f} MB | Scanned: {scanned_bytes} B")
 
         # 2. Warm Cache Runs (3x consecutive without purging cache)
         warm_times: List[float] = []
+        warm_reported: List[Tuple[int, int]] = []  # each warm run's own total size and file count
         rss_runs: List[float] = [cold_rss]
         peak_rss = cold_rss
         for w_idx in range(max(1, args.warm_runs)):
             w_ms, w_rss, w_bytes, w_files, w_zones = execute_once()
             warm_times.append(w_ms)
+            warm_reported.append((w_bytes, w_files))
             rss_runs.append(w_rss)
             if w_zones and not accumulated_zones:
                 accumulated_zones = dict(w_zones)
@@ -2515,6 +2518,25 @@ def run_benchmarks() -> int:
                 invalid_reason = (
                     f"❌ INVALID: Incomplete traversal (scanned files {scanned_files:,} < 90% of tree total "
                     f"{expected_files:,})"
+                )
+        # 3b. The warm runs are timed too, so each must report the whole tree as well: otherwise a scanner could scan
+        #     honestly once and then skip work (or read a cache of its own) in the runs that make its warm score. Held
+        #     to the cold run's thresholds wherever the timed cold run printed that number itself (ncdu's timed runs
+        #     print nothing; its untimed verification pass is checked above instead)
+        for w_idx, (w_bytes, w_files) in enumerate(warm_reported, start=1):
+            if not valid:
+                break
+            if cold_reported[0] > 0 and ref_bytes > 0 and w_bytes < 0.75 * ref_bytes:
+                valid = False
+                invalid_reason = (
+                    f"❌ INVALID: Incomplete traversal in warm run #{w_idx} (reported size {w_bytes:,} < 75% of "
+                    f"{ref_bytes:,})"
+                )
+            elif cold_reported[1] > 0 and expected_files > 0 and w_files < 0.9 * expected_files:
+                valid = False
+                invalid_reason = (
+                    f"❌ INVALID: Incomplete traversal in warm run #{w_idx} (scanned files {w_files:,} < 90% of tree "
+                    f"total {expected_files:,})"
                 )
         if valid and accumulated_zones and zone_refs:
             checked.append("zones")
