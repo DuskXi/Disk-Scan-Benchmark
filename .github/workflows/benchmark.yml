@@ -1009,7 +1009,7 @@ jobs:
       share: ${{ matrix.share }}
       build_runner: ${{ matrix.build_runner }}
       gen_min_per_million: ${{ matrix.gen }}
-      reset_min_per_million: "1"  # copying the frozen volume before each scanner (~9 GB per million items)
+      reset_min_per_million: ${{ matrix.reset }}  # copying the frozen volume before each scanner
       reset_once_min_per_million: ${{ matrix.once }}
       max_shards: ${{ matrix.max_shards }}
       safety: ${{ matrix.safety }}
