@@ -7,7 +7,8 @@
     "template_placeholders": {
       "{bin}": "Resolved binary path or executable name",
       "{path}": "Mounted benchmark volume root path",
-      "{export_file}": "Temporary export file path for CSV/JSON output"
+      "{export_file}": "Temporary export file path for CSV/JSON output",
+      "{workers}": "The worker count the program picks itself by default on this runner: min(max_workers, CPUs)"
     }
   },
   "optional_fields_comment": {
@@ -21,7 +22,8 @@
     "notes / notes_en": "Short Chinese / English notes shown in the README scanner table",
     "exe_by_arch": "Which executable of a multi-architecture archive to use per architecture",
     "verify_command_template": "Untimed extra run whose output is used to check completeness, for tools whose timed command prints nothing (ncdu -o /dev/null)",
-    "install specs": "URL of an archive or raw executable; gh-artifact:<repo>:<run>:<artifact>; gh-release:<repo>:<tag>:<asset> (a portable archive, unpacked whole); system:<command or path>; cargo:<crate>@<version>:<binary>; brew:<formula>"
+    "max_workers": "For {workers}: the most workers the program's default setting uses (disktree's Balanced preset: 4)",
+    "install specs": "URL of an archive or raw executable; gh-artifact:<repo>:<run>:<artifact>; gh-release:<repo>:<tag>:<asset> (a portable archive, unpacked whole); system:<command or path>; cargo:<crate>@<version>:<binary>; cargo-example:<git url>#<tag>:<package>:<example> (an example the program's own repository ships, built from that tag); brew:<formula>"
   },
   "mft_field_comment": "Optional 'mft' object (command_template using {volume} = volume root) marks scanners that can scan the raw NTFS $MFT; only those run in the MFT-only benchmark (benchmark-mft.yml).",
   "arm64_windows_comment": "The windows-11-arm job runs only scanners with a windows_aarch64 build (gdu, dua, dust, WinDirStat, SpaceKnife and its Rust build); x64-only tools (WizTree, SpaceSniffer, TreeSize, SquirrelDisk) are skipped instead of being timed under emulation.",
@@ -371,6 +373,30 @@
         "macos_aarch64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-aarch64-apple-darwin.tar.gz",
         "windows_x86_64": "https://github.com/solidiquis/erdtree/releases/download/v3.1.2/erd-v3.1.2-x86_64-pc-windows-msvc.exe",
         "windows_aarch64": "cargo:erdtree@3.1.2:erd"
+      }
+    },
+    {
+      "id": "disktree",
+      "name": "disktree",
+      "version": "0.11.0 (disktree-core scan_workers example, tag v0.11.0)",
+      "enabled": true,
+      "runner_type": "cli",
+      "platforms": ["linux", "macos", "windows"],
+      "architectures": ["x86_64", "aarch64"],
+      "size_metric": "allocated",
+      "apparent_on": ["windows"],
+      "max_workers": 4,
+      "command_template": ["{bin}", "{path}", "{workers}"],
+      "output_parser": "disktree_json",
+      "notes": "图形界面程序（GPU 画树图），没有不开窗口的模式：按作者自己的测速方式，用仓库自带的 disktree-core scan_workers 示例跑应用的同一套扫描代码，工作线程数取应用默认的 Balanced 档（min(4, CPU 数)），只计扫描、不计画图；Windows 上只报逻辑大小；只有扫整个盘符时才读 $MFT，这里扫的是文件夹",
+      "notes_en": "A GUI app (GPU-drawn treemap) with no headless mode: timed the way its author benchmarks it, through the repository's own disktree-core scan_workers example, which runs the app's scan code with the app's default Balanced worker count (min(4, CPUs)); scanning only, no drawing; logical sizes only on Windows; it reads the $MFT only when scanning a whole drive, and here it scans a folder",
+      "install": {
+        "linux_x86_64": "cargo-example:https://github.com/tobi/disktree#v0.11.0:disktree-core:scan_workers",
+        "linux_aarch64": "cargo-example:https://github.com/tobi/disktree#v0.11.0:disktree-core:scan_workers",
+        "macos_x86_64": "cargo-example:https://github.com/tobi/disktree#v0.11.0:disktree-core:scan_workers",
+        "macos_aarch64": "cargo-example:https://github.com/tobi/disktree#v0.11.0:disktree-core:scan_workers",
+        "windows_x86_64": "cargo-example:https://github.com/tobi/disktree#v0.11.0:disktree-core:scan_workers",
+        "windows_aarch64": "cargo-example:https://github.com/tobi/disktree#v0.11.0:disktree-core:scan_workers"
       }
     }
   ]

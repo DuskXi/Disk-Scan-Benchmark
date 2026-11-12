@@ -44,6 +44,13 @@ def scanners_for(label: str, registry: Path) -> List[str]:
     ]
 
 
+def installable(label: str, registry: Path) -> Set[str]:
+    """Scanners with an install spec for this platform (the others are skipped by the runner)."""
+    os_key, arch = platform_of(label)
+    data = json.loads(registry.read_text(encoding="utf-8"))
+    return {s["id"] for s in data["scanners"] if s.get("install", {}).get(f"{os_key}_{arch}")}
+
+
 def verified(registry: Path) -> Set[str]:
     """Scanners whose timed command prints nothing to check: an untimed scan with an export follows (ncdu)."""
     data = json.loads(registry.read_text(encoding="utf-8"))
@@ -89,6 +96,7 @@ def plan(
     min_shards: int = 1,
     reset_s: float = 0.0,
     verify: Optional[Set[str]] = None,
+    new: Optional[Set[str]] = None,
 ) -> Tuple[List[List[str]], Dict[str, float]]:
     est: Dict[str, float] = {}
     for sid in scanners:
@@ -100,10 +108,15 @@ def plan(
             est[sid] = (cold + runs * warm) * items_m * safety
     known = list(est.values())
     # ran here before without a valid result (it may run until it fails): assume one of the slow ones; never seen on
-    # this platform although the registry lists it (no native build: the runner skips it): a minute
+    # this platform, with a build for it (`new`: just added to the registry): a typical one; never seen although the
+    # registry lists it, without a build (the runner skips it): a minute
     slow = max(known) if known else 3600.0
+    typical = statistics.median(known) if known else 3600.0
     for sid in scanners:
-        est.setdefault(sid, slow if (sid in seen or not seen) else 60.0)
+        if sid in seen or not seen:
+            est.setdefault(sid, slow)
+        else:
+            est.setdefault(sid, typical if new and sid in new else 60.0)
     for sid in scanners:
         est[sid] += reset_s  # the access times are set back before each scanner's cold scan
     anchor_s = est.get(anchor, 0.0)
@@ -197,6 +210,7 @@ def main() -> int:
         args.min_shards,
         args.reset_min_per_million * items_m * 60,
         verified(Path(args.registry)),
+        installable(args.label, Path(args.registry)) - seen,
     )
     print(
         f"[plan] {args.label} | {args.preset} ({files:,} files) | {len(scanners)} scanners -> {len(shards)} shard(s)"
@@ -214,11 +228,16 @@ def main() -> int:
                 f" job limit ({', '.join(sh)})"
             )
     invalid = [s for s in scanners if s not in per_million and (s in seen or not seen)]
-    absent = [s for s in scanners if s not in per_million and s not in invalid]
+    unseen = [s for s in scanners if s not in per_million and s not in invalid]
+    builds = installable(args.label, Path(args.registry))
+    new = [s for s in unseen if s in builds]
+    absent = [s for s in unseen if s not in builds]
     if invalid:
         print(f"[plan] no earlier valid result on {args.label} (estimated as the slowest): {', '.join(invalid)}")
+    if new:
+        print(f"[plan] new on {args.label} (estimated as a typical scanner): {', '.join(new)}")
     if absent:
-        print(f"[plan] never ran on {args.label} before (estimated at a minute): {', '.join(absent)}")
+        print(f"[plan] no build for {args.label} (skipped by the runner, estimated at a minute): {', '.join(absent)}")
     matrix = {"include": [{"shard": i, "scanners": ",".join(sh)} for i, sh in enumerate(shards, start=1)]}
     if args.github_output:
         with open(args.github_output, "a", encoding="utf-8") as f:

@@ -166,6 +166,26 @@ def parse_squirreldisk_json(text: str) -> Tuple[int, int, Dict[str, Dict[str, An
     return int(root.get("size", 0)), int(root.get("files", 0)), zones
 
 
+def parse_disktree_json(text: str) -> Tuple[int, int, Optional[float]]:
+    """
+    Parses the line disktree-core's `scan_workers` example prints after one scan:
+    {"workers", "pool", "elapsed" (seconds), "files", "dirs", "bytes" (blocks, as the app counts), "errors"}.
+    Returns (bytes, files, the scan's own milliseconds).
+    """
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "bytes" in data:
+            elapsed = data.get("elapsed")
+            return int(data["bytes"]), int(data.get("files", 0)), float(elapsed) * 1000 if elapsed else None
+    return 0, 0, None
+
+
 def spaceknife_mft_fallback(text: str) -> Optional[str]:
     """
     For `scan --mft`: None when SpaceKnife read the volume's $MFT ("Method MFT quick scan" / "方式 MFT 快速扫描"),
@@ -284,8 +304,14 @@ def effective_size_metric(scanner: Dict[str, Any], os_key: str) -> str:
 
 
 def command_template_for(scanner: Dict[str, Any], os_key: str) -> List[str]:
-    """The scanner's command line, with an optional per-OS override ("command_template_by_os")."""
-    return list(scanner.get("command_template_by_os", {}).get(os_key, scanner["command_template"]))
+    """The scanner's command line, with an optional per-OS override ("command_template_by_os"); {workers} filled in."""
+    template = scanner.get("command_template_by_os", {}).get(os_key, scanner["command_template"])
+    return [tok.replace("{workers}", scanner_workers(scanner)) for tok in template]
+
+
+def scanner_workers(scanner: Dict[str, Any]) -> str:
+    """{workers}: the worker count the program picks itself by default here, min(its "max_workers", the CPUs)."""
+    return str(max(1, min(int(scanner.get("max_workers", 1)), os.cpu_count() or 1)))
 
 
 def reference_bytes(gt_data: Dict[str, Any], scanner: Dict[str, Any], metric: str, os_key: str) -> int:
@@ -1437,6 +1463,10 @@ def resolve_installed_scanner(scanner: Dict[str, Any], os_key: str, arch_key: st
         built = bin_dir / f"cargo-{scanner_id}" / "bin" / (spec.split(":", 2)[2] + exe)
         if built.exists():
             return str(built)
+    if spec.startswith("cargo-example:"):
+        built = bin_dir / f"cargo-{scanner_id}" / "bin" / (spec.rsplit(":", 1)[1] + exe)
+        if built.exists():
+            return str(built)
     names = [scanner_id if os_key != "windows" else scanner["name"], scanner.get("bin_name", ""), scanner_id]
     for name in [n for n in names if n]:
         local = bin_dir / (name + exe)
@@ -1507,6 +1537,35 @@ def install_pinned_scanner(scanner: Dict[str, Any], os_key: str, arch_key: str, 
         print(f"[installer] cargo install {crate} {version} (--bin {bin_name}) into {cargo_root}...")
         subprocess.run(
             ["cargo", "install", crate, "--version", version, "--locked", "--bin", bin_name, "--root", str(cargo_root)],
+            check=False,
+        )
+        return str(built) if built.exists() else None
+
+    if spec.startswith("cargo-example:"):
+        # Format: cargo-example:<git url>#<tag>:<package>:<example>; a program whose only headless entry point is an
+        # example its own repository ships (disktree: a GUI app, timed through disktree-core's scan_workers)
+        url_tag, package, example = spec.split(":", 1)[1].rsplit(":", 2)
+        url, tag = url_tag.split("#", 1)
+        cargo_root = bin_dir / f"cargo-{scanner_id}"
+        built = cargo_root / "bin" / (example + exe_suffix)
+        if built.exists():
+            return str(built)
+        print(f"[installer] cargo install --example {example} {package} from {url} {tag} into {cargo_root}...")
+        subprocess.run(
+            [
+                "cargo",
+                "install",
+                "--git",
+                url,
+                "--tag",
+                tag,
+                "--locked",
+                "--example",
+                example,
+                "--root",
+                str(cargo_root),
+            ]
+            + [package],
             check=False,
         )
         return str(built) if built.exists() else None
@@ -2261,6 +2320,13 @@ def run_benchmarks() -> int:
                 scanned_b, sq_files, sampled_zones = parse_squirreldisk_json(stdout_text)
                 if sq_files > 0:
                     scanned_f = sq_files
+            elif parser_kind == "disktree_json":
+                # totals only (no per-folder rows): checked by size and file count
+                scanned_b, dt_files, dt_scan_ms = parse_disktree_json(stdout_text)
+                if dt_files > 0:
+                    scanned_f = dt_files
+                if dt_scan_ms is not None:
+                    tool_scan_ms_samples.append(dt_scan_ms)
             elif parser_kind == "spaceknife_cli":
                 scanned_b, sk_files = parse_spaceknife_output(stdout_text, effective_metric, os_key)
                 sk_scan_ms = parse_spaceknife_scan_ms(stdout_text)
