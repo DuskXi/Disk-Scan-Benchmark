@@ -128,6 +128,11 @@ on:
         required: false
         default: false
         type: boolean
+      anchor:
+        description: "Scanner run in every shard to scale the shards to each other; empty: none (it then runs once, like the others, and the other shards stay unscaled), where a shard cannot hold the tree's generation, the anchor and one more scanner"
+        required: false
+        default: "dua"
+        type: string
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -168,6 +173,7 @@ jobs:
             --reset-min-per-million "${{ inputs.reset_min_per_million }}" \
             --reset-once-min-per-million "${{ inputs.reset_once_min_per_million }}" \
             --min-shards "${{ inputs.min_shards }}" \
+            --anchor "${{ inputs.anchor }}" \
             --github-output "$GITHUB_OUTPUT"
 
   build:

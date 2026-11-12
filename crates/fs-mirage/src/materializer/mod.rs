@@ -630,8 +630,10 @@ pub fn materialize_tree(
     let files_only_bytes = total_allocated.load(Ordering::Relaxed);
 
     // 5. On Unix (ext4 / XFS), directories themselves allocate 4KB+ physical blocks (st_blocks)
-    // that CLI disk usage tools (gdu, dua, dust, ncdu) include in the volume total.
-    #[cfg(unix)]
+    // that CLI disk usage tools (gdu, dua, dust, ncdu) include in the volume total. Not on macOS: APFS reports no
+    // blocks for folders (the ground truth's total equals its files-only total on both macOS runners), and reading
+    // every folder's metadata here took 7-17 min per shard there (a high tree on x64, a very-high one on ARM64).
+    #[cfg(all(unix, not(target_os = "macos")))]
     {
         use std::os::unix::fs::MetadataExt;
         let dir_blocks_bytes: u64 = plan

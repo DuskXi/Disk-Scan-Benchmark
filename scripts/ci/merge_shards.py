@@ -118,6 +118,10 @@ def main() -> int:
     merged: List[Dict[str, Any]] = []
     summary: List[Dict[str, Any]] = []
     seen: Dict[str, int] = {}
+    # the anchor's own row comes from the reference shard when that shard has one; otherwise (no valid anchor result,
+    # or the anchor ran in one shard only, like any other scanner) from the first shard that lists it
+    ref_rows = next(rows for n, _, rows in shards if n == ref)
+    anchor_in_ref = any(str(r.get("id")) == args.anchor for r in ref_rows)
     for n, sdir, rows in shards:
         a = anchors[n]
         floor_ms = args.min_anchor_s * 1000
@@ -143,7 +147,7 @@ def main() -> int:
         )
         for r in rows:
             sid = str(r.get("id"))
-            if sid == args.anchor and n != ref:
+            if sid == args.anchor and n != ref and anchor_in_ref:
                 continue  # the anchor's result comes from the reference shard only
             if sid in seen:
                 print(f"[merge] WARNING: {sid} ran in shards {seen[sid]} and {n}; keeping shard {seen[sid]}")

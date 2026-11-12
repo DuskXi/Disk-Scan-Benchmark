@@ -5,7 +5,9 @@ Split one platform's scanners into shards that each fit in a GitHub job (benchma
 The time of every scanner is estimated from the largest published preset that has a valid result for it on this
 platform (cold + warm runs, scaled by the file count), then the scanners are packed into as few shards as the budget
 allows, longest first into the least loaded shard. The anchor scanner runs in every shard: the merge step scales each
-shard's times by how fast the anchor ran there, so scanners measured on different runners stay comparable.
+shard's times by how fast the anchor ran there, so scanners measured on different runners stay comparable. With
+--anchor "" there is none (where one shard cannot hold the tree's generation, the anchor and one more scanner): the
+anchor's scanner is packed like the others and the shards stay unscaled.
 
   python plan_shards.py --label macos-x86_64 --preset very-high --warm-runs 1 --github-output "$GITHUB_OUTPUT"
 """
@@ -134,7 +136,9 @@ def main() -> int:
     ap.add_argument("--preset", required=True)
     ap.add_argument("--files", type=int, default=0, help="Item count of the tree when the preset is custom")
     ap.add_argument("--warm-runs", type=int, default=3)
-    ap.add_argument("--anchor", default="dua", help="Scanner run in every shard to scale the shards to each other")
+    ap.add_argument(
+        "--anchor", default="dua", help='Scanner run in every shard to scale the shards to each other ("": none)'
+    )
     ap.add_argument("--budget-min", type=float, default=200.0, help="Estimated scan minutes per shard (at most)")
     ap.add_argument(
         "--gen-min-per-million",

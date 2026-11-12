@@ -115,9 +115,33 @@ def atime_off_warning() -> List[str]:
     ]
 
 
+# Core platforms a size leaves out by design (benchmark.yml), so they are not missing there: label -> (sizes, why in
+# Chinese, why in English)
+NOT_RUN: Dict[str, Tuple[Tuple[str, ...], str, str]] = {
+    "macos-x86_64": (
+        ("before-death",),
+        "`before-death` 不测 macOS x64：在 Intel Mac Runner 上光生成测试树就要 4 个多小时，6 小时的作业里放不下任何一个"
+        "扫描器。",
+        "macOS x64 is not run at `before-death`: generating its tree alone takes over 4 hours on the Intel Mac runners, "
+        "leaving no room for a single scanner in a 6-hour job.",
+    ),
+}
+
+
+def not_run_notes(preset: str, bi: bool = False) -> List[str]:
+    """Why the core platforms this size leaves out by design are absent (nothing when it runs them all)."""
+    base = preset.split(" ")[0]
+    notes: List[str] = []
+    for sizes, zh, en in NOT_RUN.values():
+        if base in sizes:
+            notes += [zh, en] if bi else [zh]
+    return notes
+
+
 def core_platforms(preset: str) -> List[str]:
     base = preset.split(" ")[0]  # "high · Defender on" -> "high"
     labels = [lbl for lbl in CORE_PLATFORMS if not (lbl == "windows-x86_64-refs" and base in NO_REFS_PRESETS)]
+    labels = [lbl for lbl in labels if base not in NOT_RUN.get(lbl, ((), "", ""))[0]]
     if ATIME_OFF_TAG in preset:
         labels = [lbl for lbl in labels if lbl.startswith("windows")]
     return labels
@@ -818,7 +842,7 @@ def partial_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
 
 def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
     names = {sid: meta["name"] for sid, meta in p["scanners"].items()}
-    notes: List[str] = partial_notes(p, bi) + reference_note(names, bi)
+    notes: List[str] = partial_notes(p, bi) + not_run_notes(p.get("preset") or "", bi) + reference_note(names, bi)
     if bi:
         notes += [
             "冷扫、热扫下方的小字是它在有效平台上用时（秒）的几何平均；各平台硬件不同、每个扫描器参加的平台也不同，"
@@ -890,6 +914,7 @@ def render_run_summary(p: Dict[str, Any], title_preset: str) -> str:
             "Win x64 NTFS 的成绩没有 NTFS/ReFS 交叉核查。",
             "",
         ]
+    lines += [f"> [!NOTE]\n> {note}\n" for note in not_run_notes(title_preset)]
     lines += render_overall_table(p) + [""] + render_kings(p)
     lines += ["", "### 各平台名次（冷扫 / 热扫 秒）", ""] + render_matrix(p)
     lines += ["", "### 平台概况", ""] + render_platforms(p)

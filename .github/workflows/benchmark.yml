@@ -932,19 +932,22 @@ jobs:
   # usual benchmark-results-<label>-<preset> artifact. Generation minutes per million items come from high; "reset" is
   # the minutes per million items of restoring old access times before each scanner (Linux and macOS: setting back
   # what moved; Windows: copying the frozen volume), "once" those of setting the whole tree back once first (Windows).
+  #
+  # Every macOS shard generates the tree itself (disk images crawl there, see benchmark-sharded.yml): 2-3.3 h per shard
+  # at very-high. Generation minutes per million items: x64 10-13 measured at high, 13-19.5 at very-high; ARM64
+  # 11.5-14.5 at very-high (both before the folder-blocks pass that APFS does not need was dropped). So:
+  #   - no anchor on macOS x64 from very-high up and on ARM64 at before-death: generation, the anchor and one more
+  #     scanner do not fit in one 6-hour job there (very-high x64: 330-380 min). The anchor's scanner then runs once
+  #     like the others and those shards stay unscaled (macOS runners differed by 5-15% at high);
+  #   - no macOS x64 at before-death: generating its tree alone takes over 4 hours there, so not one scanner would
+  #     finish, and its ten 6-hour jobs would only hold up the five macOS runners the account gets.
   sharded-macos:
     name: "Sharded ${{ matrix.label }}"
     if: ${{ !inputs.windows_only && !inputs.atime_off && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: macos-x86_64
-            runner: macos-15-intel
-            gen: "16"  # min per million items: 10-13 measured at high, 13-19.5 at very-high
-          - label: macos-arm64
-            runner: macos-15
-            gen: "13"  # 11.5-14.5 at very-high
+        include: ${{ fromJSON(inputs.preset == 'before-death' && '[{"label":"macos-arm64","runner":"macos-15","gen":"13"}]' || '[{"label":"macos-x86_64","runner":"macos-15-intel","gen":"16"},{"label":"macos-arm64","runner":"macos-15","gen":"13"}]') }}
     uses: ./.github/workflows/benchmark-sharded.yml
     with:
       label: ${{ matrix.label }}
@@ -959,8 +962,10 @@ jobs:
       reset_min_per_million: "3"
       reset_once_min_per_million: "0"
       # one scanner per shard at very-high: generating the tree takes ~2 h in every shard there (disk images on the
-      # macOS runners crawl, nothing can be handed over), so a shard holds the anchor and one scanner at most
-      max_shards: "10"
+      # macOS runners crawl, nothing can be handed over), so a shard holds the anchor and one scanner at most; 11 when
+      # there is no anchor: one shard for each of the 11 scanners, dua included
+      max_shards: "11"
+      anchor: ${{ !(inputs.preset == 'before-death' || (matrix.label == 'macos-x86_64' && inputs.preset == 'very-high')) && 'dua' || '' }}
       # one warm scan on macOS x64 from high up (as in the benchmark job) and on macOS ARM64 from very-high up: their
       # warm scans of a big tree are nearly as slow as cold ones (ncdu on ARM64 at high: 42 min cold, 25-29 min warm)
       warm_runs: ${{ ((matrix.label == 'macos-x86_64' && inputs.preset != 'mid') || contains(fromJSON('["very-high","before-death"]'), inputs.preset)) && '1' || '3' }}
