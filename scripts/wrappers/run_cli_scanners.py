@@ -201,10 +201,12 @@ def spaceknife_mft_fallback(text: str) -> Optional[str]:
     return "no scan method line in the output"
 
 
-def parse_spaceknife_subtree(text: str, name: str, os_key: str) -> Tuple[int, int]:
+def parse_spaceknife_subtree(text: str, name: str, os_key: str) -> Tuple[Optional[int], int]:
     """
     Size on disk and file count of one first-level row of the `scan` summary table ("▸ bench  512.3 GB  98.1% ███ 1,000,006").
     An MFT scan has to be pointed at the volume root, so the benchmark subtree is read from its row.
+    The size is None when the row is missing; "0 B" is a reported size (on APFS a folder of files that were never
+    written allocates nothing).
     """
     clean = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", text).replace("\r", "\n")
     base = 1000 if os_key == "macos" else 1024
@@ -217,7 +219,7 @@ def parse_spaceknife_subtree(text: str, name: str, os_key: str) -> Tuple[int, in
     )
     m = row_re.search(clean)
     if not m:
-        return 0, 0
+        return None, 0
     # the file count is the last column; a table wider than the console crops it ("200,0…"): count unknown then
     files = re.search(r"([0-9][0-9,]*)$", m.group(3).strip())
     return int(float(m.group(1)) * units.get(m.group(2).lower(), 1)), (
@@ -546,6 +548,9 @@ def parse_erdtree(text: str, scan_path: str) -> Tuple[int, int, Dict[str, Dict[s
     """
     erdtree `-y iflat -L 1` without --human: "<n> <unit>   <name>" per entry with the root first, then a
     "<d> directories, <f> files" summary. Returns (root bytes, files, zones).
+    A folder whose contents add up to 0 bytes gets no size and prints the placeholder "-" (erdtree 3.1.2 sets a
+    folder's size only when the sum is above 0), so "-" reads as 0 (on APFS a folder of files that were never written
+    allocates nothing).
     """
     units = {
         "B": 1,
@@ -568,6 +573,10 @@ def parse_erdtree(text: str, scan_path: str) -> Tuple[int, int, Dict[str, Dict[s
         if m:
             size = int(float(m.group(1)) * units.get(m.group(2).upper(), 1))
             entries.append((size, m.group(3)))
+            continue
+        placeholder = re.match(r"^\s*-\s+(\S.*?)\s*$", line)
+        if placeholder:
+            entries.append((0, placeholder.group(1)))
             continue
         s = re.search(r"([\d,]+)\s+files?", line)
         if s and "director" in line:
@@ -2336,13 +2345,14 @@ def run_benchmarks() -> int:
                     # scanned the volume root: take the benchmark subtree's row, and check the $MFT was really read
                     sk_mft_fallbacks.append(spaceknife_mft_fallback(stdout_text))
                     sub_b, sub_f = parse_spaceknife_subtree(stdout_text, Path(scan_path).name, os_key)
-                    if sub_b > 0:
+                    if sub_b:
                         scanned_b, sk_files = sub_b, sub_f
                 sampled_zones = parse_cli_structure_samples(stdout_text, "spaceknife")
                 for zone in list(sampled_zones):
-                    # each zone's row of the summary table carries its size on disk and file count
+                    # each zone's row of the summary table carries its size on disk and file count; a "0 B" row is kept
+                    # (only a missing row leaves the zone without a size)
                     zone_b, zone_f = parse_spaceknife_subtree(stdout_text, zone, os_key)
-                    if zone_b > 0:
+                    if zone_b is not None:
                         sampled_zones[zone] = {"allocated_bytes": zone_b, "files": zone_f}
                 if sk_files > 0:
                     scanned_f = sk_files
