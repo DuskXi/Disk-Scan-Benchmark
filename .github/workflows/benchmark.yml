@@ -104,15 +104,18 @@ env:
   WIN_ATIME_FLAG: ${{ !inputs.atime_off && '--reset-atime' || '' }}
 
 jobs:
-  # The Linux / macOS targets of the benchmark job. mid and up leave macOS out: with access-time updates on its scans
-  # run past the 6-hour job limit there, so benchmark-sharded.yml splits them over several jobs (sharded-macos below).
-  # A matrix exclude cannot drop entries added by include, hence this job.
+  # The Linux targets of the benchmark job and the macOS ones of benchmark-macos: macOS runs in a job of its own so the
+  # leaderboard can go out before its runners (five per account, scans an order of magnitude slower) are through their
+  # queue (leaderboard-early). mid and up leave macOS out: with access-time updates on its scans run past the 6-hour
+  # job limit there, so benchmark-sharded.yml splits them over several jobs (sharded-macos below). A matrix exclude
+  # cannot drop entries added by include, hence this job.
   targets:
     name: "Targets (${{ inputs.preset }})"
     if: ${{ !inputs.windows_only && !inputs.atime_off }}
     runs-on: ubuntu-24.04
     outputs:
       include: ${{ steps.pick.outputs.include }}
+      macos: ${{ steps.pick.outputs.macos }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -154,7 +157,8 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.targets.outputs.include) }}
 
-    steps:
+    # the same steps run the macOS targets in benchmark-macos (a YAML anchor: one copy to keep up to date)
+    steps: &bench_steps
       # BENCH_PARTIAL: the scans end 20 min before the job's 360-minute limit (--deadline), leaving time to report
       - name: Note The Job Start
         shell: bash
@@ -443,6 +447,18 @@ jobs:
           name: benchmark-results-${{ matrix.target_label }}-ramdisk-${{ inputs.preset }}
           path: results-ramdisk/
           retention-days: 30
+
+  # The macOS targets below mid, with the benchmark job's steps: on their own so leaderboard-early need not wait for them
+  benchmark-macos:
+    needs: targets
+    if: ${{ !inputs.windows_only && !inputs.atime_off && needs.targets.outputs.macos != '[]' }}
+    name: "Bench (${{ matrix.target_label }} | ${{ inputs.preset }})"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.targets.outputs.macos) }}
+    steps: *bench_steps
 
   benchmark-ntfs:
     name: "Bench (windows-x86_64 | ${{ inputs.preset }})"
@@ -941,13 +957,18 @@ jobs:
   #     like the others and those shards stay unscaled (macOS runners differed by 5-15% at high);
   #   - no macOS x64 at before-death: generating its tree alone takes over 4 hours there, so not one scanner would
   #     finish, and its ten 6-hour jobs would only hold up the five macOS runners the account gets.
+  # Each shard repeats the generation and the anchor (high ARM64: ~50 + ~35 min), so fewer, fuller shards spend less of
+  # the five runners: ARM64 packs up to 270 estimated minutes per shard without the extra 1.25 on top of the safety
+  # factor (at high its estimates came out 1.1-1.5x what the scans took, the runners within 1.3x of one another; 4
+  # shards instead of 11 there, the longest ~265 min), and generates 9.5 min per million items below very-high
+  # (measured 6-6.7 at mid, 7.4-8.9 at high). x64 keeps the margins: its runners differed 1.7x at high (dua cold 798-1352 s).
   sharded-macos:
     name: "Sharded ${{ matrix.label }}"
     if: ${{ !inputs.windows_only && !inputs.atime_off && contains(fromJSON('["mid","high","very-high","before-death"]'), inputs.preset) }}
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(inputs.preset == 'before-death' && '[{"label":"macos-arm64","runner":"macos-15","gen":"13"}]' || '[{"label":"macos-x86_64","runner":"macos-15-intel","gen":"16"},{"label":"macos-arm64","runner":"macos-15","gen":"13"}]') }}
+        include: ${{ fromJSON(inputs.preset == 'before-death' && '[{"label":"macos-arm64","runner":"macos-15","gen":"13","budget":"270","overhead":"1.0"}]' || '[{"label":"macos-x86_64","runner":"macos-15-intel","gen":"16","budget":"200","overhead":"1.25"},{"label":"macos-arm64","runner":"macos-15","gen":"13","budget":"270","overhead":"1.0"}]') }}
     uses: ./.github/workflows/benchmark-sharded.yml
     with:
       label: ${{ matrix.label }}
@@ -956,7 +977,9 @@ jobs:
       fs: apfs
       fs_label: APFS
       share: false  # disk images on the macOS runners crawl (see benchmark-sharded.yml): every shard generates
-      gen_min_per_million: ${{ matrix.gen }}
+      gen_min_per_million: ${{ (matrix.label == 'macos-arm64' && !contains(fromJSON('["very-high","before-death"]'), inputs.preset)) && '9.5' || matrix.gen }}
+      budget_min: ${{ matrix.budget }}
+      overhead: ${{ matrix.overhead }}
       # the folders only (27-36 min per reset at very-high), from the list fs-mirage writes when it generates the tree:
       # the first reset no longer lists the tree (that took 60-96 min there)
       reset_min_per_million: "3"
@@ -1103,13 +1126,68 @@ jobs:
           path: results/
           retention-days: 30
 
+  # Everything but macOS done: the board goes out now with macOS marked as still queued ("pending": not counted, not
+  # missing), and the leaderboard job below completes it from the same run once macOS is through. The macOS runners
+  # (five per account) queue behind every other run's macOS jobs and scan an order of magnitude slower than the
+  # Linux ones, so waiting for them held each board back by hours. A macOS result that finished first is simply in.
+  leaderboard-early:
+    name: "Leaderboard Before macOS (${{ inputs.preset }})"
+    needs: [benchmark, benchmark-ntfs-arm64, windows-summary, sharded-windows]
+    if: ${{ !cancelled() && !inputs.windows_only && !inputs.atime_off }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # publishes the README leaderboard and badge files to main
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download The Platform Results So Far
+        uses: actions/download-artifact@v4
+        with:
+          pattern: benchmark-results-*-${{ inputs.preset }}
+          path: artifacts/
+
+      - name: Build The Leaderboard Without The Queued macOS Platforms
+        shell: bash
+        run: |
+          mkdir -p lb-out
+          python ./scripts/leaderboard.py \
+            --artifacts artifacts \
+            --preset "${{ inputs.preset }}${{ inputs.defender_scan && ' · Defender on' || '' }}" \
+            --sha "${{ github.sha }}" \
+            --pending macos-x86_64,macos-arm64 \
+            --out lb-out/leaderboard.md \
+            --json-out lb-out/leaderboard.json
+          echo "Published before macOS finished; the full leaderboard with every platform report is in the Overall Leaderboard job." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Leaderboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-leaderboard-early-${{ inputs.preset }}
+          path: lb-out/
+          retention-days: 30
+
+      - name: Publish Leaderboard To README
+        if: >-
+          github.ref == 'refs/heads/main' && inputs.preset != 'custom' &&
+          !inputs.defender_scan && inputs.aging
+        shell: bash
+        run: bash ./scripts/ci/publish_board.sh lb-out/leaderboard.json standard "${{ inputs.preset }}"
+
   # GitHub lists job summaries in the order the jobs finish, so the overall leaderboard can only sit at the top if
   # one last job writes the whole summary: the leaderboard first, then every platform's full report below it.
   # The platform jobs print their own report into their job log instead.
   leaderboard:
     name: "Overall Leaderboard (${{ inputs.preset }})"
-    # WinBtrfs is not waited for: it publishes its own supplement (see the winbtrfs job)
-    needs: [benchmark, benchmark-ntfs-arm64, windows-summary, sharded-macos, sharded-windows]
+    # WinBtrfs is not waited for: it publishes its own supplement (see the winbtrfs job). leaderboard-early comes first,
+    # so this run's complete board always lands after (and replaces) its early one.
+    needs: [benchmark, benchmark-macos, benchmark-ntfs-arm64, windows-summary, sharded-macos, sharded-windows, leaderboard-early]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:

@@ -636,6 +636,9 @@ def render_section(
         run = f"<a href=\"{meta['run_url']}\">run {meta.get('run_id', '')}</a>" if meta.get("run_url") else ""
         sha = f" · <code>{meta['sha'][:7]}</code>" if meta.get("sha") else ""
         note = " · 仅供参考 reference only" if p in SMALL else ""
+        if payload.get("pending_platforms"):
+            # published before macOS finished; the same run completes it (leaderboard.pending_notes says why)
+            note += " · ⏳ " + "、".join(platform_title(lbl) for lbl in payload["pending_platforms"]) + " 排队中 queued"
         for sup in rec.get("supplements", []):
             titles = ", ".join(payload["platform_info"][lbl]["title"] for lbl in sup["platforms"])
             sup_run = f"<a href=\"{sup['run_url']}\">run {sup.get('run_id', '')}</a>" if sup.get("run_url") else ""
@@ -801,6 +804,13 @@ def replace_block(readme: Path, start: str, end: str, block: List[str]) -> None:
     readme.write_text(before + "\n".join(block) + rest.split(end, 1)[1], encoding="utf-8", newline="\n")
 
 
+def stored_run_is(path: Path, run_id: str) -> bool:
+    """Whether the stored board of a preset holds this run (its early publish, made before macOS finished)."""
+    if not run_id or not path.exists():
+        return False
+    return str(json.loads(path.read_text(encoding="utf-8"))["meta"].get("run_id")) == str(run_id)
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     ap = argparse.ArgumentParser(description="Publish leaderboard payloads into README.md and badge files")
@@ -859,9 +869,15 @@ def main() -> int:
             # nothing finished anywhere: an empty board would only replace whatever this size had
             print("[readme_board] not publishing: no scanner has a valid result on any platform", file=sys.stderr)
             return 0
-        elif payload.get("missing_platforms") and not (args.allow_partial or scores_what_finished(preset)):
+        elif (
+            payload.get("missing_platforms")
+            and not (args.allow_partial or scores_what_finished(preset))
+            and not stored_run_is(data_dir / f"{args.kind}-{preset}.json", args.run_id)
+        ):
             # A run with failed platforms would replace this preset's complete result with a partial one (the sizes
-            # scored from what finished are published as they are: their notes list what is missing)
+            # scored from what finished are published as they are: their notes list what is missing). Unless the
+            # board already holds this run's early publish (macOS still queued): then the platform that failed since
+            # is listed as missing instead of queued
             print(
                 f"[readme_board] not publishing: platforms without results {payload['missing_platforms']}",
                 file=sys.stderr,

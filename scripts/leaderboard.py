@@ -353,12 +353,16 @@ def apply_display_names(payload: Dict[str, Any], names: Dict[str, str]) -> Dict[
     return payload
 
 
-def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
+def build_payload(artifacts: Path, preset: str, sha: str, pending: Sequence[str] = ()) -> Dict[str, Any]:
+    """`pending`: platforms still running in this run (macOS, queued for its runners): without results they are not
+    missing, only not in yet (the board is published without them and completed when they finish)."""
     dirs = find_platform_dirs(artifacts)
     # The RAM-disk pass is not a real disk and stays out of the ranking
     labels = sorted((lbl for lbl in dirs if not lbl.endswith("-ramdisk")), key=platform_sort_key)
     only_mft = bool(labels) and all(parse_label(lbl)[2] == "mft" for lbl in labels)
-    missing = [] if only_mft else [lbl for lbl in core_platforms(preset) if lbl not in dirs]
+    absent = [] if only_mft else [lbl for lbl in core_platforms(preset) if lbl not in dirs]
+    missing = [lbl for lbl in absent if lbl not in pending]
+    queued = [lbl for lbl in absent if lbl in pending]
 
     per_platform: Dict[str, Dict[str, Dict[str, Any]]] = {}
     platform_info: Dict[str, Dict[str, Any]] = {}
@@ -398,6 +402,7 @@ def build_payload(artifacts: Path, preset: str, sha: str) -> Dict[str, Any]:
         "platforms": labels,
         "platform_info": platform_info,
         "missing_platforms": missing,
+        "pending_platforms": queued,
         "scanners": scanners,
         "per_platform": per_platform,
     }
@@ -834,14 +839,40 @@ NOTES_EN = [
 ]
 
 
+def pending_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
+    """The platforms this run has not finished yet (macOS, queued for its runners); nothing once they are in."""
+    pending = p.get("pending_platforms") or []
+    if not pending:
+        return []
+    names = "、".join(platform_title(lbl) for lbl in pending)
+    zh = (
+        f"⏳ {names} 还在排队：macOS Runner 一个账号只有 5 台，扫描又比其他平台慢一个数量级，所以先发布其他平台的成绩，"
+        "macOS 跑完后同一次运行会把这一档补全。在那之前，它们不计入综合分，只在 macOS 上有成绩的扫描器暂时不出现。"
+    )
+    en = (
+        f"⏳ {', '.join(platform_title(lbl) for lbl in pending)} still queued: the account gets five macOS runners and "
+        "their scans are an order of magnitude slower than elsewhere, so the other platforms are published first and the "
+        "same run completes this size when macOS finishes. Until then they are not in the overall score, and scanners "
+        "with results on macOS only do not show yet."
+    )
+    return [zh, en] if bi else [zh]
+
+
 def partial_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
-    """What is missing from a size scored from what finished (PARTIAL_PRESETS); nothing when everything finished."""
+    """What is missing from a size scored from what finished (PARTIAL_PRESETS); nothing when everything finished.
+    Another size published with a platform missing (its macOS failed after the early board went out): which one."""
     missing = p.get("missing_platforms") or []
     unfinished = sorted(
         {sid for plat in p["per_platform"].values() for sid, e in plat.items() if e.get("status") == "unfinished"}
     )
     if not missing and not unfinished:
         return []
+    if not scores_what_finished(p.get("preset") or ""):
+        names = "、".join(platform_title(lbl) for lbl in missing)
+        zh = f"这次运行里以下平台没有产出结果，这一档暂不含它们的成绩：{names}。"
+        en = "These platforms produced no result in this run, so this size has none of theirs for now: "
+        en += f"{', '.join(platform_title(lbl) for lbl in missing)}."
+        return ([zh, en] if bi else [zh]) if missing else []
     zh = "本档跑完入分：哪个平台、分片或扫描器失败或超时，都不影响出分，跑完的照常计分。"
     en = "Scored from what finished: a platform, shard or scanner that failed or ran out of time does not hold the "
     en += "result back; whatever finished counts."
@@ -863,7 +894,8 @@ def partial_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
 
 def render_notes(p: Dict[str, Any], bi: bool = False) -> List[str]:
     names = {sid: meta["name"] for sid, meta in p["scanners"].items()}
-    notes: List[str] = partial_notes(p, bi) + not_run_notes(p.get("preset") or "", bi) + reference_note(names, bi)
+    notes: List[str] = pending_notes(p, bi) + partial_notes(p, bi) + not_run_notes(p.get("preset") or "", bi)
+    notes += reference_note(names, bi)
     if bi:
         notes += [
             "冷扫、热扫下方的小字是它在有效平台上用时（秒）的几何平均；各平台硬件不同、每个扫描器参加的平台也不同，"
@@ -927,8 +959,13 @@ def render_run_summary(p: Dict[str, Any], title_preset: str) -> str:
         if scores_what_finished(p.get("preset") or ""):
             warning.append("> 这一档跑完入分：缺的平台不计入，其余照常计分并发布到 README 榜单。")
         else:
-            warning.append("> 缺少核心平台的运行只出现在这份运行总结里，不会发布到 README 榜单。")
+            warning.append(
+                "> 缺少核心平台的运行只出现在这份运行总结里，不会发布到 README 榜单；只有这次运行先发布过不含 macOS "
+                "的榜单时，才用这份替换它（缺的平台在说明里列出）。"
+            )
         lines += ["\n".join(warning), ""]
+    if p.get("pending_platforms"):
+        lines += [f"> [!NOTE]\n> {pending_notes(p)[0]}", ""]
     if "windows-x86_64-refs" not in core_platforms(p.get("preset") or "") and "windows-x86_64" in p["platforms"]:
         lines += [
             "> [!NOTE]\n> 从 `very-high` 起不测 ReFS（生成测试树和扫描都超出 6 小时的作业时限），"
@@ -973,13 +1010,19 @@ def main() -> int:
     parser.add_argument(
         "--summary-out", default="", help="Also write the leaderboard followed by every platform report"
     )
+    parser.add_argument(
+        "--pending",
+        default="",
+        help="Comma-separated platforms still running in this run (left out as queued, not as missing)",
+    )
     args = parser.parse_args()
 
     artifacts = Path(args.artifacts)
     if not any(artifacts.rglob("normalized_results.json")):
         print(f"[leaderboard] no normalized_results.json under {artifacts}", file=sys.stderr)
         return 1
-    payload = build_payload(artifacts, args.preset, args.sha)
+    pending = [lbl.strip() for lbl in args.pending.split(",") if lbl.strip()]
+    payload = build_payload(artifacts, args.preset, args.sha, pending)
     md = render_run_summary(payload, args.preset or payload["preset"])
     Path(args.out).write_text(md, encoding="utf-8")
     Path(args.json_out).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

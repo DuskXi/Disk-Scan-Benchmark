@@ -74,6 +74,16 @@ on:
         required: false
         default: "1.5"
         type: string
+      budget_min:
+        description: "Estimated scan minutes per shard (at most)"
+        required: false
+        default: "200"
+        type: string
+      overhead:
+        description: "Real scan time / estimate on top of the safety factor (purges, prewarms)"
+        required: false
+        default: "1.25"
+        type: string
       max_shards:
         description: "Split into at most this many shards"
         required: false
@@ -170,6 +180,8 @@ jobs:
             --gen-min-per-million "${{ inputs.share && '0' || inputs.gen_min_per_million }}" \
             --max-shards "${{ inputs.max_shards }}" \
             --safety "${{ inputs.safety }}" \
+            --budget-min "${{ inputs.budget_min }}" \
+            --overhead "${{ inputs.overhead }}" \
             --reset-min-per-million "${{ inputs.reset_min_per_million }}" \
             --reset-once-min-per-million "${{ inputs.reset_once_min_per_million }}" \
             --min-shards "${{ inputs.min_shards }}" \
